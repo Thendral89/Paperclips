@@ -1,0 +1,11 @@
+{
+  "name": "paperclip-crm",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "migrate:local": "wrangler d1 migrations apply paperclip-crm --local",
+    "migrate:remote": "wrangler d1 migrations apply paperclip-crm --remote"
+  }
+}

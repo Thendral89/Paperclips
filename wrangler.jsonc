@@ -1,0 +1,27 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "pcs--prod",
+  "main": "src/index.js",
+  "compatibility_date": "2026-08-25",
+  "assets": {
+    "directory": "./public",
+    "binding": "ASSETS"
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "paperclip-crm",
+      "database_id": "77c26211-5130-48cf-b100-c5b2ce957fd9"
+    }
+  ],
+  "triggers": {
+    // runs every hour — flags leads untouched for 48h+ (blueprint §4)
+    "crons": ["0 * * * *"]
+  },
+  "vars": {
+    // Comma-separated emails allowed as "staff" once Cloudflare Access is configured
+    // in front of /admin* and /api/admin*. Access itself does the login — this is
+    // only used for role labels in the UI. Edit to match your team.
+    "STAFF_EMAILS": "teampaperclipstudios@gmail.com"
+  }
+}

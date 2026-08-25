@@ -1,0 +1,272 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Paperclip Ops Console</title>
+<style>
+  :root{ --ink:#211D18; --ink-soft:#5B5449; --paper:#F6F3EC; --card:#FFFFFF; --line:#DCD5C7; --accent:#4B3FA0; --accent-soft:#EEEBFA;
+         --success:#2E8B57; --success-soft:#E4F3EA; --warning:#B9791F; --warning-soft:#FBF0DE; --critical:#BE4038; --critical-soft:#FBE7E4; }
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--paper);color:var(--ink);font-family:-apple-system,'Segoe UI',sans-serif;font-size:14px;line-height:1.5;}
+  a{color:inherit;}
+  .shell{display:grid;grid-template-columns:190px 1fr;min-height:100vh;}
+  .rail{background:var(--card);border-right:1px solid var(--line);padding:20px 12px;}
+  .brand{font-weight:700;font-size:16px;margin-bottom:20px;padding:0 6px;}
+  .navlink{display:block;padding:8px 10px;border-radius:7px;cursor:pointer;color:var(--ink-soft);font-size:13px;font-weight:600;margin-bottom:2px;}
+  .navlink:hover{background:var(--accent-soft);color:var(--ink);}
+  .navlink.active{background:var(--accent);color:#fff;}
+  .main{padding:24px 30px 60px;max-width:1000px;}
+  h1{font-size:21px;margin:0 0 16px;}
+  .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:20px;}
+  .kpi{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:13px 15px;}
+  .kpi .l{font-size:11px;color:var(--ink-soft);text-transform:uppercase;}
+  .kpi .v{font-size:22px;font-weight:700;margin-top:4px;}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:16px 18px;margin-bottom:16px;}
+  .card h2{font-size:12px;text-transform:uppercase;letter-spacing:.03em;color:var(--ink-soft);margin:0 0 12px;}
+  table{width:100%;border-collapse:collapse;font-size:13px;}
+  th{text-align:left;font-size:10.5px;text-transform:uppercase;color:var(--ink-soft);padding:6px 8px;border-bottom:1px solid var(--line);}
+  td{padding:8px;border-bottom:1px solid var(--line);}
+  tr:last-child td{border-bottom:none;}
+  tr.clickable{cursor:pointer;}
+  tr.clickable:hover{background:var(--accent-soft);}
+  .pill{display:inline-block;font-size:10.5px;font-weight:700;padding:2px 8px;border-radius:100px;background:var(--accent-soft);color:var(--accent);}
+  button, .btn{background:var(--accent);color:#fff;border:none;border-radius:7px;padding:8px 13px;font-size:12.5px;font-weight:700;cursor:pointer;}
+  button.ghost{background:transparent;color:var(--ink);border:1px solid var(--line);}
+  input,select,textarea{padding:7px 9px;border:1px solid var(--line);border-radius:6px;font-size:13px;}
+  .field{margin-bottom:10px;}
+  .field label{display:block;font-size:11px;font-weight:700;color:var(--ink-soft);text-transform:uppercase;margin-bottom:4px;}
+  .field input,.field select,.field textarea{width:100%;}
+  .inline-form{display:flex;gap:8px;flex-wrap:wrap;align-items:end;margin-bottom:10px;}
+  .back{font-size:12.5px;color:var(--ink-soft);cursor:pointer;margin-bottom:10px;display:inline-block;}
+  .row2{display:grid;grid-template-columns:1fr 1fr;gap:16px;align-items:start;}
+  .tier{border:1px solid var(--line);border-radius:8px;padding:10px 12px;cursor:pointer;flex:1;}
+  .tier.sel{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent-soft);}
+  .svc{display:flex;justify-content:space-between;align-items:center;padding:7px 0;border-bottom:1px dashed var(--line);font-size:13px;}
+  .copybox{font-family:monospace;font-size:12px;background:var(--accent-soft);color:var(--accent);padding:8px 10px;border-radius:6px;word-break:break-all;margin-top:8px;}
+  .empty{color:var(--ink-soft);font-size:13px;}
+</style>
+</head>
+<body>
+<div class="shell">
+  <aside class="rail">
+    <div class="brand">Paperclip</div>
+    <div class="navlink" data-view="dashboard">Dashboard</div>
+    <div class="navlink" data-view="leads">Leads</div>
+    <div class="navlink" data-view="accounts">Accounts</div>
+  </aside>
+  <main class="main" id="main">Loading…</main>
+</div>
+
+<script>
+const api = (path, opts) => fetch(`/api/admin${path}`, {
+  headers: { "content-type": "application/json" }, ...opts
+}).then(async r => { const d = await r.json(); if (!r.ok) throw new Error(d.error || "Request failed"); return d; });
+
+const main = document.getElementById("main");
+let state = { view: "dashboard", id: null };
+
+document.querySelectorAll(".navlink").forEach(el => el.addEventListener("click", () => go(el.dataset.view)));
+
+function go(view, id) {
+  state = { view, id };
+  document.querySelectorAll(".navlink").forEach(el => el.classList.toggle("active", el.dataset.view === view));
+  render();
+}
+
+async function render() {
+  main.innerHTML = "Loading…";
+  try {
+    if (state.view === "dashboard") return renderDashboard();
+    if (state.view === "leads") return renderLeads();
+    if (state.view === "leadDetail") return renderLeadDetail(state.id);
+    if (state.view === "accounts") return renderAccounts();
+    if (state.view === "accountDetail") return renderAccountDetail(state.id);
+    if (state.view === "eventDetail") return renderEventDetail(state.id);
+  } catch (e) {
+    main.innerHTML = `<div class="card">Error: ${e.message}</div>`;
+  }
+}
+
+// ── Dashboard ──────────────────────────────────────────────
+async function renderDashboard() {
+  const d = await api("/dashboard");
+  main.innerHTML = `
+    <h1>Dashboard</h1>
+    <div class="kpis">
+      <div class="kpi"><div class="l">New leads (7d)</div><div class="v">${d.new_leads_7d}</div></div>
+      <div class="kpi"><div class="l">Today's follow-ups</div><div class="v">${d.todays_followups.length}</div></div>
+      <div class="kpi"><div class="l">Overdue</div><div class="v" style="color:var(--critical)">${d.overdue_followups.length}</div></div>
+      <div class="kpi"><div class="l">Accounts w/ balance due</div><div class="v">${d.pending_payments.length}</div></div>
+    </div>
+    <div class="row2">
+      <div class="card"><h2>Today's follow-ups</h2>${leadRows(d.todays_followups) || '<div class="empty">Nothing due today.</div>'}</div>
+      <div class="card"><h2>Overdue</h2>${leadRows(d.overdue_followups) || '<div class="empty">Nothing overdue.</div>'}</div>
+    </div>
+  `;
+  main.querySelectorAll("[data-lead]").forEach(el => el.addEventListener("click", () => go("leadDetail", el.dataset.lead)));
+}
+function leadRows(rows) {
+  if (!rows.length) return "";
+  return `<table>${rows.map(l => `<tr class="clickable" data-lead="${l.id}"><td>${l.name}</td><td><span class="pill">${l.source}</span></td><td>${l.stage}</td></tr>`).join("")}</table>`;
+}
+
+// ── Leads ──────────────────────────────────────────────────
+async function renderLeads() {
+  const leads = await api("/leads");
+  main.innerHTML = `
+    <h1>Leads</h1>
+    <div class="card">
+      <h2>Add a lead manually</h2>
+      <form id="newLead" class="inline-form">
+        <div class="field"><label>Name</label><input name="name" required></div>
+        <div class="field"><label>Phone</label><input name="phone" required></div>
+        <div class="field"><label>Source</label>
+          <select name="source"><option>Manual</option><option>Instagram</option><option>WhatsApp</option><option>Facebook</option><option>Referral</option></select>
+        </div>
+        <div class="field"><label>Event type</label><input name="event_type"></div>
+        <div class="field"><label>Budget est.</label><input name="budget_est" type="number"></div>
+        <button type="submit">Add lead</button>
+      </form>
+    </div>
+    <div class="card"><h2>All leads</h2>
+      <table><thead><tr><th>Name</th><th>Source</th><th>Stage</th><th>Budget</th></tr></thead>
+      <tbody>${leads.map(l => `<tr class="clickable" data-lead="${l.id}"><td>${l.name}</td><td><span class="pill">${l.source}</span></td><td>${l.stage}</td><td>₹${l.budget_est || "—"}</td></tr>`).join("")}</tbody></table>
+    </div>
+  `;
+  main.querySelectorAll("[data-lead]").forEach(el => el.addEventListener("click", () => go("leadDetail", el.dataset.lead)));
+  document.getElementById("newLead").addEventListener("submit", async e => {
+    e.preventDefault();
+    const data = Object.fromEntries(new FormData(e.target).entries());
+    await api("/leads", { method: "POST", body: JSON.stringify(data) });
+    renderLeads();
+  });
+}
+
+async function renderLeadDetail(id) {
+  const l = await api(`/leads/${id}`);
+  main.innerHTML = `
+    <span class="back" data-back>← Leads</span>
+    <h1>${l.name}</h1>
+    <div class="row2">
+      <div class="card">
+        <h2>Details</h2>
+        <table>
+          <tr><td>Phone</td><td>${l.phone}</td></tr>
+          <tr><td>Email</td><td>${l.email || "—"}</td></tr>
+          <tr><td>Source</td><td>${l.source}</td></tr>
+          <tr><td>Event</td><td>${l.event_type || "—"} · ${l.event_date || "TBD"}</td></tr>
+          <tr><td>Budget</td><td>₹${l.budget_est || "—"}</td></tr>
+          ${l.possible_duplicate_of ? `<tr><td>⚠ Possible duplicate of</td><td>lead #${l.possible_duplicate_of}</td></tr>` : ""}
+        </table>
+        <div class="field" style="margin-top:14px;"><label>Stage</label>
+          <select id="stageSel">
+            ${["New","Contacted","Quoted","Follow-up","Booked","Lost"].map(s => `<option ${s===l.stage?"selected":""}>${s}</option>`).join("")}
+          </select>
+        </div>
+        <div class="field"><label>Next follow-up</label><input id="fuDate" type="date" value="${l.next_follow_up_date || ""}"></div>
+        ${l.account_id
+          ? `<a class="btn" style="text-decoration:none;display:inline-block" data-acct="${l.account_id}">View account →</a>`
+          : `<button id="convertBtn">Convert to account</button>`}
+      </div>
+      <div class="card">
+        <h2>Notes</h2>
+        <form id="noteForm" class="field"><textarea name="note" rows="2" placeholder="Log a call, WhatsApp reply..." required></textarea><button style="margin-top:6px" type="submit">Add note</button></form>
+        ${l.notes.map(n => `<div style="padding:6px 0;border-bottom:1px dashed var(--line);font-size:12.5px;"><b>${n.author||"—"}</b> · ${n.created_at}<br>${n.note}</div>`).join("") || '<div class="empty">No notes yet.</div>'}
+      </div>
+    </div>
+  `;
+  main.querySelector("[data-back]").addEventListener("click", () => go("leads"));
+  const acctLink = main.querySelector("[data-acct]");
+  if (acctLink) acctLink.addEventListener("click", () => go("accountDetail", acctLink.dataset.acct));
+  main.querySelector("#stageSel").addEventListener("change", async e => { await api(`/leads/${id}/stage`, { method: "POST", body: JSON.stringify({ stage: e.target.value }) }); });
+  main.querySelector("#fuDate").addEventListener("change", async e => { await api(`/leads/${id}/followup`, { method: "POST", body: JSON.stringify({ date: e.target.value }) }); });
+  const convertBtn = main.querySelector("#convertBtn");
+  if (convertBtn) convertBtn.addEventListener("click", async () => { const r = await api(`/leads/${id}/convert`, { method: "POST", body: "{}" }); go("accountDetail", r.account_id); });
+  main.querySelector("#noteForm").addEventListener("submit", async e => {
+    e.preventDefault();
+    await api(`/leads/${id}/notes`, { method: "POST", body: JSON.stringify(Object.fromEntries(new FormData(e.target).entries())) });
+    renderLeadDetail(id);
+  });
+}
+
+// ── Accounts ───────────────────────────────────────────────
+async function renderAccounts() {
+  const accts = await api("/accounts");
+  main.innerHTML = `<h1>Accounts</h1><div class="card">
+    <table><thead><tr><th>Name</th><th>Phone</th><th>Client since</th></tr></thead>
+    <tbody>${accts.map(a => `<tr class="clickable" data-acct="${a.id}"><td>${a.name}${a.is_signature ? ' <span class="pill" style="background:var(--warning-soft);color:var(--warning)">Signature</span>' : ""}</td><td>${a.phone||"—"}</td><td>${a.client_since}</td></tr>`).join("") || `<tr><td colspan="3" class="empty">No accounts yet — convert a lead first.</td></tr>`}</tbody></table>
+  </div>`;
+  main.querySelectorAll("[data-acct]").forEach(el => el.addEventListener("click", () => go("accountDetail", el.dataset.acct)));
+}
+
+async function renderAccountDetail(id) {
+  const a = await api(`/accounts/${id}`);
+  main.innerHTML = `
+    <span class="back" data-back>← Accounts</span>
+    <h1>${a.name} <span class="pill">LTV ₹${a.lifetime_value}</span></h1>
+    <div class="card"><h2>New event</h2>
+      <form id="newEvent" class="inline-form">
+        <div class="field"><label>Type</label><input name="type" placeholder="Wedding" required></div>
+        <div class="field"><label>Date</label><input name="event_date" type="date"></div>
+        <div class="field"><label>Venue</label><input name="venue"></div>
+        <button type="submit">Create event</button>
+      </form>
+    </div>
+    <div class="card"><h2>Events</h2>
+      <table>${a.events.map(e => `<tr class="clickable" data-event="${e.id}"><td>${e.type}</td><td>${e.event_date||"TBD"}</td><td><span class="pill">${e.tier_name||"—"}</span></td><td>₹${e.quote_total}</td></tr>`).join("") || `<tr><td class="empty">No events yet.</td></tr>`}</table>
+    </div>
+  `;
+  main.querySelector("[data-back]").addEventListener("click", () => go("accounts"));
+  main.querySelectorAll("[data-event]").forEach(el => el.addEventListener("click", () => go("eventDetail", el.dataset.event)));
+  main.querySelector("#newEvent").addEventListener("submit", async e => {
+    e.preventDefault();
+    const data = Object.fromEntries(new FormData(e.target).entries());
+    data.account_id = id;
+    await api("/events", { method: "POST", body: JSON.stringify(data) });
+    renderAccountDetail(id);
+  });
+}
+
+// ── Event detail (pricing, cross-sell, payments, staff link) ─
+async function renderEventDetail(id) {
+  const [ev, services, tiers] = await Promise.all([api(`/events/${id}`), api("/services"), api("/tiers")]);
+  const bookedIds = new Set(ev.services.map(s => s.service_id));
+  main.innerHTML = `
+    <span class="back" data-back>← Account</span>
+    <h1>${ev.type} <span class="pill">₹${ev.quote_total}</span></h1>
+    <div class="card"><h2>Pricing tier</h2>
+      <div style="display:flex;gap:8px;">${tiers.map(t => `<div class="tier ${t.id===ev.pricing_tier_id?"sel":""}" data-tier="${t.id}"><b>${t.name}</b><div style="font-size:11px;color:var(--ink-soft)">${t.perks}</div></div>`).join("")}</div>
+    </div>
+    <div class="card"><h2>Services</h2>
+      ${services.map(s => `<div class="svc">${s.name} — ₹${s.base_price} ${bookedIds.has(s.id) ? '<span class="pill">added</span>' : `<button class="ghost" data-svc="${s.id}">+ Add</button>`}</div>`).join("")}
+    </div>
+    <div class="row2">
+      <div class="card"><h2>Payments — ₹${ev.advance_paid} of ₹${ev.quote_total} received</h2>
+        <form id="payForm" class="inline-form"><div class="field"><label>Amount</label><input name="amount" type="number" required></div><div class="field"><label>Method</label><input name="method"></div><button type="submit">Log payment</button></form>
+        ${ev.payments.map(p => `<div class="svc">₹${p.amount} — ${p.method||"—"} <span style="color:var(--ink-soft);font-size:11.5px">${p.date}</span></div>`).join("") || '<div class="empty">No payments yet.</div>'}
+      </div>
+      <div class="card"><h2>Field staff access</h2>
+        <form id="linkForm" class="inline-form"><div class="field"><label>Photographer name</label><input name="staff_name" required></div><button type="submit">Generate link</button></form>
+        ${ev.staff_links.map(l => `<div class="svc">${l.staff_name} <span style="color:var(--ink-soft);font-size:11.5px">created ${l.created_at}</span></div>`).join("")}
+        <div id="linkOut"></div>
+      </div>
+    </div>
+  `;
+  main.querySelector("[data-back]").addEventListener("click", () => history.back());
+  main.querySelectorAll("[data-tier]").forEach(el => el.addEventListener("click", async () => { await api(`/events/${id}/tier`, { method: "POST", body: JSON.stringify({ pricing_tier_id: el.dataset.tier }) }); renderEventDetail(id); }));
+  main.querySelectorAll("[data-svc]").forEach(el => el.addEventListener("click", async () => { await api(`/events/${id}/services`, { method: "POST", body: JSON.stringify({ service_id: el.dataset.svc, is_crosssell: true }) }); renderEventDetail(id); }));
+  main.querySelector("#payForm").addEventListener("submit", async e => { e.preventDefault(); await api(`/events/${id}/payments`, { method: "POST", body: JSON.stringify(Object.fromEntries(new FormData(e.target).entries())) }); renderEventDetail(id); });
+  main.querySelector("#linkForm").addEventListener("submit", async e => {
+    e.preventDefault();
+    const data = Object.fromEntries(new FormData(e.target).entries());
+    data.event_id = id;
+    const r = await api("/staff-links", { method: "POST", body: JSON.stringify(data) });
+    document.getElementById("linkOut").innerHTML = `<div class="copybox">${r.url}</div>`;
+  });
+}
+
+go("dashboard");
+</script>
+</body>
+</html>

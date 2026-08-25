@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Paperclip Studios — Tell us about your event</title>
+<style>
+  :root{ --ink:#211D18; --ink-soft:#5B5449; --paper:#F6F3EC; --card:#FFFFFF; --line:#DCD5C7; --accent:#4B3FA0; }
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--paper);color:var(--ink);font-family:-apple-system,'Segoe UI',sans-serif;line-height:1.5;}
+  .wrap{max-width:520px;margin:0 auto;padding:48px 20px 70px;}
+  h1{font-size:24px;margin:0 0 6px;}
+  p.lede{color:var(--ink-soft);font-size:14px;margin:0 0 28px;}
+  form{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:22px;}
+  .field{margin-bottom:14px;}
+  label{display:block;font-size:12px;font-weight:700;color:var(--ink-soft);text-transform:uppercase;letter-spacing:.03em;margin-bottom:5px;}
+  input,select,textarea{width:100%;padding:10px 11px;border:1px solid var(--line);border-radius:7px;font-size:14px;background:#fff;color:var(--ink);}
+  input:focus,select:focus,textarea:focus{outline:2px solid var(--accent);outline-offset:1px;}
+  .row{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
+  button{width:100%;background:var(--accent);color:#fff;border:none;border-radius:8px;padding:12px;font-size:15px;font-weight:700;cursor:pointer;margin-top:6px;}
+  button:disabled{opacity:.6;cursor:default;}
+  .msg{margin-top:14px;padding:11px 13px;border-radius:8px;font-size:13.5px;display:none;}
+  .msg.ok{background:#E4F3EA;color:#2E8B57;display:block;}
+  .msg.err{background:#FBE7E4;color:#BE4038;display:block;}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Tell us about your event</h1>
+  <p class="lede">Wedding, engagement or a promo reel — share a few details and we'll get back to you within a day.</p>
+  <form id="f">
+    <div class="field"><label>Your name</label><input name="name" required></div>
+    <div class="row">
+      <div class="field"><label>Phone / WhatsApp</label><input name="phone" required></div>
+      <div class="field"><label>Email (optional)</label><input name="email" type="email"></div>
+    </div>
+    <div class="row">
+      <div class="field"><label>Event type</label>
+        <select name="event_type">
+          <option>Wedding</option><option>Engagement</option><option>Pre-wedding shoot</option>
+          <option>Baby shower</option><option>Promo reel</option><option>Other</option>
+        </select>
+      </div>
+      <div class="field"><label>Event date</label><input name="event_date" type="date"></div>
+    </div>
+    <div class="field"><label>Budget range (₹)</label>
+      <select name="budget_est">
+        <option value="50000">Under 75,000</option>
+        <option value="120000">75,000 – 1,50,000</option>
+        <option value="175000">1,50,000 – 2,00,000</option>
+        <option value="250000">2,00,000+</option>
+      </select>
+    </div>
+    <div class="field"><label>Tell us a bit more</label><textarea name="message" rows="3"></textarea></div>
+    <button type="submit">Submit enquiry →</button>
+    <div class="msg" id="msg"></div>
+  </form>
+</div>
+<script>
+  // Source auto-tag: append ?src=instagram (or whatsapp / facebook / referral)
+  // to the link you embed in each place — defaults to "Website" if absent.
+  const SRC_MAP = { instagram: "Instagram", whatsapp: "WhatsApp", facebook: "Facebook", referral: "Referral" };
+  const params = new URLSearchParams(location.search);
+  const source = SRC_MAP[(params.get("src") || "").toLowerCase()] || "Website";
+
+  const form = document.getElementById("f");
+  const msg = document.getElementById("msg");
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const btn = form.querySelector("button");
+    btn.disabled = true;
+    const data = Object.fromEntries(new FormData(form).entries());
+    data.source = source;
+    try {
+      const res = await fetch("/api/leads/capture", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(data),
+      });
+      const out = await res.json();
+      if (!res.ok) throw new Error(out.error || "Something went wrong");
+      msg.className = "msg ok";
+      msg.textContent = "Thanks — we've received it and will reach out shortly.";
+      form.reset();
+    } catch (err) {
+      msg.className = "msg err";
+      msg.textContent = err.message;
+    } finally {
+      btn.disabled = false;
+    }
+  });
+</script>
+</body>
+</html>

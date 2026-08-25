@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Paperclip Studios — Event portal</title>
+<style>
+  :root{ --ink:#211D18; --ink-soft:#5B5449; --paper:#F6F3EC; --card:#FFFFFF; --line:#DCD5C7; --accent:#4B3FA0;
+         --success:#2E8B57; --success-soft:#E4F3EA; --warning:#B9791F; --warning-soft:#FBF0DE; }
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--paper);color:var(--ink);font-family:-apple-system,'Segoe UI',sans-serif;line-height:1.5;}
+  .wrap{max-width:520px;margin:0 auto;padding:36px 18px 70px;}
+  h1{font-size:20px;margin:0 0 3px;}
+  .sub{color:var(--ink-soft);font-size:13px;margin-bottom:20px;}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:18px;margin-bottom:16px;}
+  .card h2{font-size:13px;text-transform:uppercase;letter-spacing:.04em;color:var(--ink-soft);margin:0 0 12px;}
+  table{width:100%;border-collapse:collapse;font-size:13.5px;}
+  td{padding:6px 0;border-bottom:1px solid var(--line);}
+  td:first-child{color:var(--ink-soft);width:40%;}
+  tr:last-child td{border-bottom:none;}
+  .field{margin-bottom:12px;}
+  label{display:block;font-size:12px;font-weight:700;color:var(--ink-soft);text-transform:uppercase;letter-spacing:.03em;margin-bottom:5px;}
+  input,select,textarea{width:100%;padding:9px 10px;border:1px solid var(--line);border-radius:7px;font-size:14px;}
+  button{background:var(--accent);color:#fff;border:none;border-radius:8px;padding:10px 16px;font-size:13.5px;font-weight:700;cursor:pointer;}
+  .row{display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--line);font-size:13px;}
+  .row:last-child{border-bottom:none;}
+  .pill{font-size:10.5px;font-weight:700;padding:2px 8px;border-radius:100px;}
+  .pill.pending{background:var(--warning-soft);color:var(--warning);}
+  .pill.ok{background:var(--success-soft);color:var(--success);}
+  .msg{margin-top:10px;font-size:13px;}
+  .msg.err{color:#BE4038;}
+  .error-screen{padding:60px 20px;text-align:center;color:var(--ink-soft);}
+</style>
+</head>
+<body>
+<div class="wrap" id="app">Loading…</div>
+<script>
+  const token = location.pathname.split("/")[2];
+
+  async function load() {
+    const res = await fetch(`/api/portal/${token}`);
+    if (!res.ok) {
+      document.getElementById("app").innerHTML =
+        `<div class="error-screen"><h1>Link not valid</h1><p>This link may have expired or been mistyped. Check with the studio for a fresh link.</p></div>`;
+      return;
+    }
+    const data = await res.json();
+    render(data);
+  }
+
+  function render(d) {
+    document.getElementById("app").innerHTML = `
+      <h1>${d.event.type} — ${d.event.account_name}</h1>
+      <div class="sub">Signed in as ${d.staff_name} · scoped to this event only</div>
+
+      <div class="card">
+        <h2>Event details</h2>
+        <table>
+          <tr><td>Date</td><td>${d.event.event_date || "TBD"}</td></tr>
+          <tr><td>Venue</td><td>${d.event.venue || "—"}</td></tr>
+          <tr><td>Status</td><td>${d.event.status}</td></tr>
+        </table>
+      </div>
+
+      <div class="card">
+        <h2>Log an expense</h2>
+        <form id="expenseForm">
+          <div class="field"><label>Category</label>
+            <select name="category"><option>Travel — fuel</option><option>Accommodation</option><option>Equipment rental</option><option>Other</option></select>
+          </div>
+          <div class="field"><label>Amount (₹)</label><input name="amount" type="number" required></div>
+          <div class="field"><label>Note</label><input name="note"></div>
+          <button type="submit">Submit expense</button>
+          <div class="msg" id="expenseMsg"></div>
+        </form>
+      </div>
+
+      <div class="card">
+        <h2>Need something?</h2>
+        <form id="supportForm">
+          <div class="field"><label>What do you need</label><textarea name="request" rows="2" placeholder="e.g. extra 70-200mm lens for the reception" required></textarea></div>
+          <button type="submit">Send request</button>
+          <div class="msg" id="supportMsg"></div>
+        </form>
+      </div>
+
+      <div class="card">
+        <h2>Submitted this event</h2>
+        ${
+          [...d.expenses.map(e => `<div class="row">${e.category} <span class="pill ok">₹${e.amount}</span></div>`),
+           ...d.support_requests.map(r => `<div class="row">${r.request} <span class="pill ${r.status === 'pending' ? 'pending' : 'ok'}">${r.status}</span></div>`)]
+          .join("") || `<div class="sub">Nothing submitted yet.</div>`
+        }
+      </div>
+    `;
+
+    document.getElementById("expenseForm").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const data = Object.fromEntries(new FormData(e.target).entries());
+      const res = await fetch(`/api/portal/${token}/expenses`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(data) });
+      const out = await res.json();
+      const m = document.getElementById("expenseMsg");
+      if (!res.ok) { m.className = "msg err"; m.textContent = out.error; return; }
+      load();
+    });
+    document.getElementById("supportForm").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const data = Object.fromEntries(new FormData(e.target).entries());
+      const res = await fetch(`/api/portal/${token}/support`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(data) });
+      const out = await res.json();
+      const m = document.getElementById("supportMsg");
+      if (!res.ok) { m.className = "msg err"; m.textContent = out.error; return; }
+      load();
+    });
+  }
+
+  load();
+</script>
+</body>
+</html>
