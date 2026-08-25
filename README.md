@@ -11,31 +11,48 @@ your Claude conversation — this README is just the "get it running" steps.
 - Worker subdomain claimed: `pcstudios.workers.dev`
 - `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` added as GitHub repo secrets
 
-## What's left — two steps
+## Admin login: Google Sign-In (not Cloudflare Access)
 
-### 1. Push this code, then push again
+Cloudflare Access needs a card on file even on its free tier — for a
+2-person admin team that's not worth it, so `/admin` is gated by a
+hand-rolled Google Sign-In instead: no Cloudflare subscription, no card,
+reuses the Google accounts you already have. Code lives in
+`src/routes/authRoutes.js` + `src/lib/session.js`; the access rule is
+`STAFF_EMAILS` in `wrangler.jsonc` — only those exact emails can sign in.
 
-The first push to `main` runs `.github/workflows/deploy.yml`, which applies
-`migrations/0001_init.sql` to your D1 database and deploys the Worker. Check
-the **Actions** tab on GitHub to watch it run. Once green, the app is live at:
+### 1. Create a Google OAuth Client ID (free, no card)
 
-- Public lead form: `https://pcs--prod.pcstudios.workers.dev/`
-- Admin console: `https://pcs--prod.pcstudios.workers.dev/admin`
+1. [console.cloud.google.com](https://console.cloud.google.com) → create a project (or use an existing one) → **APIs & Services** → **OAuth consent screen**. User type **External** is fine; you don't need to publish it — leave it in **Testing** and add your 2 staff emails as **Test users** on that same screen (unpublished apps only allow signed-in test users, which is exactly the restriction you want anyway).
+2. **APIs & Services** → **Credentials** → **Create credentials** → **OAuth client ID** → Application type **Web application**.
+3. **Authorized redirect URIs** → add exactly: `https://pcs--prod.pcstudios.workers.dev/auth/callback`
+4. Create. Copy the **Client ID** and **Client secret** shown.
 
-### 2. Lock down `/admin` with Cloudflare Access — do this before sharing the link
+### 2. Fill in the Client ID (not secret — safe to commit)
 
-Right now `/admin` and `/api/admin/*` will refuse every request (they fail
-closed with a 401 if there's no `Cf-Access-Authenticated-User-Email` header —
-see `src/lib/auth.js`). That's deliberate: the app is safe by default, but
-useless to your team until Access is switched on in front of it. Steps:
+Edit `wrangler.jsonc` in the repo, replace the two placeholders:
+```jsonc
+"STAFF_EMAILS": "teampaperclipstudios@gmail.com,REPLACE_WITH_SECOND_ADMIN_EMAIL@gmail.com",
+"GOOGLE_CLIENT_ID": "REPLACE_ME.apps.googleusercontent.com"
+```
+with your real second admin email and the Client ID from step 1.3.
 
-1. Cloudflare dashboard → **Zero Trust** → **Access** → **Applications** → **Add an application** → **Self-hosted**.
-2. Domain: `pcs--prod.pcstudios.workers.dev`, path: `/admin*` (and a second application, or an additional path rule, for `/api/admin*`).
-3. Add a policy: **Allow**, rule type **Emails**, list your team's email addresses (the ones in `wrangler.jsonc`'s `STAFF_EMAILS`, or whoever should have access — Access enforces the real login, that var is just a UI label).
-4. Save. Cloudflare Access is free for up to 50 users, so this costs nothing.
+### 3. Add two more GitHub secrets (these ARE sensitive)
 
-Once that's live, visiting `/admin` prompts a one-time-code email login before
-anything loads — no passwords for you to manage.
+Same place as before — repo **Settings → Secrets and variables → Actions**:
+
+| Secret name | Value |
+|---|---|
+| `GOOGLE_CLIENT_SECRET` | the Client secret from step 1.4 |
+| `SESSION_SECRET` | any random 32+ character string — e.g. run `openssl rand -hex 32` in a terminal, or use any password generator; this signs the login cookie, it's not shared with Google |
+
+### 4. Push
+
+Committing the `wrangler.jsonc` edit (and having the two new secrets in
+place) triggers the next deploy, which pushes `GOOGLE_CLIENT_SECRET` and
+`SESSION_SECRET` into the Worker as real Cloudflare secrets (see
+`deploy.yml` — `wrangler secret put`, not committed to the repo). After
+that run goes green, visiting `/admin` redirects to a real Google sign-in
+screen, and only the two emails in `STAFF_EMAILS` can get past it.
 
 ## Embedding the lead capture form
 

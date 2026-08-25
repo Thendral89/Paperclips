@@ -7,11 +7,13 @@ import { requireStaff, requireEventLink } from "./lib/auth.js";
 import { captureLead } from "./routes/publicRoutes.js";
 import * as admin from "./routes/adminRoutes.js";
 import * as portal from "./routes/portalRoutes.js";
+import { startLogin, handleCallback, logout } from "./routes/authRoutes.js";
 import { handleScheduled } from "./cron.js";
 
 // Tiny hand-rolled router — no framework needed for a route table this size.
 // Each entry: [method, RegExp with named captures via numbered groups, handler]
 const ADMIN_ROUTES = [
+  ["GET", /^\/api\/admin\/me$/, async (req, env, staff) => json({ email: staff.email })],
   ["GET", /^\/api\/admin\/dashboard$/, (req, env) => admin.dashboard(req, env)],
   ["GET", /^\/api\/admin\/leads$/, (req, env) => admin.listLeads(req, env)],
   ["POST", /^\/api\/admin\/leads$/, (req, env, staff) => admin.createLeadManual(req, env, staff)],
@@ -55,6 +57,11 @@ export default {
       return captureLead(request, env).catch((e) => json({ error: String(e) }, { status: 500 }));
     }
 
+    // 1b. Google Sign-In — public by nature (this IS the login flow).
+    if (request.method === "GET" && pathname === "/auth/login") return startLogin(request, env);
+    if (request.method === "GET" && pathname === "/auth/callback") return handleCallback(request, env);
+    if (pathname === "/auth/logout") return logout();
+
     // 2. Photographer portal API — token in the URL is the credential.
     for (const [method, regex, handler] of PORTAL_ROUTES) {
       if (request.method !== method) continue;
@@ -65,11 +72,11 @@ export default {
       return handler(request, env, link).catch((e) => json({ error: String(e) }, { status: 500 }));
     }
 
-    // 3. Admin API — Cloudflare Access must be configured on this path in
-    //    the Zero Trust dashboard; we also fail closed here regardless.
+    // 3. Admin API — gated by the Google Sign-In session cookie. Fails
+    //    closed: no valid cookie, no data, regardless of anything else.
     if (pathname.startsWith("/api/admin/")) {
-      const staff = requireStaff(request);
-      if (!staff) return unauthorized("staff login required — configure Cloudflare Access on /api/admin/* and /admin/*");
+      const staff = await requireStaff(request, env);
+      if (!staff) return unauthorized("staff login required — visit /auth/login");
       for (const [method, regex, handler] of ADMIN_ROUTES) {
         if (request.method !== method) continue;
         const m = pathname.match(regex);
@@ -85,8 +92,12 @@ export default {
       return env.ASSETS.fetch(new URL("/portal/index.html", url));
     }
 
-    // 5. Admin app shell — same reasoning for any /admin/... deep link.
+    // 5. Admin app shell — same reasoning for any /admin/... deep link, but
+    //    also bounce straight to Google sign-in if there's no valid session
+    //    yet, rather than showing a blank/broken app.
     if (pathname.startsWith("/admin")) {
+      const staff = await requireStaff(request, env);
+      if (!staff) return Response.redirect(`${url.origin}/auth/login`, 302);
       return env.ASSETS.fetch(new URL("/admin/index.html", url));
     }
 

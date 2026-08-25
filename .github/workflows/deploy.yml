@@ -11,10 +11,14 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - name: Apply D1 migrations, then deploy
+      - name: Apply migrations, push secrets, deploy
         uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          preCommands: wrangler d1 migrations apply paperclip-crm --remote
+          wranglerVersion: "4"
+          preCommands: |
+            wrangler d1 migrations apply paperclip-crm --remote
+            echo "${{ secrets.GOOGLE_CLIENT_SECRET }}" | wrangler secret put GOOGLE_CLIENT_SECRET
+            echo "${{ secrets.SESSION_SECRET }}" | wrangler secret put SESSION_SECRET
           command: deploy

@@ -19,9 +19,15 @@
     "crons": ["0 * * * *"]
   },
   "vars": {
-    // Comma-separated emails allowed as "staff" once Cloudflare Access is configured
-    // in front of /admin* and /api/admin*. Access itself does the login — this is
-    // only used for role labels in the UI. Edit to match your team.
-    "STAFF_EMAILS": "teampaperclipstudios@gmail.com"
+    // Comma-separated emails allowed to sign in to /admin via Google Sign-In.
+    // Checked directly by src/routes/authRoutes.js on every login — this IS
+    // the access list, not just a label. Edit to match your team.
+    "STAFF_EMAILS": "teampaperclipstudios@gmail.com,REPLACE_WITH_SECOND_ADMIN_EMAIL@gmail.com",
+    // Public — Google OAuth Client IDs are meant to be visible client-side.
+    // Fill in after creating the OAuth client in Google Cloud Console (see README).
+    "GOOGLE_CLIENT_ID": "REPLACE_ME.apps.googleusercontent.com"
   }
+  // GOOGLE_CLIENT_SECRET and SESSION_SECRET are real secrets — never put
+  // those here. They're pushed by the GitHub Actions workflow via
+  // `wrangler secret put`, sourced from GitHub repo secrets. See README.
 }

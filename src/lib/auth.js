@@ -1,21 +1,23 @@
-// Two access models, per blueprint §5:
+// Two access models, per blueprint §5 — revised: Google Sign-In instead of
+// Cloudflare Access, so no Cloudflare card is required (chosen because this
+// app has exactly 2 admin users who already have Google accounts).
 //
-// 1. Staff (Owner/Team) — Cloudflare Access sits IN FRONT of /admin and
-//    /api/admin* at the edge. Access only forwards a request here after a
-//    successful login, and it stamps the verified email on this header:
-//        Cf-Access-Authenticated-User-Email
-//    We fail CLOSED: if that header is missing, we refuse the request —
-//    even before you've finished setting up an Access application, so
-//    /api/admin* is never accidentally wide open.
+// 1. Staff (Owner/Team) — a signed session cookie set by /auth/callback
+//    after Google confirms who they are and their email is checked against
+//    STAFF_EMAILS. We verify the cookie's HMAC signature ourselves; nothing
+//    is trusted from the request that we didn't sign.
 //
-// 2. Photographer / field staff — a long random token in the URL maps to
-//    exactly one event_staff_links row. No login, no session — the token
-//    IS the credential, scoped server-side to one event_id.
+// 2. Photographer / field staff — unchanged: a long random token in the URL
+//    maps to exactly one event_staff_links row. No login, no session.
 
-export function requireStaff(request) {
-  const email = request.headers.get("Cf-Access-Authenticated-User-Email");
-  if (!email) return null;
-  return { email };
+import { verifySession, readCookie } from "./session.js";
+
+export async function requireStaff(request, env) {
+  const token = readCookie(request, "session");
+  if (!token) return null;
+  const payload = await verifySession(token, env.SESSION_SECRET);
+  if (!payload) return null;
+  return { email: payload.email };
 }
 
 export async function requireEventLink(env, token) {
