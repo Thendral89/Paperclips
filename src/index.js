@@ -25,15 +25,19 @@ const ADMIN_ROUTES = [
 
   ["GET", /^\/api\/admin\/accounts$/, (req, env) => admin.listAccounts(req, env)],
   ["GET", /^\/api\/admin\/accounts\/(\d+)$/, (req, env, staff, [id]) => admin.getAccount360(req, env, id)],
+  ["POST", /^\/api\/admin\/accounts\/(\d+)\/contacts$/, (req, env, staff, [id]) => admin.addContact(req, env, id)],
 
   ["POST", /^\/api\/admin\/events$/, (req, env) => admin.createEvent(req, env)],
   ["GET", /^\/api\/admin\/events\/(\d+)$/, (req, env, staff, [id]) => admin.getEvent(req, env, id)],
   ["POST", /^\/api\/admin\/events\/(\d+)\/services$/, (req, env, staff, [id]) => admin.addEventService(req, env, id)],
+  ["POST", /^\/api\/admin\/events\/(\d+)\/package$/, (req, env, staff, [id]) => admin.applyPackageToEvent(req, env, id)],
   ["POST", /^\/api\/admin\/events\/(\d+)\/tier$/, (req, env, staff, [id]) => admin.setEventTier(req, env, id)],
   ["POST", /^\/api\/admin\/events\/(\d+)\/payments$/, (req, env, staff, [id]) => admin.addPayment(req, env, id)],
 
   ["GET", /^\/api\/admin\/services$/, (req, env) => admin.listServices(req, env)],
   ["GET", /^\/api\/admin\/tiers$/, (req, env) => admin.listTiers(req, env)],
+  ["GET", /^\/api\/admin\/packages$/, (req, env) => admin.listPackages(req, env)],
+  ["POST", /^\/api\/admin\/packages$/, (req, env) => admin.createPackage(req, env)],
   ["POST", /^\/api\/admin\/staff-links$/, (req, env) => admin.createStaffLink(req, env)],
 
   ["GET", /^\/api\/admin\/reports\/conversion$/, (req, env) => admin.reportConversion(req, env)],

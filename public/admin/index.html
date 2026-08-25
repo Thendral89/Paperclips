@@ -54,6 +54,7 @@
     <div class="navlink" data-view="dashboard">Dashboard</div>
     <div class="navlink" data-view="leads">Leads</div>
     <div class="navlink" data-view="accounts">Accounts</div>
+    <div class="navlink" data-view="packages">Packages</div>
   </aside>
   <main class="main" id="main">Loading…</main>
 </div>
@@ -83,6 +84,7 @@ async function render() {
     if (state.view === "accounts") return renderAccounts();
     if (state.view === "accountDetail") return renderAccountDetail(state.id);
     if (state.view === "eventDetail") return renderEventDetail(state.id);
+    if (state.view === "packages") return renderPackages();
   } catch (e) {
     main.innerHTML = `<div class="card">Error: ${e.message}</div>`;
   }
@@ -158,6 +160,7 @@ async function renderLeadDetail(id) {
           <tr><td>Event</td><td>${l.event_type || "—"} · ${l.event_date || "TBD"}</td></tr>
           <tr><td>Budget</td><td>₹${l.budget_est || "—"}</td></tr>
           ${l.possible_duplicate_of ? `<tr><td>⚠ Possible duplicate of</td><td>lead #${l.possible_duplicate_of}</td></tr>` : ""}
+          ${l.stage === "Lost" && l.lost_reason ? `<tr><td>Lost reason</td><td>${l.lost_reason}</td></tr>` : ""}
         </table>
         <div class="field" style="margin-top:14px;"><label>Stage</label>
           <select id="stageSel">
@@ -179,7 +182,16 @@ async function renderLeadDetail(id) {
   main.querySelector("[data-back]").addEventListener("click", () => go("leads"));
   const acctLink = main.querySelector("[data-acct]");
   if (acctLink) acctLink.addEventListener("click", () => go("accountDetail", acctLink.dataset.acct));
-  main.querySelector("#stageSel").addEventListener("change", async e => { await api(`/leads/${id}/stage`, { method: "POST", body: JSON.stringify({ stage: e.target.value }) }); });
+  main.querySelector("#stageSel").addEventListener("change", async e => {
+    const stage = e.target.value;
+    let lost_reason;
+    if (stage === "Lost") {
+      lost_reason = prompt("Why was this lead lost? (e.g. Budget, Date conflict, Chose competitor, Went silent)");
+      if (!lost_reason) { renderLeadDetail(id); return; } // cancelled — revert the dropdown
+    }
+    await api(`/leads/${id}/stage`, { method: "POST", body: JSON.stringify({ stage, lost_reason }) });
+    renderLeadDetail(id);
+  });
   main.querySelector("#fuDate").addEventListener("change", async e => { await api(`/leads/${id}/followup`, { method: "POST", body: JSON.stringify({ date: e.target.value }) }); });
   const convertBtn = main.querySelector("#convertBtn");
   if (convertBtn) convertBtn.addEventListener("click", async () => { const r = await api(`/leads/${id}/convert`, { method: "POST", body: "{}" }); go("accountDetail", r.account_id); });
@@ -205,6 +217,18 @@ async function renderAccountDetail(id) {
   main.innerHTML = `
     <span class="back" data-back>← Accounts</span>
     <h1>${a.name} <span class="pill">LTV ₹${a.lifetime_value}</span></h1>
+    <div class="card"><h2>Contacts</h2>
+      ${a.contacts.map(c => `<div class="svc">${c.name}${c.role ? ` <span class="pill">${c.role}</span>` : ""}${c.is_primary ? ' <span class="pill" style="background:var(--success-soft);color:var(--success)">Primary</span>' : ""}<span style="color:var(--ink-soft);font-size:12px">${[c.phone, c.email].filter(Boolean).join(" · ")}</span></div>`).join("") || '<div class="empty">No additional contacts yet — the account\'s own phone/email above counts as the primary.</div>'}
+      <form id="newContact" class="inline-form" style="margin-top:10px;">
+        <div class="field"><label>Name</label><input name="name" required></div>
+        <div class="field"><label>Role</label>
+          <select name="role"><option>Bride</option><option>Groom</option><option>Planner</option><option>Parent</option><option>Other</option></select>
+        </div>
+        <div class="field"><label>Phone</label><input name="phone"></div>
+        <div class="field"><label>Email</label><input name="email"></div>
+        <button type="submit">Add contact</button>
+      </form>
+    </div>
     <div class="card"><h2>New event</h2>
       <form id="newEvent" class="inline-form">
         <div class="field"><label>Type</label><input name="type" placeholder="Wedding" required></div>
@@ -226,11 +250,52 @@ async function renderAccountDetail(id) {
     await api("/events", { method: "POST", body: JSON.stringify(data) });
     renderAccountDetail(id);
   });
+  main.querySelector("#newContact").addEventListener("submit", async e => {
+    e.preventDefault();
+    await api(`/accounts/${id}/contacts`, { method: "POST", body: JSON.stringify(Object.fromEntries(new FormData(e.target).entries())) });
+    renderAccountDetail(id);
+  });
+}
+
+// ── Packages ───────────────────────────────────────────────
+async function renderPackages() {
+  const [packages, services] = await Promise.all([api("/packages"), api("/services")]);
+  main.innerHTML = `
+    <h1>Packages</h1>
+    <div class="card"><h2>Create a package</h2>
+      <form id="newPackage">
+        <div class="row2">
+          <div class="field"><label>Name</label><input name="name" placeholder="e.g. Gold Wedding Package" required></div>
+          <div class="field"><label>Bundle price (₹)</label><input name="base_price" type="number" required></div>
+        </div>
+        <div class="field"><label>Description</label><input name="description" placeholder="What's included, in plain words"></div>
+        <div class="field"><label>Included services (reference only — doesn't change the bundle price)</label>
+          ${services.map(s => `<label style="display:inline-flex;align-items:center;gap:5px;margin:2px 12px 2px 0;font-weight:400;text-transform:none;font-size:13px;"><input type="checkbox" name="service_ids" value="${s.id}"> ${s.name}</label>`).join("")}
+        </div>
+        <button type="submit">Create package</button>
+      </form>
+    </div>
+    <div class="card"><h2>Active packages</h2>
+      ${packages.map(p => `
+        <div class="svc" style="align-items:flex-start;flex-direction:column;">
+          <div style="display:flex;justify-content:space-between;width:100%;"><b>${p.name}</b><span class="pill">₹${p.base_price}</span></div>
+          <div style="color:var(--ink-soft);font-size:12.5px;margin-top:2px;">${p.description || ""}</div>
+          <div style="color:var(--ink-soft);font-size:11.5px;margin-top:4px;">Includes: ${p.items.map(i => i.name).join(", ") || "—"}</div>
+        </div>`).join("") || '<div class="empty">No packages yet — create one above.</div>'}
+    </div>
+  `;
+  main.querySelector("#newPackage").addEventListener("submit", async e => {
+    e.preventDefault();
+    const form = new FormData(e.target);
+    const data = { name: form.get("name"), base_price: form.get("base_price"), description: form.get("description"), service_ids: form.getAll("service_ids") };
+    await api("/packages", { method: "POST", body: JSON.stringify(data) });
+    renderPackages();
+  });
 }
 
 // ── Event detail (pricing, cross-sell, payments, staff link) ─
 async function renderEventDetail(id) {
-  const [ev, services, tiers] = await Promise.all([api(`/events/${id}`), api("/services"), api("/tiers")]);
+  const [ev, services, tiers, packages] = await Promise.all([api(`/events/${id}`), api("/services"), api("/tiers"), api("/packages")]);
   const bookedIds = new Set(ev.services.map(s => s.service_id));
   main.innerHTML = `
     <span class="back" data-back>← Account</span>
@@ -238,7 +303,13 @@ async function renderEventDetail(id) {
     <div class="card"><h2>Pricing tier</h2>
       <div style="display:flex;gap:8px;">${tiers.map(t => `<div class="tier ${t.id===ev.pricing_tier_id?"sel":""}" data-tier="${t.id}"><b>${t.name}</b><div style="font-size:11px;color:var(--ink-soft)">${t.perks}</div></div>`).join("")}</div>
     </div>
-    <div class="card"><h2>Services</h2>
+    <div class="card"><h2>Line items — what this event is actually billed for</h2>
+      ${ev.services.map(s => `<div class="svc">${s.name} ${s.is_package ? '<span class="pill" style="background:var(--warning-soft);color:var(--warning)">Package</span>' : ""} — ₹${s.price_at_booking}</div>`).join("") || '<div class="empty">Nothing added yet — apply a package or add services below.</div>'}
+    </div>
+    <div class="card"><h2>Apply a package</h2>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;">${packages.map(p => `<div class="tier" data-pkg="${p.id}"><b>${p.name}</b><div style="font-size:11px;color:var(--ink-soft)">₹${p.base_price} · ${p.items.map(i=>i.name).join(", ")}</div></div>`).join("") || '<div class="empty">No packages defined yet.</div>'}</div>
+    </div>
+    <div class="card"><h2>Add-ons</h2>
       ${services.map(s => `<div class="svc">${s.name} — ₹${s.base_price} ${bookedIds.has(s.id) ? '<span class="pill">added</span>' : `<button class="ghost" data-svc="${s.id}">+ Add</button>`}</div>`).join("")}
     </div>
     <div class="row2">
@@ -255,6 +326,7 @@ async function renderEventDetail(id) {
   `;
   main.querySelector("[data-back]").addEventListener("click", () => history.back());
   main.querySelectorAll("[data-tier]").forEach(el => el.addEventListener("click", async () => { await api(`/events/${id}/tier`, { method: "POST", body: JSON.stringify({ pricing_tier_id: el.dataset.tier }) }); renderEventDetail(id); }));
+  main.querySelectorAll("[data-pkg]").forEach(el => el.addEventListener("click", async () => { await api(`/events/${id}/package`, { method: "POST", body: JSON.stringify({ package_id: el.dataset.pkg }) }); renderEventDetail(id); }));
   main.querySelectorAll("[data-svc]").forEach(el => el.addEventListener("click", async () => { await api(`/events/${id}/services`, { method: "POST", body: JSON.stringify({ service_id: el.dataset.svc, is_crosssell: true }) }); renderEventDetail(id); }));
   main.querySelector("#payForm").addEventListener("submit", async e => { e.preventDefault(); await api(`/events/${id}/payments`, { method: "POST", body: JSON.stringify(Object.fromEntries(new FormData(e.target).entries())) }); renderEventDetail(id); });
   main.querySelector("#linkForm").addEventListener("submit", async e => {

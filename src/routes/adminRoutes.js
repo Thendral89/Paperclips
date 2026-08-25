@@ -74,11 +74,13 @@ export async function createLeadManual(request, env, staff) {
 export async function updateLeadStage(request, env, id, staff) {
   const body = await request.json().catch(() => null);
   if (!body || !body.stage) return badRequest("stage is required");
+  if (body.stage === "Lost" && !body.lost_reason) return badRequest("lost_reason is required when marking a lead Lost");
   const lead = await env.DB.prepare(`SELECT stage FROM leads WHERE id = ?`).bind(id).first();
   if (!lead) return notFound("lead not found");
 
   await env.DB.batch([
-    env.DB.prepare(`UPDATE leads SET stage = ?, updated_at = datetime('now') WHERE id = ?`).bind(body.stage, id),
+    env.DB.prepare(`UPDATE leads SET stage = ?, lost_reason = ?, updated_at = datetime('now') WHERE id = ?`)
+      .bind(body.stage, body.stage === "Lost" ? body.lost_reason : null, id),
     env.DB.prepare(`INSERT INTO lead_status_history (lead_id, from_stage, to_stage, changed_by) VALUES (?, ?, ?, ?)`)
       .bind(id, lead.stage, body.stage, staff.email),
   ]);
@@ -130,10 +132,13 @@ export async function listAccounts(request, env) {
 export async function getAccount360(request, env, id) {
   const account = await env.DB.prepare(`SELECT * FROM accounts WHERE id = ?`).bind(id).first();
   if (!account) return notFound("account not found");
-  const { results: events } = await env.DB.prepare(
-    `SELECT e.*, pt.name AS tier_name FROM events e LEFT JOIN pricing_tiers pt ON pt.id = e.pricing_tier_id
-     WHERE e.account_id = ? ORDER BY e.event_date DESC`
-  ).bind(id).all();
+  const [{ results: events }, { results: contacts }] = await Promise.all([
+    env.DB.prepare(
+      `SELECT e.*, pt.name AS tier_name FROM events e LEFT JOIN pricing_tiers pt ON pt.id = e.pricing_tier_id
+       WHERE e.account_id = ? ORDER BY e.event_date DESC`
+    ).bind(id).all(),
+    env.DB.prepare(`SELECT * FROM contacts WHERE account_id = ? ORDER BY is_primary DESC, created_at ASC`).bind(id).all(),
+  ]);
 
   const eventIds = events.map((e) => e.id);
   let payments = [];
@@ -146,7 +151,18 @@ export async function getAccount360(request, env, id) {
     payments = results;
     ltv = events.reduce((sum, e) => sum + (e.quote_total || 0), 0);
   }
-  return json({ ...account, events, payments, lifetime_value: ltv });
+  return json({ ...account, events, payments, contacts, lifetime_value: ltv });
+}
+
+export async function addContact(request, env, id) {
+  const body = await request.json().catch(() => null);
+  if (!body || !body.name) return badRequest("name is required");
+  const account = await env.DB.prepare(`SELECT id FROM accounts WHERE id = ?`).bind(id).first();
+  if (!account) return notFound("account not found");
+  await env.DB.prepare(
+    `INSERT INTO contacts (account_id, name, role, phone, email, is_primary) VALUES (?, ?, ?, ?, ?, ?)`
+  ).bind(id, body.name, body.role || null, body.phone || null, body.email || null, body.is_primary ? 1 : 0).run();
+  return json({ ok: true }, { status: 201 });
 }
 
 // ── Events / pricing / cross-sell ───────────────────────────────────
@@ -168,7 +184,12 @@ export async function getEvent(request, env, id) {
   if (!event) return notFound("event not found");
   const [services, payments, links] = await Promise.all([
     env.DB.prepare(
-      `SELECT es.*, s.name, s.category FROM event_services es JOIN services s ON s.id = es.service_id WHERE es.event_id = ?`
+      `SELECT es.*, COALESCE(s.name, p.name) AS name, COALESCE(s.category, 'Package') AS category,
+              CASE WHEN es.package_id IS NOT NULL THEN 1 ELSE 0 END AS is_package
+       FROM event_services es
+       LEFT JOIN services s ON s.id = es.service_id
+       LEFT JOIN packages p ON p.id = es.package_id
+       WHERE es.event_id = ?`
     ).bind(id).all(),
     env.DB.prepare(`SELECT * FROM payments WHERE event_id = ? ORDER BY date DESC`).bind(id).all(),
     env.DB.prepare(`SELECT id, staff_name, scope, expires_at, created_at FROM event_staff_links WHERE event_id = ?`).bind(id).all(),
@@ -184,6 +205,19 @@ export async function addEventService(request, env, id) {
   await env.DB.prepare(
     `INSERT INTO event_services (event_id, service_id, price_at_booking, is_crosssell) VALUES (?, ?, ?, ?)`
   ).bind(id, body.service_id, service.base_price, body.is_crosssell ? 1 : 0).run();
+
+  await recomputeQuote(env, id);
+  return json({ ok: true });
+}
+
+export async function applyPackageToEvent(request, env, id) {
+  const body = await request.json().catch(() => null);
+  if (!body || !body.package_id) return badRequest("package_id is required");
+  const pkg = await env.DB.prepare(`SELECT * FROM packages WHERE id = ? AND active = 1`).bind(body.package_id).first();
+  if (!pkg) return notFound("package not found");
+  await env.DB.prepare(
+    `INSERT INTO event_services (event_id, package_id, price_at_booking, is_crosssell) VALUES (?, ?, ?, 0)`
+  ).bind(id, pkg.id, pkg.base_price).run();
 
   await recomputeQuote(env, id);
   return json({ ok: true });
@@ -229,6 +263,35 @@ export async function listServices(request, env) {
 export async function listTiers(request, env) {
   const { results } = await env.DB.prepare(`SELECT * FROM pricing_tiers ORDER BY multiplier`).all();
   return json(results);
+}
+
+// ── Packages (fixed bundles you can still add a-la-carte extras on top of) ──
+export async function listPackages(request, env) {
+  const [{ results: packages }, { results: items }] = await Promise.all([
+    env.DB.prepare(`SELECT * FROM packages WHERE active = 1 ORDER BY base_price`).all(),
+    env.DB.prepare(
+      `SELECT pi.package_id, s.name, pi.quantity FROM package_items pi JOIN services s ON s.id = pi.service_id`
+    ).all(),
+  ]);
+  const byPackage = {};
+  for (const it of items) (byPackage[it.package_id] ||= []).push({ name: it.name, quantity: it.quantity });
+  return json(packages.map((p) => ({ ...p, items: byPackage[p.id] || [] })));
+}
+
+export async function createPackage(request, env) {
+  const body = await request.json().catch(() => null);
+  if (!body || !body.name || !body.base_price) return badRequest("name and base_price are required");
+  const result = await env.DB.prepare(`INSERT INTO packages (name, description, base_price) VALUES (?, ?, ?)`)
+    .bind(body.name, body.description || null, Number(body.base_price))
+    .run();
+  const packageId = result.meta.last_row_id;
+  if (Array.isArray(body.service_ids)) {
+    for (const serviceId of body.service_ids) {
+      await env.DB.prepare(`INSERT OR IGNORE INTO package_items (package_id, service_id) VALUES (?, ?)`)
+        .bind(packageId, serviceId).run();
+    }
+  }
+  return json({ ok: true, id: packageId }, { status: 201 });
 }
 
 // ── Staff links (the tokenised photographer link) ───────────────────

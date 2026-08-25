@@ -18,7 +18,7 @@ jobs:
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           wranglerVersion: "4"
           preCommands: |
-            wrangler d1 migrations apply paperclip-crm --remote
-            echo "${{ secrets.GOOGLE_CLIENT_SECRET }}" | wrangler secret put GOOGLE_CLIENT_SECRET
-            echo "${{ secrets.SESSION_SECRET }}" | wrangler secret put SESSION_SECRET
+            npx wrangler d1 migrations apply paperclip-crm --remote
+            echo "${{ secrets.GOOGLE_CLIENT_SECRET }}" | npx wrangler secret put GOOGLE_CLIENT_SECRET
+            echo "${{ secrets.SESSION_SECRET }}" | npx wrangler secret put SESSION_SECRET
           command: deploy

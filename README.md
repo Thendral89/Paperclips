@@ -22,8 +22,8 @@ reuses the Google accounts you already have. Code lives in
 
 ### 1. Create a Google OAuth Client ID (free, no card)
 
-1. [console.cloud.google.com](https://console.cloud.google.com) → create a project (or use an existing one) → **APIs & Services** → **OAuth consent screen**. User type **External** is fine; you don't need to publish it — leave it in **Testing** and add your 2 staff emails as **Test users** on that same screen (unpublished apps only allow signed-in test users, which is exactly the restriction you want anyway).
-2. **APIs & Services** → **Credentials** → **Create credentials** → **OAuth client ID** → Application type **Web application**.
+1. [console.cloud.google.com](https://console.cloud.google.com) → create a project (or use an existing one) → search **Google Auth Platform** in the top search bar (this replaced the old "OAuth consent screen" page). Fill in **Branding** (App name, support email, developer contact email — everything else is optional), then on **Audience** pick **External** and add your 2 staff emails as **Test users** (unpublished apps only allow signed-in test users — exactly the restriction you want).
+2. **Clients** tab → **Create client** → Application type **Web application**.
 3. **Authorized redirect URIs** → add exactly: `https://pcs--prod.pcstudios.workers.dev/auth/callback`
 4. Create. Copy the **Client ID** and **Client secret** shown.
 
@@ -53,6 +53,39 @@ place) triggers the next deploy, which pushes `GOOGLE_CLIENT_SECRET` and
 `deploy.yml` — `wrangler secret put`, not committed to the repo). After
 that run goes green, visiting `/admin` redirects to a real Google sign-in
 screen, and only the two emails in `STAFF_EMAILS` can get past it.
+
+## Product catalog, contacts, loss reasons (added after go-live)
+
+Three additions on top of the original build, all shipped in
+`migrations/0002_catalog_contacts.sql` — pure additions, nothing about
+Google Sign-In or the working auth flow changed:
+
+- **Packages** — a new **Packages** tab in the admin console. Define a
+  named bundle (e.g. "Gold Wedding Package") at its own bundle price —
+  tag which services are included for reference (shows on the package
+  card and on the event once applied), but the bundle price is whatever
+  you set, not automatically the sum of the parts. On an event, click
+  **Apply a package** to bill it as one line item, then keep adding
+  a-la-carte extras from **Add-ons** exactly as before — packages and
+  add-ons happily coexist on the same event and both feed the same
+  quote total.
+- **Contacts** — each account can now hold more than one contact (bride,
+  groom, planner, parent...), each with their own phone/email and a role
+  tag. The account's own phone/email field still exists and still shows
+  in list views as the primary contact — Contacts is the *additional*
+  people, not a replacement.
+- **Lost reason** — moving a lead to the "Lost" stage now prompts for why
+  (budget / date conflict / competitor / went silent / etc.) and refuses
+  the change without one. Feeds real win/loss analytics later — right
+  now it's stored and visible on the lead's detail page.
+
+Deliberately **not** added (would be over-engineering at 2 admins):
+per-post campaign-level ad attribution — channel-level source tracking
+(Instagram/WhatsApp/Facebook/Referral/Website) stays as-is.
+
+Pushing this update: same as any other change — commit, CI applies the
+new migration automatically via `wrangler d1 migrations apply --remote`
+(already wired in `deploy.yml`), no manual DB step needed.
 
 ## Embedding the lead capture form
 
