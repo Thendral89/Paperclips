@@ -270,6 +270,49 @@ alongside a click-reduction pass. Same reasoning applies to paid WhatsApp
 automation and real gallery-delivery storage (both have ongoing costs that
 deserve their own explicit go-ahead, not a default).
 
+## Events tab + responsive primary action (added after go-live)
+
+Direct response to feedback that the previous batch's FAB was easy to miss
+on desktop, and that there was no way to see events by date range. Root
+cause was architectural, not cosmetic: there was no top-level Events view
+at all (events only existed inside an Account drill-down or unfiltered in
+Reports), and the FAB — a mobile convention — was the only "add" affordance
+on every screen, desktop included.
+
+- **New `GET /api/admin/events`** — every event, joined with account name,
+  status, and balance due, computed server-side (`adminRoutes.js`,
+  `listEvents`). Accepts `?range=this_week|last_week|next_week|this_month|
+  next_month|custom|all`; `custom` requires `&from=&to=` (`YYYY-MM-DD`).
+  Week bounds are Monday–Sunday, computed in JS (not SQL date modifiers) so
+  "this week" means the same thing regardless of engine defaults. An
+  unrecognized `range`, or `custom` missing a bound, returns 400.
+- **New "Events" nav tab** — a real list view with a segmented quick-filter
+  bar (All / This week / Last week / Next week / This month / Next month /
+  Custom range), a status pill per row, and a "Payment overdue" flag
+  (derived from any `payment_schedule` row past its due date and still
+  Pending) so a payment problem is visible without opening the event.
+  "+ New event" here includes a customer picker, since this list isn't
+  scoped to one account the way the in-account "New event" flow is.
+- **Responsive primary action, applied everywhere the FAB existed** (Leads,
+  Customers/Accounts → event creation, Packages, Vendors, and the new
+  Events tab): at ≥820px a labeled button sits in the page header, next to
+  the title, always visible, never scrolled out of view; below 820px it
+  reverts to the FAB, which is the correct convention there. One handler,
+  two renderings (`setPrimaryAction()` in `admin/index.html`) — no
+  per-screen breakpoint logic to maintain going forward.
+- **Fixed a latent status-pill coloring bug** found while building this:
+  multi-word statuses ("In progress", "Client review") weren't getting
+  their color class because the old code only stripped whitespace instead
+  of matching the CSS's PascalCase names — now `In progress` correctly
+  reads as the in-progress accent color instead of falling back to
+  unstyled.
+
+Deliberately **not** built this round: a calendar/month-grid view and
+drag-to-reschedule. The list + quick-filters covers the stated need ("what's
+coming up this week/month") without the extra surface area of a full
+calendar component — worth adding later only if list view proves
+insufficient in practice.
+
 ## Local development (optional)
 
 Not required — everything ships through GitHub Actions. If you want to run

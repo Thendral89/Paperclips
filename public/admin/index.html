@@ -111,11 +111,29 @@
   .bar-fill.warn{background:var(--warning);}
   .bar-fill.critical{background:var(--critical);}
 
-  /* ── FAB ── */
+  /* ── Primary action — responsive: a labeled header button on desktop
+     (where a floating corner circle goes unnoticed), the FAB on mobile
+     (the correct, thumb-reach convention there). Same handler, two renderings. ── */
+  .page-head{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;margin-bottom:16px;}
+  .page-head h1{margin:0;}
+  .primary-action{white-space:nowrap;display:inline-flex;align-items:center;gap:6px;}
+  @media (max-width:820px){ .primary-action{display:none;} }
+
+  /* ── FAB — mobile only; desktop gets the header button above instead ── */
   .fab{position:fixed;right:20px;bottom:20px;width:54px;height:54px;border-radius:50%;background:var(--accent);color:#fff;
        border:none;font-size:26px;line-height:1;box-shadow:0 6px 18px rgba(110,74,30,.35);cursor:pointer;z-index:25;
        display:flex;align-items:center;justify-content:center;}
   .fab:active{transform:scale(.92);}
+  @media (min-width:821px){ .fab{display:none!important;} }
+
+  /* ── Segmented quick-filter bar (Events date ranges) ── */
+  .segbar{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:16px;}
+  .seg{background:var(--card);border:1px solid var(--line);color:var(--ink-soft);border-radius:100px;padding:7px 14px;
+       font-size:12.5px;font-weight:700;cursor:pointer;}
+  .seg:hover{background:var(--paper-dim);}
+  .seg.active{background:var(--accent);border-color:var(--accent);color:#fff;}
+  .customrange{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:-6px 0 16px;}
+  .customrange input{width:auto;}
 
   /* ── Bottom-sheet modal ── */
   .modal-backdrop{position:fixed;inset:0;background:rgba(33,26,18,.55);z-index:40;display:none;align-items:flex-end;justify-content:center;backdrop-filter:blur(1px);}
@@ -144,6 +162,7 @@
     <div class="navlink" data-view="dashboard">Dashboard</div>
     <div class="navlink" data-view="leads">Leads</div>
     <div class="navlink" data-view="accounts">Customers / Accounts</div>
+    <div class="navlink" data-view="events">Events</div>
     <div class="navlink" data-view="packages">Packages</div>
     <div class="navlink" data-view="vendors">Vendors</div>
     <div class="navlink" data-view="reports">Reports</div>
@@ -219,6 +238,19 @@ function setFab(onClick) {
   fab.onclick = onClick;
 }
 
+// ── Primary action — one call wires BOTH renderings of the same handler:
+// the mobile FAB and the desktop header button. Each render*() function
+// puts a `pageHeader(title, actionLabel)` in its markup, then calls
+// setPrimaryAction(handler) once — no per-view breakpoint logic needed.
+function pageHeader(titleHtml, actionLabel) {
+  return `<div class="page-head"><h1>${titleHtml}</h1>${actionLabel ? `<button type="button" class="btn primary-action" id="primaryActionBtn">${actionLabel}</button>` : ""}</div>`;
+}
+function setPrimaryAction(onClick) {
+  setFab(onClick);
+  const btn = document.getElementById("primaryActionBtn");
+  if (btn) btn.onclick = onClick;
+}
+
 const main = document.getElementById("main");
 let state = { view: "dashboard", id: null, filter: null };
 
@@ -240,6 +272,7 @@ async function render() {
     if (state.view === "leadDetail") return renderLeadDetail(state.id);
     if (state.view === "accounts") return renderAccounts();
     if (state.view === "accountDetail") return renderAccountDetail(state.id);
+    if (state.view === "events") return renderEvents();
     if (state.view === "eventDetail") return renderEventDetail(state.id);
     if (state.view === "packages") return renderPackages();
     if (state.view === "vendors") return renderVendors();
@@ -249,7 +282,12 @@ async function render() {
   }
 }
 function money(n) { return `₹${(n || 0).toLocaleString("en-IN")}`; }
-function statusPill(status) { return `<span class="pill status-pill-${String(status).replace(/\s/g,"")}">${status}</span>`; }
+function statusPill(status) {
+  // PascalCase each word so e.g. "In progress" matches .status-pill-InProgress —
+  // a plain whitespace-strip left multi-word statuses uncolored (fixed here).
+  const cls = String(status).split(/\s+/).map(w => w.charAt(0).toUpperCase() + w.slice(1)).join("");
+  return `<span class="pill status-pill-${cls}">${status}</span>`;
+}
 
 // ── Free click-to-WhatsApp — zero-cost alternative to the paid Business API.
 // Builds a wa.me deep link with the message pre-filled; opens WhatsApp with
@@ -314,7 +352,7 @@ async function renderLeads() {
   }).toString() : "";
   const leads = await api(`/leads${qs ? "?" + qs : ""}`);
   main.innerHTML = `
-    <h1>Leads</h1>
+    ${pageHeader("Leads", "+ New lead")}
     ${f ? `<div class="filter-chip">${f.label} <span data-clear>✕</span></div>` : ""}
     <div class="card"><h2>${f ? f.label : "All leads"} (${leads.length})</h2>
       <table><thead><tr><th>Name</th><th>Source</th><th>Stage</th><th>Budget</th><th></th></tr></thead>
@@ -345,7 +383,7 @@ async function renderLeads() {
       </form>
     `, async data => { await api(`/leads/${l.id}/details`, { method: "POST", body: JSON.stringify(data) }); toast("Lead updated"); renderLeads(); });
   }));
-  setFab(() => openModal("Add a lead", `
+  setPrimaryAction(() => openModal("Add a lead", `
     <form>
       <div class="field"><label>Name</label><input name="name" required></div>
       <div class="field"><label>Phone</label><input name="phone" required></div>
@@ -469,7 +507,7 @@ async function renderAccountDetail(id) {
   const a = await api(`/accounts/${id}`);
   main.innerHTML = `
     <span class="back" data-back>← Customers / Accounts</span>
-    <h1>${a.name} <span class="pill">LTV ₹${a.lifetime_value}</span> ${waButton(a.phone, `Hi ${a.name}, this is Paperclip Studios — thank you for booking with us!`)}</h1>
+    ${pageHeader(`${a.name} <span class="pill">LTV ₹${a.lifetime_value}</span> ${waButton(a.phone, `Hi ${a.name}, this is Paperclip Studios — thank you for booking with us!`)}`, "+ New event")}
     <div class="card"><h2>Contacts <button class="icon-btn" id="addContactBtn">+ Add</button></h2>
       ${a.contacts.map(c => `<div class="list-row"><span>${c.name}${c.role ? ` <span class="pill">${c.role}</span>` : ""}${c.is_primary ? ' <span class="pill" style="background:var(--success-soft);color:var(--success)">Primary</span>' : ""} <span class="meta">${[c.phone, c.email].filter(Boolean).join(" · ")}</span></span><span class="row-actions">${waButton(c.phone, `Hi ${c.name}, this is Paperclip Studios — reaching out about your upcoming event.`)}<button type="button" class="icon-btn edit" data-edit-contact="${c.id}" title="Edit">✎</button><button type="button" class="icon-btn del" data-del-contact="${c.id}" title="Delete">✕</button></span></div>`).join("") || '<div class="empty">No additional contacts yet — the customer\'s own phone/email above counts as the primary.</div>'}
     </div>
@@ -507,7 +545,7 @@ async function renderAccountDetail(id) {
   main.querySelectorAll("[data-del-contact]").forEach(el => el.addEventListener("click", () =>
     confirmDelete("Remove this contact?", `/contacts/${el.dataset.delContact}/delete`, () => renderAccountDetail(id))
   ));
-  setFab(() => openModal("New event", `
+  setPrimaryAction(() => openModal("New event", `
     <form>
       <div class="field"><label>Type</label><input name="type" placeholder="Wedding" required></div>
       <div class="field"><label>Date</label><input name="event_date" type="date"></div>
@@ -522,18 +560,90 @@ async function renderAccountDetail(id) {
   }));
 }
 
+// ── Events ─────────────────────────────────────────────────
+// The gap this fills: previously an event existed only inside its Account's
+// drill-down, or unfiltered in Reports — there was nowhere to see "what's
+// on this week" across every customer at once. This is that view.
+const EVENT_RANGES = [
+  ["all", "All"], ["this_week", "This week"], ["last_week", "Last week"], ["next_week", "Next week"],
+  ["this_month", "This month"], ["next_month", "Next month"], ["custom", "Custom range"],
+];
+let eventsCustom = { from: "", to: "" };
+
+async function renderEvents(range) {
+  range = range || state.eventsRange || "all";
+  state.eventsRange = range;
+
+  let qs = "";
+  if (range === "custom") {
+    if (eventsCustom.from && eventsCustom.to) qs = `?range=custom&from=${eventsCustom.from}&to=${eventsCustom.to}`;
+  } else if (range !== "all") {
+    qs = `?range=${range}`;
+  }
+  const [data, accounts] = await Promise.all([
+    (range === "custom" && !qs) ? Promise.resolve({ events: [] }) : api(`/events${qs}`),
+    api("/accounts"),
+  ]);
+
+  const rangeLabel = EVENT_RANGES.find(r => r[0] === range)[1];
+  main.innerHTML = `
+    ${pageHeader("Events", "+ New event")}
+    <div class="segbar">${EVENT_RANGES.map(([key, label]) => `<button type="button" class="seg ${range === key ? "active" : ""}" data-range="${key}">${label}</button>`).join("")}</div>
+    ${range === "custom" ? `<div class="customrange">
+        <input type="date" id="customFrom" value="${eventsCustom.from}">
+        <span style="color:var(--ink-soft);font-size:12.5px;">to</span>
+        <input type="date" id="customTo" value="${eventsCustom.to}">
+        <button type="button" class="ghost" id="applyCustom">Apply</button>
+      </div>` : ""}
+    <div class="card"><h2>${range === "all" ? "All events" : rangeLabel} (${data.events.length})</h2>
+      <table><thead><tr><th>Customer</th><th>Type</th><th>Date</th><th>Status</th><th>Balance due</th></tr></thead>
+      <tbody>${data.events.map(e => `<tr class="clickable" data-event="${e.id}">
+          <td>${e.account_name}</td>
+          <td>${e.type}</td>
+          <td>${e.event_date || "TBD"}</td>
+          <td>${statusPill(e.status)}${e.payment_overdue ? ` <span class="pill" style="background:var(--critical-soft);color:var(--critical)">Payment overdue</span>` : ""}</td>
+          <td>${money(e.balance_due)}</td>
+        </tr>`).join("") || `<tr><td colspan="5" class="empty">${range === "custom" && !qs ? "Pick a date range above." : "No events in this range."}</td></tr>`}</tbody></table>
+    </div>
+  `;
+  main.querySelectorAll("[data-event]").forEach(el => el.addEventListener("click", () => go("eventDetail", el.dataset.event)));
+  main.querySelectorAll("[data-range]").forEach(el => el.addEventListener("click", () => renderEvents(el.dataset.range)));
+  const applyBtn = main.querySelector("#applyCustom");
+  if (applyBtn) applyBtn.addEventListener("click", () => {
+    eventsCustom.from = main.querySelector("#customFrom").value;
+    eventsCustom.to = main.querySelector("#customTo").value;
+    if (!eventsCustom.from || !eventsCustom.to) { toast("Pick both dates", true); return; }
+    renderEvents("custom");
+  });
+  setPrimaryAction(() => openModal("New event", `
+    <form>
+      <div class="field"><label>Customer</label>
+        <select name="account_id" required>${accounts.map(a => `<option value="${a.id}">${a.name}</option>`).join("") || `<option value="" disabled>No customers yet</option>`}</select>
+      </div>
+      <div class="field"><label>Type</label><input name="type" placeholder="Wedding" required></div>
+      <div class="field"><label>Date</label><input name="event_date" type="date"></div>
+      <div class="field"><label>Venue</label><input name="venue"></div>
+      <button type="submit" style="width:100%;">Create event</button>
+    </form>
+  `, async data => {
+    const r = await api("/events", { method: "POST", body: JSON.stringify(data) });
+    toast("Event created");
+    go("eventDetail", r.id);
+  }));
+}
+
 // ── Packages ───────────────────────────────────────────────
 async function renderPackages() {
   const [packages, services] = await Promise.all([api("/packages"), api("/services")]);
   const svcCheckboxes = (checkedIds) => services.map(s => `<label style="display:inline-flex;align-items:center;gap:5px;margin:2px 12px 2px 0;font-weight:400;text-transform:none;font-size:13px;"><input type="checkbox" name="service_ids" value="${s.id}" ${checkedIds && checkedIds.has(s.id) ? "checked" : ""}> ${s.name}</label>`).join("");
   main.innerHTML = `
-    <h1>Packages</h1>
+    ${pageHeader("Packages", "+ New package")}
     <div class="card"><h2>Active packages</h2>
       <table><thead><tr><th>Name</th><th>Price</th><th>Includes</th><th></th></tr></thead>
       <tbody>${packages.map(p => `<tr><td><b>${p.name}</b><div class="meta">${p.description || ""}</div></td><td>${money(p.base_price)}</td><td class="meta">${p.items.map(i => i.name).join(", ") || "—"}</td><td class="row-actions"><button type="button" class="icon-btn edit" data-edit-pkg="${p.id}" title="Edit">✎</button><button type="button" class="icon-btn del" data-del-pkg="${p.id}" title="Delete">✕</button></td></tr>`).join("") || `<tr><td colspan="4" class="empty">No packages yet — use the + button to create one.</td></tr>`}</tbody></table>
     </div>
   `;
-  setFab(() => openModal("Create a package", `
+  setPrimaryAction(() => openModal("Create a package", `
     <form>
       <div class="row2">
         <div class="field"><label>Name</label><input name="name" placeholder="e.g. Gold Wedding Package" required></div>
@@ -801,7 +911,7 @@ async function renderEventDetail(id) {
 async function renderVendors() {
   const vendors = await api("/vendors");
   main.innerHTML = `
-    <h1>Vendors</h1>
+    ${pageHeader("Vendors", "+ New vendor")}
     <p class="empty" style="margin-top:-10px;margin-bottom:16px;">People and businesses you procure for an event but don't employ — catering, decoration, drone/equipment, partner studios you collaborate with.</p>
     <div class="card"><h2>All vendors</h2>
       <table><thead><tr><th>Name</th><th>Category</th><th>Phone</th><th></th></tr></thead>
@@ -809,7 +919,7 @@ async function renderVendors() {
     </div>
   `;
   const categoryOptions = (selected) => ["Catering","Decoration","Drone/Equipment","Makeup","Venue","Partner studio","Other"].map(c => `<option ${c===selected?"selected":""}>${c}</option>`).join("");
-  setFab(() => openModal("Add a vendor", `
+  setPrimaryAction(() => openModal("Add a vendor", `
     <form>
       <div class="field"><label>Name</label><input name="name" required></div>
       <div class="field"><label>Category</label><select name="category">${categoryOptions()}</select></div>

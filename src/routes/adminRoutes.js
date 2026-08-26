@@ -255,6 +255,75 @@ export async function deleteContact(request, env, contactId) {
 }
 
 // ── Events / pricing / cross-sell ───────────────────────────────────
+
+// Monday-start week/month bounds for the quick-filter bar. Computed in JS
+// (not SQL date() modifiers) so "this week" always means the same thing
+// regardless of which day the DB engine thinks a week starts on.
+function isoDate(d) {
+  return d.toISOString().slice(0, 10);
+}
+function weekBounds(offsetWeeks) {
+  const now = new Date();
+  const day = now.getUTCDay(); // 0=Sun..6=Sat
+  const diffToMonday = day === 0 ? -6 : 1 - day;
+  const monday = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + diffToMonday + offsetWeeks * 7));
+  const sunday = new Date(monday);
+  sunday.setUTCDate(monday.getUTCDate() + 6);
+  return [isoDate(monday), isoDate(sunday)];
+}
+function monthBounds(offsetMonths) {
+  const now = new Date();
+  const first = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + offsetMonths, 1));
+  const last = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + offsetMonths + 1, 0));
+  return [isoDate(first), isoDate(last)];
+}
+const RANGE_PRESETS = {
+  last_week: () => weekBounds(-1),
+  this_week: () => weekBounds(0),
+  next_week: () => weekBounds(1),
+  this_month: () => monthBounds(0),
+  next_month: () => monthBounds(1),
+};
+
+export async function listEvents(request, env) {
+  const params = new URL(request.url).searchParams;
+  const range = params.get("range") || "all";
+
+  let from = null, to = null;
+  if (range === "custom") {
+    from = params.get("from");
+    to = params.get("to");
+    if (!from || !to) return badRequest("custom range requires from and to (YYYY-MM-DD)");
+  } else if (RANGE_PRESETS[range]) {
+    [from, to] = RANGE_PRESETS[range]();
+  } else if (range !== "all") {
+    return badRequest("range must be one of: this_week, last_week, next_week, this_month, next_month, custom, all");
+  }
+
+  const clauses = [];
+  const binds = [];
+  if (from && to) {
+    clauses.push("e.event_date BETWEEN ? AND ?");
+    binds.push(from, to);
+  }
+  const where = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
+
+  const { results } = await env.DB.prepare(
+    `SELECT e.id, e.type, e.event_date, e.venue, e.status,
+            e.quote_total, e.advance_paid, (e.quote_total - e.advance_paid) AS balance_due,
+            a.id AS account_id, a.name AS account_name,
+            EXISTS(
+              SELECT 1 FROM payment_schedule ps
+              WHERE ps.event_id = e.id AND ps.status = 'Pending' AND ps.due_date < date('now')
+            ) AS payment_overdue
+     FROM events e JOIN accounts a ON a.id = e.account_id
+     ${where}
+     ORDER BY e.event_date ASC`
+  ).bind(...binds).all();
+
+  return json({ range, from, to, events: results });
+}
+
 export async function createEvent(request, env) {
   const body = await request.json().catch(() => null);
   if (!body || !body.account_id || !body.type) return badRequest("account_id and type are required");

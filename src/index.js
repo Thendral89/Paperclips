@@ -31,6 +31,7 @@ const ADMIN_ROUTES = [
   ["POST", /^\/api\/admin\/contacts\/(\d+)$/, (req, env, staff, [id]) => admin.updateContact(req, env, id)],
   ["POST", /^\/api\/admin\/contacts\/(\d+)\/delete$/, (req, env, staff, [id]) => admin.deleteContact(req, env, id)],
 
+  ["GET", /^\/api\/admin\/events$/, (req, env) => admin.listEvents(req, env)],
   ["POST", /^\/api\/admin\/events$/, (req, env) => admin.createEvent(req, env)],
   ["GET", /^\/api\/admin\/events\/(\d+)$/, (req, env, staff, [id]) => admin.getEvent(req, env, id)],
   ["POST", /^\/api\/admin\/events\/(\d+)\/services$/, (req, env, staff, [id]) => admin.addEventService(req, env, id)],
