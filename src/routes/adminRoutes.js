@@ -201,7 +201,7 @@ export async function getAccount360(request, env, id) {
   if (eventIds.length) {
     const placeholders = eventIds.map(() => "?").join(",");
     const { results } = await env.DB.prepare(
-      `SELECT * FROM payments WHERE event_id IN (${placeholders}) ORDER BY date DESC`
+      `SELECT * FROM payments WHERE event_id IN (${placeholders}) ORDER BY date DESC, id DESC`
     ).bind(...eventIds).all();
     payments = results;
     ltv = events.reduce((sum, e) => sum + (e.quote_total || 0), 0);
@@ -218,6 +218,40 @@ export async function addContact(request, env, id) {
     `INSERT INTO contacts (account_id, name, role, phone, email, is_primary) VALUES (?, ?, ?, ?, ?, ?)`
   ).bind(id, body.name, body.role || null, body.phone || null, body.email || null, body.is_primary ? 1 : 0).run();
   return json({ ok: true }, { status: 201 });
+}
+
+// Fixes a typo'd name/phone/email on the account itself — separate from
+// contacts (the bride/groom/planner list), which has its own edit below.
+export async function updateAccountDetails(request, env, id) {
+  const body = await request.json().catch(() => null);
+  if (!body) return badRequest("no fields given");
+  const account = await env.DB.prepare(`SELECT * FROM accounts WHERE id = ?`).bind(id).first();
+  if (!account) return notFound("account not found");
+  const name = body.name ?? account.name;
+  const phone = body.phone !== undefined ? body.phone || null : account.phone;
+  const email = body.email !== undefined ? body.email || null : account.email;
+  await env.DB.prepare(`UPDATE accounts SET name = ?, phone = ?, email = ? WHERE id = ?`)
+    .bind(name, phone, email, id).run();
+  return json({ ok: true });
+}
+
+export async function updateContact(request, env, contactId) {
+  const body = await request.json().catch(() => null);
+  if (!body) return badRequest("no fields given");
+  const contact = await env.DB.prepare(`SELECT * FROM contacts WHERE id = ?`).bind(contactId).first();
+  if (!contact) return notFound("contact not found");
+  const name = body.name ?? contact.name;
+  const role = body.role !== undefined ? body.role || null : contact.role;
+  const phone = body.phone !== undefined ? body.phone || null : contact.phone;
+  const email = body.email !== undefined ? body.email || null : contact.email;
+  await env.DB.prepare(`UPDATE contacts SET name = ?, role = ?, phone = ?, email = ? WHERE id = ?`)
+    .bind(name, role, phone, email, contactId).run();
+  return json({ ok: true });
+}
+
+export async function deleteContact(request, env, contactId) {
+  await env.DB.prepare(`DELETE FROM contacts WHERE id = ?`).bind(contactId).run();
+  return json({ ok: true });
 }
 
 // ── Events / pricing / cross-sell ───────────────────────────────────
@@ -256,7 +290,7 @@ export async function getEvent(request, env, id) {
        LEFT JOIN packages p ON p.id = es.package_id
        WHERE es.event_id = ?`
     ).bind(id).all(),
-    env.DB.prepare(`SELECT * FROM payments WHERE event_id = ? ORDER BY date DESC`).bind(id).all(),
+    env.DB.prepare(`SELECT * FROM payments WHERE event_id = ? ORDER BY date DESC, id DESC`).bind(id).all(),
     env.DB.prepare(`SELECT id, staff_name, role, cost, scope, expires_at, created_at FROM event_staff_links WHERE event_id = ?`).bind(id).all(),
     env.DB.prepare(
       `SELECT ev.*, v.name AS vendor_name, v.category AS vendor_category FROM event_vendors ev JOIN vendors v ON v.id = ev.vendor_id WHERE ev.event_id = ?`
@@ -349,6 +383,20 @@ export async function addPayment(request, env, id) {
   return json({ ok: true });
 }
 
+// Corrects a fat-fingered payment by removing it, not silently editing a
+// recorded transaction — also reverses it out of the event's advance_paid,
+// and clears the payment_schedule link if this payment was an installment.
+export async function deletePayment(request, env, paymentId) {
+  const payment = await env.DB.prepare(`SELECT * FROM payments WHERE id = ?`).bind(paymentId).first();
+  if (!payment) return notFound("payment not found");
+  await env.DB.batch([
+    env.DB.prepare(`UPDATE events SET advance_paid = advance_paid - ? WHERE id = ?`).bind(payment.amount, payment.event_id),
+    env.DB.prepare(`UPDATE payment_schedule SET status = 'Pending', paid_payment_id = NULL WHERE paid_payment_id = ?`).bind(paymentId),
+    env.DB.prepare(`DELETE FROM payments WHERE id = ?`).bind(paymentId),
+  ]);
+  return json({ ok: true });
+}
+
 // ── Catalogue ────────────────────────────────────────────────────────
 export async function listServices(request, env) {
   const { results } = await env.DB.prepare(`SELECT * FROM services ORDER BY category, name`).all();
@@ -388,6 +436,34 @@ export async function createPackage(request, env) {
   return json({ ok: true, id: packageId }, { status: 201 });
 }
 
+export async function updatePackage(request, env, packageId) {
+  const body = await request.json().catch(() => null);
+  if (!body) return badRequest("no fields given");
+  const pkg = await env.DB.prepare(`SELECT * FROM packages WHERE id = ?`).bind(packageId).first();
+  if (!pkg) return notFound("package not found");
+  const name = body.name ?? pkg.name;
+  const description = body.description !== undefined ? body.description || null : pkg.description;
+  const base_price = body.base_price !== undefined ? Number(body.base_price) : pkg.base_price;
+  await env.DB.prepare(`UPDATE packages SET name = ?, description = ?, base_price = ? WHERE id = ?`)
+    .bind(name, description, base_price, packageId).run();
+  if (Array.isArray(body.service_ids)) {
+    await env.DB.prepare(`DELETE FROM package_items WHERE package_id = ?`).bind(packageId).run();
+    for (const serviceId of body.service_ids) {
+      await env.DB.prepare(`INSERT OR IGNORE INTO package_items (package_id, service_id) VALUES (?, ?)`)
+        .bind(packageId, serviceId).run();
+    }
+  }
+  return json({ ok: true });
+}
+
+// Soft delete (active = 0, same flag listPackages already filters on) —
+// events that already applied this package keep their price_at_booking
+// snapshot untouched, so past quotes never change retroactively.
+export async function deletePackage(request, env, packageId) {
+  await env.DB.prepare(`UPDATE packages SET active = 0 WHERE id = ?`).bind(packageId).run();
+  return json({ ok: true });
+}
+
 // ── Staff links (the tokenised photographer link) ───────────────────
 export async function createStaffLink(request, env) {
   const body = await request.json().catch(() => null);
@@ -399,6 +475,31 @@ export async function createStaffLink(request, env) {
   ).bind(body.event_id, body.staff_name, body.role || null, body.cost ? Number(body.cost) : 0, token, body.scope || "expenses,support,tasks", expiresAt).run();
   const url = new URL(request.url);
   return json({ ok: true, token, url: `${url.origin}/portal/${token}` }, { status: 201 });
+}
+
+// Fixes a typo'd role/cost on a staff assignment — leaves the token/scope
+// alone so an already-shared portal link keeps working.
+export async function updateStaffLink(request, env, linkId) {
+  const body = await request.json().catch(() => null);
+  if (!body) return badRequest("no fields given");
+  const link = await env.DB.prepare(`SELECT * FROM event_staff_links WHERE id = ?`).bind(linkId).first();
+  if (!link) return notFound("staff link not found");
+  const staff_name = body.staff_name ?? link.staff_name;
+  const role = body.role !== undefined ? body.role || null : link.role;
+  const cost = body.cost !== undefined ? Number(body.cost) : link.cost;
+  await env.DB.prepare(`UPDATE event_staff_links SET staff_name = ?, role = ?, cost = ? WHERE id = ?`)
+    .bind(staff_name, role, cost, linkId).run();
+  return json({ ok: true });
+}
+
+// Removing a staff assignment also un-assigns (not deletes) any tasks that
+// were pointed at them, so a task never silently vanishes.
+export async function deleteStaffLink(request, env, linkId) {
+  await env.DB.batch([
+    env.DB.prepare(`UPDATE event_tasks SET link_id = NULL WHERE link_id = ?`).bind(linkId),
+    env.DB.prepare(`DELETE FROM event_staff_links WHERE id = ?`).bind(linkId),
+  ]);
+  return json({ ok: true });
 }
 
 // ── Vendors / procurement — the "resources from outside" half ───────
@@ -416,6 +517,29 @@ export async function createVendor(request, env) {
   return json({ ok: true, id: result.meta.last_row_id }, { status: 201 });
 }
 
+export async function updateVendor(request, env, vendorId) {
+  const body = await request.json().catch(() => null);
+  if (!body) return badRequest("no fields given");
+  const vendor = await env.DB.prepare(`SELECT * FROM vendors WHERE id = ?`).bind(vendorId).first();
+  if (!vendor) return notFound("vendor not found");
+  const name = body.name ?? vendor.name;
+  const category = body.category !== undefined ? body.category || null : vendor.category;
+  const phone = body.phone !== undefined ? body.phone || null : vendor.phone;
+  await env.DB.prepare(`UPDATE vendors SET name = ?, category = ?, phone = ? WHERE id = ?`)
+    .bind(name, category, phone, vendorId).run();
+  return json({ ok: true });
+}
+
+// Blocks the delete if the vendor is actually booked on any event, rather
+// than silently orphaning event_vendors rows — same spirit as the package
+// soft-delete, just enforced differently since vendors have no active flag.
+export async function deleteVendor(request, env, vendorId) {
+  const used = await env.DB.prepare(`SELECT COUNT(*) AS n FROM event_vendors WHERE vendor_id = ?`).bind(vendorId).first();
+  if (used.n > 0) return badRequest(`Can't delete — this vendor is booked on ${used.n} event(s). Remove them from those events first.`);
+  await env.DB.prepare(`DELETE FROM vendors WHERE id = ?`).bind(vendorId).run();
+  return json({ ok: true });
+}
+
 export async function addEventVendor(request, env, id) {
   const body = await request.json().catch(() => null);
   if (!body || !body.vendor_id) return badRequest("vendor_id is required");
@@ -427,6 +551,22 @@ export async function addEventVendor(request, env, id) {
 
 export async function markEventVendorPaid(request, env, eventVendorId) {
   await env.DB.prepare(`UPDATE event_vendors SET payment_status = 'Paid' WHERE id = ?`).bind(eventVendorId).run();
+  return json({ ok: true });
+}
+
+export async function updateEventVendor(request, env, eventVendorId) {
+  const body = await request.json().catch(() => null);
+  if (!body) return badRequest("no fields given");
+  const ev = await env.DB.prepare(`SELECT * FROM event_vendors WHERE id = ?`).bind(eventVendorId).first();
+  if (!ev) return notFound("event vendor not found");
+  const role = body.role !== undefined ? body.role || null : ev.role;
+  const cost = body.cost !== undefined ? Number(body.cost) : ev.cost;
+  await env.DB.prepare(`UPDATE event_vendors SET role = ?, cost = ? WHERE id = ?`).bind(role, cost, eventVendorId).run();
+  return json({ ok: true });
+}
+
+export async function deleteEventVendor(request, env, eventVendorId) {
+  await env.DB.prepare(`DELETE FROM event_vendors WHERE id = ?`).bind(eventVendorId).run();
   return json({ ok: true });
 }
 
@@ -455,6 +595,30 @@ export async function markPaymentScheduleItemPaid(request, env, scheduleId) {
   return json({ ok: true });
 }
 
+// Only lets you fix a Pending installment — once it's Paid it's linked to a
+// real payments-ledger row, so editing/deleting it here would desync the two.
+export async function updatePaymentScheduleItem(request, env, scheduleId) {
+  const body = await request.json().catch(() => null);
+  if (!body) return badRequest("no fields given");
+  const item = await env.DB.prepare(`SELECT * FROM payment_schedule WHERE id = ?`).bind(scheduleId).first();
+  if (!item) return notFound("payment schedule item not found");
+  if (item.status === "Paid") return badRequest("This installment is already marked paid — edit the payment in the ledger instead.");
+  const label = body.label ?? item.label;
+  const amount = body.amount !== undefined ? Number(body.amount) : item.amount;
+  const due_date = body.due_date !== undefined ? body.due_date || null : item.due_date;
+  await env.DB.prepare(`UPDATE payment_schedule SET label = ?, amount = ?, due_date = ? WHERE id = ?`)
+    .bind(label, amount, due_date, scheduleId).run();
+  return json({ ok: true });
+}
+
+export async function deletePaymentScheduleItem(request, env, scheduleId) {
+  const item = await env.DB.prepare(`SELECT status FROM payment_schedule WHERE id = ?`).bind(scheduleId).first();
+  if (!item) return notFound("payment schedule item not found");
+  if (item.status === "Paid") return badRequest("This installment is already marked paid — it can't be deleted.");
+  await env.DB.prepare(`DELETE FROM payment_schedule WHERE id = ?`).bind(scheduleId).run();
+  return json({ ok: true });
+}
+
 // ── Deliverables — post-event production pipeline ────────────────────
 export async function addDeliverable(request, env, id) {
   const body = await request.json().catch(() => null);
@@ -472,6 +636,25 @@ export async function updateDeliverableStatus(request, env, deliverableId) {
   await env.DB.prepare(
     `UPDATE deliverables SET status = ?, delivered_at = ${deliveredAt} WHERE id = ?`
   ).bind(body.status, deliverableId).run();
+  return json({ ok: true });
+}
+
+// Fixes name/due date/notes — separate from updateDeliverableStatus above,
+// which only ever moves the production-pipeline status.
+export async function updateDeliverable(request, env, deliverableId) {
+  const body = await request.json().catch(() => null);
+  if (!body) return badRequest("no fields given");
+  const d = await env.DB.prepare(`SELECT * FROM deliverables WHERE id = ?`).bind(deliverableId).first();
+  if (!d) return notFound("deliverable not found");
+  const name = body.name ?? d.name;
+  const due_date = body.due_date !== undefined ? body.due_date || null : d.due_date;
+  await env.DB.prepare(`UPDATE deliverables SET name = ?, due_date = ? WHERE id = ?`)
+    .bind(name, due_date, deliverableId).run();
+  return json({ ok: true });
+}
+
+export async function deleteDeliverable(request, env, deliverableId) {
+  await env.DB.prepare(`DELETE FROM deliverables WHERE id = ?`).bind(deliverableId).run();
   return json({ ok: true });
 }
 
@@ -513,6 +696,23 @@ export async function addEventTask(request, env, id) {
     `INSERT INTO event_tasks (event_id, link_id, task) VALUES (?, ?, ?)`
   ).bind(id, body.link_id || null, body.task).run();
   return json({ ok: true }, { status: 201 });
+}
+
+export async function updateEventTask(request, env, taskId) {
+  const body = await request.json().catch(() => null);
+  if (!body) return badRequest("no fields given");
+  const t = await env.DB.prepare(`SELECT * FROM event_tasks WHERE id = ?`).bind(taskId).first();
+  if (!t) return notFound("task not found");
+  const task = body.task ?? t.task;
+  const link_id = body.link_id !== undefined ? body.link_id || null : t.link_id;
+  await env.DB.prepare(`UPDATE event_tasks SET task = ?, link_id = ?, updated_at = datetime('now') WHERE id = ?`)
+    .bind(task, link_id, taskId).run();
+  return json({ ok: true });
+}
+
+export async function deleteEventTask(request, env, taskId) {
+  await env.DB.prepare(`DELETE FROM event_tasks WHERE id = ?`).bind(taskId).run();
+  return json({ ok: true });
 }
 
 // ── Reports (blueprint §6) ───────────────────────────────────────────

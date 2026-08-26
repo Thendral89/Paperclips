@@ -182,6 +182,94 @@ pretends to work when it doesn't:
   on the dashboard's Overdue list; sending an actual email needs a Resend
   API key (free tier, 3,000 emails/month) added as one more GitHub secret.
 
+## UI overhaul — premium mobile-first redesign (added after go-live)
+
+A full visual and interaction redesign across all three surfaces (admin
+console, public lead form, photographer portal) — no backend/schema changes,
+purely presentation. Triggered by the operations layer above making the
+admin console's screens (especially event detail) too cluttered with
+always-visible inline forms.
+
+- **New design-token palette** — replaced the old flat purple scheme with a
+  warm "premium photography brand" palette (ink/paper/brass-accent, plus
+  success/warning/critical semantic colors) defined once as CSS custom
+  properties (`:root` in each file's `<style>` block) and reused everywhere,
+  so a future palette tweak is a one-line change per file, not a find/replace.
+- **Admin console — forms moved off the page, into modals.** Every screen
+  that used to show a permanent inline "Add ___" form now shows a **+ Add**
+  button (in the card header, or a floating action button for a view's one
+  primary action) that opens a bottom-sheet modal — full-screen-feeling on
+  mobile, centered dialog on desktop. This is the single biggest change:
+  event detail alone used to show 5 forms at once whether you needed them
+  or not; now it shows your data first, with 6 individual + Add affordances
+  in place of that wall of inputs. Toast notifications confirm every save
+  (bottom-center, auto-dismiss) instead of a full page reload/silence.
+- **Genuine mobile responsiveness, not just "doesn't break."** The sidebar
+  nav becomes a sticky horizontal-scroll bar under 820px; the two-column
+  KPI/grid layouts (`.row2`, `.kpis`) that had **no mobile fallback before**
+  — a real pre-existing bug — now stack to one column under 640px. Verified
+  at both desktop (1280px) and mobile (390px) viewports via Playwright.
+- **Progress bars** on the two "how close are we" numbers that matter most:
+  pre-event checklist completion, and payment received-vs-total on the
+  event's payment schedule card.
+- **Public lead form & photographer portal** — same palette applied for
+  brand consistency, plus a small serif/sans font pairing (Fraunces for
+  headings, Inter for body — loaded from Google Fonts, standard practice for
+  a public-facing site) for a more premium, editorial feel than the
+  previous single-typeface look. The lead form's 3-step wizard and the
+  portal's inline expense/support/task forms were left structurally as-is —
+  the portal in particular is a one-handed, in-the-field, single-purpose
+  page for a photographer mid-shoot, where the modal pattern would add
+  friction rather than remove it.
+
+Nothing about auth, the API, or the database changed in this batch — it's a
+pure front-end delivery, safe to deploy independently of any data concerns.
+
+## Click-reduction + rename + free WhatsApp (added after go-live)
+
+A competitive-research-driven pass, benchmarked against Bloom, HoneyBook,
+Dubsado, Táve, Studio Ninja, Sprout Studio, Picsello, and ShootQ/Iris Works —
+see the conversation for the full comparison. Backend additions only, no
+schema changes; every new route follows the existing edit/delete-with-guard
+pattern already used for leads.
+
+- **Inline edit/delete everywhere a list exists** — the real ask behind
+  "too many clicks": Leads, Customers/Accounts, Packages, Vendors, Contacts,
+  and every event-detail sub-list (staff, vendors, payment schedule,
+  deliverables, tasks) now have a ✎ edit and (where safe) a ✕ delete icon
+  right in the row — no detour through a detail page just to fix a typo.
+  This also closed a real pre-existing gap: Vendors, Contacts, and every
+  event sub-list previously had **no edit or delete at all** — you could
+  add but never correct or remove one.
+- **Guardrails on the deletes that touch money or history**: a vendor can't
+  be deleted while booked on an event (fix the event first); a paid
+  installment can't be edited or deleted (correct it via the payments
+  ledger instead — deleting a payment there properly reverses the event's
+  `advance_paid`, unlike a straight row deletion would); a package delete
+  is a soft delete (`active = 0`) so events that already applied it keep
+  their booked price untouched.
+- **"Accounts" renamed to "Customers / Accounts"** in the nav and every
+  heading — cosmetic only, the API/database still say `account` throughout,
+  so nothing else needed to change.
+- **Free click-to-WhatsApp** — a 💬 button next to any phone number (lead
+  detail, account detail, each contact) opens WhatsApp with a message
+  pre-filled; a human still taps Send. Zero cost, zero setup, no Meta
+  Business verification — deliberately chosen over the paid WhatsApp
+  Business API (~₹0.115/utility message plus most providers' ₹1,000–2,500/
+  month platform fee) to keep the zero-cost posture the rest of this build
+  has held to throughout.
+- **Sidebar gets a quiet photography motif** — a soft brass aperture-ring
+  line-art watermark, low-opacity, no real photos involved (pending real
+  portfolio shots to swap in later if wanted).
+
+Deliberately **not** built this round, and why: contracts/e-signature, a
+client-facing branded portal, and a Kanban pipeline view were all flagged
+as the biggest remaining gaps vs. the competitive set above, but each is
+new database surface, not a UI tweak — worth doing once, not rushed
+alongside a click-reduction pass. Same reasoning applies to paid WhatsApp
+automation and real gallery-delivery storage (both have ongoing costs that
+deserve their own explicit go-ahead, not a default).
+
 ## Local development (optional)
 
 Not required — everything ships through GitHub Actions. If you want to run

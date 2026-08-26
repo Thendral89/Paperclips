@@ -4,12 +4,22 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Paperclip Studios — Tell us about your event</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
-  :root{ --ink:#211D18; --ink-soft:#5B5449; --paper:#F6F3EC; --card:#FFFFFF; --line:#DCD5C7; --accent:#4B3FA0; --accent-soft:#EEEBFA; --success:#2E8B57; --success-soft:#E4F3EA; --critical:#BE4038; --critical-soft:#FBE7E4; }
+  :root{
+    --ink:#211A12; --ink-soft:#7A6C58; --ink-faint:#A79A85;
+    --paper:#FAF6EF; --card:#FFFFFF; --line:#E6DCC7;
+    --accent:#9C6B2E; --accent-deep:#6E4A1E; --accent-soft:#F3E7D2;
+    --success:#3F7D5C; --success-soft:#E6F1EA;
+    --critical:#B5432E; --critical-soft:#FBE9E3;
+  }
   *{box-sizing:border-box;}
-  body{margin:0;background:var(--paper);color:var(--ink);font-family:-apple-system,'Segoe UI',sans-serif;line-height:1.5;}
+  body{margin:0;background:var(--paper);color:var(--ink);font-family:'Inter',-apple-system,'Segoe UI',sans-serif;line-height:1.5;-webkit-font-smoothing:antialiased;}
   .wrap{max-width:480px;margin:0 auto;padding:40px 20px 70px;}
-  h1{font-size:23px;margin:0 0 6px;}
+  .brandmark{font-family:'Fraunces',serif;font-weight:600;font-size:13px;letter-spacing:.08em;text-transform:uppercase;color:var(--accent-deep);margin:0 0 18px;}
+  h1{font-family:'Fraunces',serif;font-weight:600;font-size:27px;margin:0 0 6px;letter-spacing:-.01em;}
   p.lede{color:var(--ink-soft);font-size:14px;margin:0 0 20px;}
   .progress{display:flex;gap:6px;margin-bottom:18px;}
   .progress .seg{flex:1;height:4px;border-radius:99px;background:var(--line);}
@@ -44,6 +54,7 @@
 </head>
 <body>
 <div class="wrap">
+  <div class="brandmark">Paperclip Studios</div>
   <h1>Tell us about your event</h1>
   <p class="lede">Wedding, engagement or a promo reel — three quick steps, about 30 seconds.</p>
 

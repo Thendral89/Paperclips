@@ -5,58 +5,136 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Paperclip Ops Console</title>
 <style>
-  :root{ --ink:#211D18; --ink-soft:#5B5449; --paper:#F6F3EC; --card:#FFFFFF; --line:#DCD5C7; --accent:#4B3FA0; --accent-soft:#EEEBFA;
-         --success:#2E8B57; --success-soft:#E4F3EA; --warning:#B9791F; --warning-soft:#FBF0DE; --critical:#BE4038; --critical-soft:#FBE7E4; }
+  /* ── Design tokens — warm, editorial, built for a photography studio ── */
+  :root{
+    --ink:#211A12; --ink-soft:#7A6C58; --ink-faint:#A79A85;
+    --paper:#FAF6EF; --paper-dim:#F1EADC; --card:#FFFFFF; --line:#E6DCC7;
+    --accent:#9C6B2E; --accent-deep:#6E4A1E; --accent-soft:#F3E7D2;
+    --success:#3F7D5C; --success-soft:#E6F1EA;
+    --warning:#B4791E; --warning-soft:#FBF0DE;
+    --critical:#B5432E; --critical-soft:#FBE9E3;
+    --radius:12px; --radius-sm:8px;
+    --shadow-card:0 1px 2px rgba(33,26,18,0.04), 0 1px 1px rgba(33,26,18,0.03);
+    --shadow-sheet:0 -6px 24px rgba(33,26,18,0.14);
+  }
   *{box-sizing:border-box;}
-  body{margin:0;background:var(--paper);color:var(--ink);font-family:-apple-system,'Segoe UI',sans-serif;font-size:14px;line-height:1.5;}
+  body{margin:0;background:var(--paper);color:var(--ink);font-family:-apple-system,'Segoe UI',sans-serif;font-size:14.5px;line-height:1.5;-webkit-font-smoothing:antialiased;}
   a{color:inherit;}
-  .shell{display:grid;grid-template-columns:190px 1fr;min-height:100vh;}
-  .rail{background:var(--card);border-right:1px solid var(--line);padding:20px 12px;}
-  .brand{font-weight:700;font-size:16px;margin-bottom:20px;padding:0 6px;}
-  .navlink{display:block;padding:8px 10px;border-radius:7px;cursor:pointer;color:var(--ink-soft);font-size:13px;font-weight:600;margin-bottom:2px;}
+
+  /* ── App shell — left rail on desktop, sticky horizontal scroll on mobile ── */
+  .shell{display:grid;grid-template-columns:196px 1fr;min-height:100vh;}
+  .rail{background:var(--card);border-right:1px solid var(--line);padding:22px 13px;position:relative;overflow:hidden;min-height:100vh;}
+  /* Soft brass aperture-ring motif — a quiet nod to the camera, not a photo */
+  .rail::before{content:'';position:absolute;left:-38px;bottom:-38px;width:170px;height:170px;pointer-events:none;
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='170' height='170' viewBox='0 0 170 170'%3E%3Cg fill='none' stroke='%239C6B2E' stroke-width='1'%3E%3Ccircle cx='85' cy='85' r='72'/%3E%3Ccircle cx='85' cy='85' r='53'/%3E%3Ccircle cx='85' cy='85' r='34'/%3E%3Cpath d='M85 13 v18 M85 139 v18 M13 85 h18 M139 85 h18' stroke-width='1'/%3E%3C/g%3E%3C/svg%3E");
+    background-repeat:no-repeat;opacity:.07;}
+  .brand{font-weight:800;font-size:17px;margin-bottom:22px;padding:0 7px 12px;letter-spacing:-.01em;color:var(--accent-deep);
+    border-bottom:1px solid var(--line);position:relative;z-index:1;}
+  .navlink{position:relative;z-index:1;}
+  .navlink{display:block;padding:9px 11px;border-radius:var(--radius-sm);cursor:pointer;color:var(--ink-soft);font-size:13.5px;font-weight:600;margin-bottom:2px;}
   .navlink:hover{background:var(--accent-soft);color:var(--ink);}
   .navlink.active{background:var(--accent);color:#fff;}
-  .main{padding:24px 30px 60px;max-width:1000px;}
-  h1{font-size:21px;margin:0 0 16px;}
+  .main{padding:26px 32px 100px;max-width:1040px;}
+  h1{font-size:22px;margin:0 0 16px;letter-spacing:-.01em;}
+
+  @media (max-width:820px){
+    .shell{display:block;}
+    .rail{display:flex;align-items:center;gap:4px;overflow-x:auto;padding:10px 12px;position:sticky;top:0;z-index:20;
+          border-right:none;border-bottom:1px solid var(--line);scrollbar-width:none;-webkit-overflow-scrolling:touch;min-height:0;}
+    .rail::-webkit-scrollbar{display:none;}
+    .rail::before{display:none;}
+    .brand{display:none;}
+    .navlink{flex:0 0 auto;white-space:nowrap;margin-bottom:0;padding:8px 13px;}
+    .main{padding:18px 16px 100px;}
+    h1{font-size:19px;}
+  }
+
+  /* ── Primitives ── */
   .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:20px;}
-  .kpi{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:13px 15px;}
-  .kpi .l{font-size:11px;color:var(--ink-soft);text-transform:uppercase;}
-  .kpi .v{font-size:22px;font-weight:700;margin-top:4px;}
-  .card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:16px 18px;margin-bottom:16px;}
-  .card h2{font-size:12px;text-transform:uppercase;letter-spacing:.03em;color:var(--ink-soft);margin:0 0 12px;}
+  .kpi{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:14px 16px;box-shadow:var(--shadow-card);}
+  .kpi .l{font-size:11px;color:var(--ink-soft);text-transform:uppercase;letter-spacing:.03em;}
+  .kpi .v{font-size:22px;font-weight:700;margin-top:4px;color:var(--accent-deep);}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:17px 19px;margin-bottom:16px;box-shadow:var(--shadow-card);}
+  .card h2{font-size:12px;text-transform:uppercase;letter-spacing:.04em;color:var(--ink-soft);margin:0 0 13px;display:flex;justify-content:space-between;align-items:center;gap:8px;}
   table{width:100%;border-collapse:collapse;font-size:13px;}
-  th{text-align:left;font-size:10.5px;text-transform:uppercase;color:var(--ink-soft);padding:6px 8px;border-bottom:1px solid var(--line);}
-  td{padding:8px;border-bottom:1px solid var(--line);}
+  th{text-align:left;font-size:10.5px;text-transform:uppercase;letter-spacing:.02em;color:var(--ink-soft);padding:7px 8px;border-bottom:1px solid var(--line);}
+  td{padding:9px 8px;border-bottom:1px solid var(--paper-dim);}
   tr:last-child td{border-bottom:none;}
   tr.clickable{cursor:pointer;}
   tr.clickable:hover{background:var(--accent-soft);}
-  .pill{display:inline-block;font-size:10.5px;font-weight:700;padding:2px 8px;border-radius:100px;background:var(--accent-soft);color:var(--accent);}
-  button, .btn{background:var(--accent);color:#fff;border:none;border-radius:7px;padding:8px 13px;font-size:12.5px;font-weight:700;cursor:pointer;}
+  .pill{display:inline-block;font-size:10.5px;font-weight:700;padding:2px 9px;border-radius:100px;background:var(--accent-soft);color:var(--accent-deep);}
+  button, .btn{background:var(--accent);color:#fff;border:none;border-radius:var(--radius-sm);padding:9px 15px;font-size:13px;font-weight:700;cursor:pointer;transition:transform .08s, background .15s;font-family:inherit;}
+  button:active{transform:scale(.97);}
+  button:hover{background:var(--accent-deep);}
   button.ghost{background:transparent;color:var(--ink);border:1px solid var(--line);}
-  input,select,textarea{padding:7px 9px;border:1px solid var(--line);border-radius:6px;font-size:13px;}
-  .field{margin-bottom:10px;}
-  .field label{display:block;font-size:11px;font-weight:700;color:var(--ink-soft);text-transform:uppercase;margin-bottom:4px;}
+  button.ghost:hover{background:var(--paper-dim);}
+  input,select,textarea{padding:9px 11px;border:1px solid var(--line);border-radius:var(--radius-sm);font-size:14px;background:#fff;color:var(--ink);font-family:inherit;}
+  input:focus,select:focus,textarea:focus{outline:2px solid var(--accent);outline-offset:1px;}
+  .field{margin-bottom:11px;}
+  .field label{display:block;font-size:11px;font-weight:700;color:var(--ink-soft);text-transform:uppercase;letter-spacing:.02em;margin-bottom:5px;}
   .field input,.field select,.field textarea{width:100%;}
-  .inline-form{display:flex;gap:8px;flex-wrap:wrap;align-items:end;margin-bottom:10px;}
-  .back{font-size:12.5px;color:var(--ink-soft);cursor:pointer;margin-bottom:10px;display:inline-block;}
+  .inline-form{display:flex;gap:9px;flex-wrap:wrap;align-items:end;margin-bottom:10px;}
+  .back{font-size:12.5px;color:var(--ink-soft);cursor:pointer;margin-bottom:12px;display:inline-block;}
   .row2{display:grid;grid-template-columns:1fr 1fr;gap:16px;align-items:start;}
-  .tier{border:1px solid var(--line);border-radius:8px;padding:10px 12px;cursor:pointer;flex:1;}
+  @media (max-width:640px){ .row2{grid-template-columns:1fr;} .kpis{grid-template-columns:repeat(2,1fr);} }
+  .tier{border:1px solid var(--line);border-radius:var(--radius-sm);padding:11px 13px;cursor:pointer;flex:1;}
   .tier.sel{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent-soft);}
-  .svc{display:flex;justify-content:space-between;align-items:center;padding:7px 0;border-bottom:1px dashed var(--line);font-size:13px;}
-  .copybox{font-family:monospace;font-size:12px;background:var(--accent-soft);color:var(--accent);padding:8px 10px;border-radius:6px;word-break:break-all;margin-top:8px;}
-  .empty{color:var(--ink-soft);font-size:13px;}
+  .svc{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:8px 0;border-bottom:1px dashed var(--line);font-size:13.5px;flex-wrap:wrap;}
+  .copybox{font-family:ui-monospace,monospace;font-size:12px;background:var(--accent-soft);color:var(--accent-deep);padding:9px 11px;border-radius:var(--radius-sm);word-break:break-all;margin-top:8px;}
+  .empty{color:var(--ink-faint);font-size:13px;}
   .kpi.clickable{cursor:pointer;}
   .kpi.clickable:hover{border-color:var(--accent);}
-  .warn-banner{background:var(--warning-soft);color:var(--warning);border-radius:8px;padding:8px 12px;font-size:12.5px;font-weight:600;margin-bottom:8px;}
-  .check-row{display:flex;align-items:center;gap:9px;padding:6px 0;border-bottom:1px dashed var(--line);font-size:13px;}
+  .warn-banner{background:var(--warning-soft);color:var(--warning);border-radius:var(--radius-sm);padding:9px 13px;font-size:12.5px;font-weight:600;margin-bottom:10px;}
+  .check-row{display:flex;align-items:center;gap:9px;padding:7px 0;border-bottom:1px dashed var(--line);font-size:13.5px;}
   .check-row input{width:auto;}
-  .check-row.done{color:var(--ink-soft);text-decoration:line-through;}
-  .filter-chip{display:inline-flex;align-items:center;gap:6px;background:var(--accent-soft);color:var(--accent);font-size:12.5px;font-weight:700;padding:5px 11px;border-radius:100px;margin-bottom:14px;}
+  .check-row.done{color:var(--ink-faint);text-decoration:line-through;}
+  .filter-chip{display:inline-flex;align-items:center;gap:6px;background:var(--accent-soft);color:var(--accent-deep);font-size:12.5px;font-weight:700;padding:6px 12px;border-radius:100px;margin-bottom:14px;}
   .filter-chip span{cursor:pointer;}
-  .icon-btn{background:transparent;border:1px solid var(--line);color:var(--ink-soft);border-radius:6px;padding:4px 9px;font-size:12px;}
+  .icon-btn{background:transparent;border:1px solid var(--line);color:var(--ink-soft);border-radius:var(--radius-sm);padding:5px 10px;font-size:12px;font-weight:700;}
+  .icon-btn:hover{background:var(--paper-dim);}
+  .icon-btn.edit{border-color:transparent;color:var(--accent-deep);padding:4px 7px;font-size:13px;}
+  .icon-btn.edit:hover{background:var(--accent-soft);}
+  .icon-btn.del{border-color:transparent;color:var(--critical);padding:4px 7px;font-size:13px;}
+  .icon-btn.del:hover{background:var(--critical-soft);}
+  .row-actions{display:flex;gap:2px;align-items:center;justify-content:flex-end;white-space:nowrap;}
+  tr .row-actions{justify-content:flex-end;}
+  .list-row{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:9px 0;border-bottom:1px dashed var(--line);font-size:13.5px;flex-wrap:wrap;}
+  .list-row:last-child{border-bottom:none;}
+  .list-row .meta{color:var(--ink-soft);font-size:11.5px;}
   .status-pill-Pending,.status-pill-Unpaid,.status-pill-NotStarted{background:var(--warning-soft);color:var(--warning);}
   .status-pill-Paid,.status-pill-Delivered,.status-pill-Done{background:var(--success-soft);color:var(--success);}
-  .status-pill-InProgress,.status-pill-ClientReview,.status-pill-PartiallyPaid{background:var(--accent-soft);color:var(--accent);}
+  .status-pill-InProgress,.status-pill-ClientReview,.status-pill-PartiallyPaid{background:var(--accent-soft);color:var(--accent-deep);}
+
+  /* ── Progress bars ── */
+  .bar{height:6px;background:var(--paper-dim);border-radius:99px;overflow:hidden;margin:5px 0;}
+  .bar-fill{height:100%;background:var(--success);transition:width .3s ease;}
+  .bar-fill.warn{background:var(--warning);}
+  .bar-fill.critical{background:var(--critical);}
+
+  /* ── FAB ── */
+  .fab{position:fixed;right:20px;bottom:20px;width:54px;height:54px;border-radius:50%;background:var(--accent);color:#fff;
+       border:none;font-size:26px;line-height:1;box-shadow:0 6px 18px rgba(110,74,30,.35);cursor:pointer;z-index:25;
+       display:flex;align-items:center;justify-content:center;}
+  .fab:active{transform:scale(.92);}
+
+  /* ── Bottom-sheet modal ── */
+  .modal-backdrop{position:fixed;inset:0;background:rgba(33,26,18,.55);z-index:40;display:none;align-items:flex-end;justify-content:center;backdrop-filter:blur(1px);}
+  .modal-backdrop.show{display:flex;animation:fadeIn .15s;}
+  @keyframes fadeIn{from{opacity:0;}to{opacity:1;}}
+  .modal-sheet{background:var(--paper);width:100%;max-width:520px;max-height:88vh;overflow-y:auto;border-radius:18px 18px 0 0;
+               padding:18px 18px 26px;box-shadow:var(--shadow-sheet);animation:slideUp .25s cubic-bezier(.16,.9,.3,1);}
+  @media (min-width:640px){ .modal-backdrop{align-items:center;} .modal-sheet{border-radius:16px;max-height:85vh;} }
+  @keyframes slideUp{from{transform:translateY(100%);}to{transform:translateY(0);}}
+  .modal-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;}
+  .modal-head h3{margin:0;font-size:16px;color:var(--accent-deep);}
+  .modal-close{background:none;border:none;font-size:20px;color:var(--ink-soft);cursor:pointer;line-height:1;padding:4px 8px;}
+
+  /* ── Toast ── */
+  #toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:var(--ink);color:#fff;padding:10px 18px;
+         border-radius:99px;font-size:13px;font-weight:600;opacity:0;transition:opacity .2s, transform .2s;pointer-events:none;
+         z-index:50;max-width:88vw;text-align:center;box-shadow:0 6px 16px rgba(0,0,0,.2);}
+  #toast.show{opacity:1;transform:translateX(-50%) translateY(-4px);}
+  #toast.err{background:var(--critical);}
 </style>
 </head>
 <body>
@@ -65,7 +143,7 @@
     <div class="brand">Paperclip</div>
     <div class="navlink" data-view="dashboard">Dashboard</div>
     <div class="navlink" data-view="leads">Leads</div>
-    <div class="navlink" data-view="accounts">Accounts</div>
+    <div class="navlink" data-view="accounts">Customers / Accounts</div>
     <div class="navlink" data-view="packages">Packages</div>
     <div class="navlink" data-view="vendors">Vendors</div>
     <div class="navlink" data-view="reports">Reports</div>
@@ -73,10 +151,73 @@
   <main class="main" id="main">Loading…</main>
 </div>
 
+<button id="fab" class="fab" style="display:none;">+</button>
+<div id="modal-backdrop" class="modal-backdrop" onclick="if(event.target===this) closeModal()">
+  <div class="modal-sheet">
+    <div class="modal-head"><h3 id="modal-title">Add</h3><button class="modal-close" onclick="closeModal()">✕</button></div>
+    <div id="modal-body"></div>
+  </div>
+</div>
+<div id="toast"></div>
+
 <script>
 const api = (path, opts) => fetch(`/api/admin${path}`, {
   headers: { "content-type": "application/json" }, ...opts
 }).then(async r => { const d = await r.json(); if (!r.ok) throw new Error(d.error || "Request failed"); return d; });
+
+// ── Toast ──────────────────────────────────────────────────
+let toastTimer;
+function toast(message, isErr) {
+  const el = document.getElementById("toast");
+  el.textContent = message;
+  el.className = isErr ? "show err" : "show";
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { el.className = ""; }, 2600);
+}
+
+// ── Bottom-sheet modal — one generic form modal, reused everywhere ──
+const modalBackdrop = document.getElementById("modal-backdrop");
+function openModal(title, bodyHtml, onSubmit) {
+  document.getElementById("modal-title").textContent = title;
+  document.getElementById("modal-body").innerHTML = bodyHtml;
+  modalBackdrop.classList.add("show");
+  const form = document.getElementById("modal-body").querySelector("form");
+  if (form) form.addEventListener("submit", async e => {
+    e.preventDefault();
+    const btn = form.querySelector("button[type=submit]");
+    if (btn) btn.disabled = true;
+    try {
+      await onSubmit(Object.fromEntries(new FormData(form).entries()), form);
+      closeModal();
+    } catch (err) {
+      toast(err.message, true);
+      if (btn) btn.disabled = false;
+    }
+  });
+}
+function closeModal() { modalBackdrop.classList.remove("show"); }
+
+// ── Delete with confirm — one helper reused by every row-action ✕ ──
+async function confirmDelete(message, path, onDone) {
+  if (!confirm(message)) return;
+  try {
+    await api(path, { method: "POST", body: "{}" });
+    toast("Deleted");
+    onDone();
+  } catch (err) {
+    toast(err.message, true);
+  }
+}
+function editIcon(label) { return `<button type="button" class="icon-btn edit" title="${label || 'Edit'}">✎</button>`; }
+function delIcon(label) { return `<button type="button" class="icon-btn del" title="${label || 'Delete'}">✕</button>`; }
+
+// ── FAB — one primary "add" action per view, wired per render() call ──
+const fab = document.getElementById("fab");
+function setFab(onClick) {
+  if (!onClick) { fab.style.display = "none"; fab.onclick = null; return; }
+  fab.style.display = "flex";
+  fab.onclick = onClick;
+}
 
 const main = document.getElementById("main");
 let state = { view: "dashboard", id: null, filter: null };
@@ -91,6 +232,8 @@ function go(view, id, filter) {
 
 async function render() {
   main.innerHTML = "Loading…";
+  closeModal();
+  setFab(null);
   try {
     if (state.view === "dashboard") return renderDashboard();
     if (state.view === "leads") return renderLeads();
@@ -108,6 +251,20 @@ async function render() {
 function money(n) { return `₹${(n || 0).toLocaleString("en-IN")}`; }
 function statusPill(status) { return `<span class="pill status-pill-${String(status).replace(/\s/g,"")}">${status}</span>`; }
 
+// ── Free click-to-WhatsApp — zero-cost alternative to the paid Business API.
+// Builds a wa.me deep link with the message pre-filled; opens WhatsApp with
+// it ready to send — a human still taps Send, so no API/verification/cost.
+function waLink(phone, message) {
+  const digits = String(phone || "").replace(/[^0-9]/g, "").slice(-10);
+  if (!digits) return null;
+  return `https://wa.me/91${digits}?text=${encodeURIComponent(message)}`;
+}
+function waButton(phone, message, label) {
+  const href = waLink(phone, message);
+  if (!href) return "";
+  return `<a class="icon-btn" style="color:#3F7D5C;text-decoration:none;" href="${href}" target="_blank" rel="noopener" title="Message on WhatsApp">💬 ${label || "WhatsApp"}</a>`;
+}
+
 // ── Dashboard ──────────────────────────────────────────────
 async function renderDashboard() {
   const d = await api("/dashboard");
@@ -117,7 +274,7 @@ async function renderDashboard() {
       <div class="kpi clickable" data-kpi="7d"><div class="l">New leads (7d)</div><div class="v">${d.new_leads_7d.length}</div></div>
       <div class="kpi clickable" data-kpi="today"><div class="l">Today's follow-ups</div><div class="v">${d.todays_followups.length}</div></div>
       <div class="kpi clickable" data-kpi="overdue"><div class="l">Overdue</div><div class="v" style="color:var(--critical)">${d.overdue_followups.length}</div></div>
-      <div class="kpi"><div class="l">Accounts w/ balance due</div><div class="v">${d.pending_payments.length}</div></div>
+      <div class="kpi"><div class="l">Customers w/ balance due</div><div class="v">${d.pending_payments.length}</div></div>
     </div>
     ${d.upcoming_events.some(e => e.incomplete_checklist_items > 0) ? `<div class="warn-banner">⚠ ${d.upcoming_events.filter(e=>e.incomplete_checklist_items>0).length} event(s) in the next 7 days still have unfinished checklist items — see below.</div>` : ""}
     <div class="row2">
@@ -159,33 +316,47 @@ async function renderLeads() {
   main.innerHTML = `
     <h1>Leads</h1>
     ${f ? `<div class="filter-chip">${f.label} <span data-clear>✕</span></div>` : ""}
-    <div class="card">
-      <h2>Add a lead manually</h2>
-      <form id="newLead" class="inline-form">
-        <div class="field"><label>Name</label><input name="name" required></div>
-        <div class="field"><label>Phone</label><input name="phone" required></div>
-        <div class="field"><label>Source</label>
-          <select name="source"><option>Manual</option><option>Instagram</option><option>WhatsApp</option><option>Facebook</option><option>Referral</option></select>
-        </div>
-        <div class="field"><label>Event type</label><input name="event_type"></div>
-        <div class="field"><label>Budget est.</label><input name="budget_est" type="number"></div>
-        <button type="submit">Add lead</button>
-      </form>
-    </div>
     <div class="card"><h2>${f ? f.label : "All leads"} (${leads.length})</h2>
-      <table><thead><tr><th>Name</th><th>Source</th><th>Stage</th><th>Budget</th></tr></thead>
-      <tbody>${leads.map(l => `<tr class="clickable" data-lead="${l.id}"><td>${l.name}</td><td><span class="pill">${l.source}</span></td><td>${l.stage}</td><td>${money(l.budget_est)}</td></tr>`).join("") || `<tr><td colspan="4" class="empty">No leads match this filter.</td></tr>`}</tbody></table>
+      <table><thead><tr><th>Name</th><th>Source</th><th>Stage</th><th>Budget</th><th></th></tr></thead>
+      <tbody>${leads.map(l => `<tr class="clickable" data-lead="${l.id}"><td>${l.name}</td><td><span class="pill">${l.source}</span></td><td>${l.stage}</td><td>${money(l.budget_est)}</td><td class="row-actions"><button type="button" class="icon-btn edit" data-edit-lead="${l.id}" title="Edit">✎</button></td></tr>`).join("") || `<tr><td colspan="5" class="empty">No leads match this filter.</td></tr>`}</tbody></table>
     </div>
   `;
   main.querySelectorAll("[data-lead]").forEach(el => el.addEventListener("click", () => go("leadDetail", el.dataset.lead)));
   const clear = main.querySelector("[data-clear]");
   if (clear) clear.addEventListener("click", () => go("leads"));
-  document.getElementById("newLead").addEventListener("submit", async e => {
-    e.preventDefault();
-    const data = Object.fromEntries(new FormData(e.target).entries());
-    await api("/leads", { method: "POST", body: JSON.stringify(data) });
-    renderLeads();
-  });
+  main.querySelectorAll("[data-edit-lead]").forEach(el => el.addEventListener("click", async e => {
+    e.stopPropagation();
+    const l = leads.find(x => String(x.id) === el.dataset.editLead);
+    openModal("Edit lead", `
+      <form>
+        <div class="row2">
+          <div class="field"><label>Name</label><input name="name" value="${l.name}" required></div>
+          <div class="field"><label>Phone</label><input name="phone" value="${l.phone}" required></div>
+        </div>
+        <div class="row2">
+          <div class="field"><label>Email</label><input name="email" value="${l.email || ""}"></div>
+          <div class="field"><label>Budget est.</label><input name="budget_est" type="number" value="${l.budget_est || ""}"></div>
+        </div>
+        <div class="row2">
+          <div class="field"><label>Event type</label><input name="event_type" value="${l.event_type || ""}"></div>
+          <div class="field"><label>Event date</label><input name="event_date" type="date" value="${l.event_date || ""}"></div>
+        </div>
+        <button type="submit" style="width:100%;">Save</button>
+      </form>
+    `, async data => { await api(`/leads/${l.id}/details`, { method: "POST", body: JSON.stringify(data) }); toast("Lead updated"); renderLeads(); });
+  }));
+  setFab(() => openModal("Add a lead", `
+    <form>
+      <div class="field"><label>Name</label><input name="name" required></div>
+      <div class="field"><label>Phone</label><input name="phone" required></div>
+      <div class="field"><label>Source</label>
+        <select name="source"><option>Manual</option><option>Instagram</option><option>WhatsApp</option><option>Facebook</option><option>Referral</option></select>
+      </div>
+      <div class="field"><label>Event type</label><input name="event_type"></div>
+      <div class="field"><label>Budget est.</label><input name="budget_est" type="number"></div>
+      <button type="submit" style="width:100%;">Add lead</button>
+    </form>
+  `, async data => { await api("/leads", { method: "POST", body: JSON.stringify(data) }); toast("Lead added"); renderLeads(); }));
 }
 
 async function renderLeadDetail(id) {
@@ -197,7 +368,7 @@ async function renderLeadDetail(id) {
       <div class="card">
         <h2>Details</h2>
         <table id="detailsView">
-          <tr><td>Phone</td><td>${l.phone}</td></tr>
+          <tr><td>Phone</td><td>${l.phone} ${waButton(l.phone, `Hi ${l.name}, this is Paperclip Studios following up on your ${l.event_type || "event"} enquiry — would love to help you plan it!`)}</td></tr>
           <tr><td>Email</td><td>${l.email || "—"}</td></tr>
           <tr><td>Source</td><td>${l.source}</td></tr>
           <tr><td>Event</td><td>${l.event_type || "—"} · ${l.event_date || "TBD"}</td></tr>
@@ -258,14 +429,16 @@ async function renderLeadDetail(id) {
       if (!lost_reason) { renderLeadDetail(id); return; } // cancelled — revert the dropdown
     }
     await api(`/leads/${id}/stage`, { method: "POST", body: JSON.stringify({ stage, lost_reason }) });
+    toast("Stage updated");
     renderLeadDetail(id);
   });
-  main.querySelector("#fuDate").addEventListener("change", async e => { await api(`/leads/${id}/followup`, { method: "POST", body: JSON.stringify({ date: e.target.value }) }); });
+  main.querySelector("#fuDate").addEventListener("change", async e => { await api(`/leads/${id}/followup`, { method: "POST", body: JSON.stringify({ date: e.target.value }) }); toast("Follow-up date saved"); });
   const convertBtn = main.querySelector("#convertBtn");
-  if (convertBtn) convertBtn.addEventListener("click", async () => { const r = await api(`/leads/${id}/convert`, { method: "POST", body: "{}" }); go("accountDetail", r.account_id); });
+  if (convertBtn) convertBtn.addEventListener("click", async () => { const r = await api(`/leads/${id}/convert`, { method: "POST", body: "{}" }); toast("Converted to account"); go("accountDetail", r.account_id); });
   main.querySelector("#noteForm").addEventListener("submit", async e => {
     e.preventDefault();
     await api(`/leads/${id}/notes`, { method: "POST", body: JSON.stringify(Object.fromEntries(new FormData(e.target).entries())) });
+    toast("Note added");
     renderLeadDetail(id);
   });
 }
@@ -273,92 +446,139 @@ async function renderLeadDetail(id) {
 // ── Accounts ───────────────────────────────────────────────
 async function renderAccounts() {
   const accts = await api("/accounts");
-  main.innerHTML = `<h1>Accounts</h1><div class="card">
-    <table><thead><tr><th>Name</th><th>Phone</th><th>Client since</th></tr></thead>
-    <tbody>${accts.map(a => `<tr class="clickable" data-acct="${a.id}"><td>${a.name}${a.is_signature ? ' <span class="pill" style="background:var(--warning-soft);color:var(--warning)">Signature</span>' : ""}</td><td>${a.phone||"—"}</td><td>${a.client_since}</td></tr>`).join("") || `<tr><td colspan="3" class="empty">No accounts yet — convert a lead first.</td></tr>`}</tbody></table>
+  main.innerHTML = `<h1>Customers / Accounts</h1><div class="card">
+    <table><thead><tr><th>Name</th><th>Phone</th><th>Client since</th><th></th></tr></thead>
+    <tbody>${accts.map(a => `<tr class="clickable" data-acct="${a.id}"><td>${a.name}${a.is_signature ? ' <span class="pill" style="background:var(--warning-soft);color:var(--warning)">Signature</span>' : ""}</td><td>${a.phone||"—"}</td><td>${a.client_since}</td><td class="row-actions"><button type="button" class="icon-btn edit" data-edit-acct="${a.id}" title="Edit">✎</button></td></tr>`).join("") || `<tr><td colspan="4" class="empty">No customers yet — convert a lead first.</td></tr>`}</tbody></table>
   </div>`;
   main.querySelectorAll("[data-acct]").forEach(el => el.addEventListener("click", () => go("accountDetail", el.dataset.acct)));
+  main.querySelectorAll("[data-edit-acct]").forEach(el => el.addEventListener("click", e => {
+    e.stopPropagation();
+    const a = accts.find(x => String(x.id) === el.dataset.editAcct);
+    openModal("Edit customer", `
+      <form>
+        <div class="field"><label>Name</label><input name="name" value="${a.name}" required></div>
+        <div class="field"><label>Phone</label><input name="phone" value="${a.phone || ""}"></div>
+        <div class="field"><label>Email</label><input name="email" value="${a.email || ""}"></div>
+        <button type="submit" style="width:100%;">Save</button>
+      </form>
+    `, async data => { await api(`/accounts/${a.id}/details`, { method: "POST", body: JSON.stringify(data) }); toast("Customer updated"); renderAccounts(); });
+  }));
 }
 
 async function renderAccountDetail(id) {
   const a = await api(`/accounts/${id}`);
   main.innerHTML = `
-    <span class="back" data-back>← Accounts</span>
-    <h1>${a.name} <span class="pill">LTV ₹${a.lifetime_value}</span></h1>
-    <div class="card"><h2>Contacts</h2>
-      ${a.contacts.map(c => `<div class="svc">${c.name}${c.role ? ` <span class="pill">${c.role}</span>` : ""}${c.is_primary ? ' <span class="pill" style="background:var(--success-soft);color:var(--success)">Primary</span>' : ""}<span style="color:var(--ink-soft);font-size:12px">${[c.phone, c.email].filter(Boolean).join(" · ")}</span></div>`).join("") || '<div class="empty">No additional contacts yet — the account\'s own phone/email above counts as the primary.</div>'}
-      <form id="newContact" class="inline-form" style="margin-top:10px;">
-        <div class="field"><label>Name</label><input name="name" required></div>
-        <div class="field"><label>Role</label>
-          <select name="role"><option>Bride</option><option>Groom</option><option>Planner</option><option>Parent</option><option>Other</option></select>
-        </div>
-        <div class="field"><label>Phone</label><input name="phone"></div>
-        <div class="field"><label>Email</label><input name="email"></div>
-        <button type="submit">Add contact</button>
-      </form>
-    </div>
-    <div class="card"><h2>New event</h2>
-      <form id="newEvent" class="inline-form">
-        <div class="field"><label>Type</label><input name="type" placeholder="Wedding" required></div>
-        <div class="field"><label>Date</label><input name="event_date" type="date"></div>
-        <div class="field"><label>Venue</label><input name="venue"></div>
-        <button type="submit">Create event</button>
-      </form>
+    <span class="back" data-back>← Customers / Accounts</span>
+    <h1>${a.name} <span class="pill">LTV ₹${a.lifetime_value}</span> ${waButton(a.phone, `Hi ${a.name}, this is Paperclip Studios — thank you for booking with us!`)}</h1>
+    <div class="card"><h2>Contacts <button class="icon-btn" id="addContactBtn">+ Add</button></h2>
+      ${a.contacts.map(c => `<div class="list-row"><span>${c.name}${c.role ? ` <span class="pill">${c.role}</span>` : ""}${c.is_primary ? ' <span class="pill" style="background:var(--success-soft);color:var(--success)">Primary</span>' : ""} <span class="meta">${[c.phone, c.email].filter(Boolean).join(" · ")}</span></span><span class="row-actions">${waButton(c.phone, `Hi ${c.name}, this is Paperclip Studios — reaching out about your upcoming event.`)}<button type="button" class="icon-btn edit" data-edit-contact="${c.id}" title="Edit">✎</button><button type="button" class="icon-btn del" data-del-contact="${c.id}" title="Delete">✕</button></span></div>`).join("") || '<div class="empty">No additional contacts yet — the customer\'s own phone/email above counts as the primary.</div>'}
     </div>
     <div class="card"><h2>Events</h2>
-      <table>${a.events.map(e => `<tr class="clickable" data-event="${e.id}"><td>${e.type}</td><td>${e.event_date||"TBD"}</td><td><span class="pill">${e.tier_name||"—"}</span></td><td>₹${e.quote_total}</td></tr>`).join("") || `<tr><td class="empty">No events yet.</td></tr>`}</table>
+      <table>${a.events.map(e => `<tr class="clickable" data-event="${e.id}"><td>${e.type}</td><td>${e.event_date||"TBD"}</td><td><span class="pill">${e.tier_name||"—"}</span></td><td>${money(e.quote_total)}</td></tr>`).join("") || `<tr><td class="empty">No events yet — use the + button to create one.</td></tr>`}</table>
     </div>
   `;
   main.querySelector("[data-back]").addEventListener("click", () => go("accounts"));
   main.querySelectorAll("[data-event]").forEach(el => el.addEventListener("click", () => go("eventDetail", el.dataset.event)));
-  main.querySelector("#newEvent").addEventListener("submit", async e => {
-    e.preventDefault();
-    const data = Object.fromEntries(new FormData(e.target).entries());
+  main.querySelector("#addContactBtn").addEventListener("click", () => openModal("Add a contact", `
+    <form>
+      <div class="field"><label>Name</label><input name="name" required></div>
+      <div class="field"><label>Role</label>
+        <select name="role"><option>Bride</option><option>Groom</option><option>Planner</option><option>Parent</option><option>Other</option></select>
+      </div>
+      <div class="field"><label>Phone</label><input name="phone"></div>
+      <div class="field"><label>Email</label><input name="email"></div>
+      <button type="submit" style="width:100%;">Add contact</button>
+    </form>
+  `, async data => { await api(`/accounts/${id}/contacts`, { method: "POST", body: JSON.stringify(data) }); toast("Contact added"); renderAccountDetail(id); }));
+  main.querySelectorAll("[data-edit-contact]").forEach(el => el.addEventListener("click", () => {
+    const c = a.contacts.find(x => String(x.id) === el.dataset.editContact);
+    openModal("Edit contact", `
+      <form>
+        <div class="field"><label>Name</label><input name="name" value="${c.name}" required></div>
+        <div class="field"><label>Role</label>
+          <select name="role">${["Bride","Groom","Planner","Parent","Other"].map(r => `<option ${r===c.role?"selected":""}>${r}</option>`).join("")}</select>
+        </div>
+        <div class="field"><label>Phone</label><input name="phone" value="${c.phone || ""}"></div>
+        <div class="field"><label>Email</label><input name="email" value="${c.email || ""}"></div>
+        <button type="submit" style="width:100%;">Save</button>
+      </form>
+    `, async data => { await api(`/contacts/${c.id}`, { method: "POST", body: JSON.stringify(data) }); toast("Contact updated"); renderAccountDetail(id); });
+  }));
+  main.querySelectorAll("[data-del-contact]").forEach(el => el.addEventListener("click", () =>
+    confirmDelete("Remove this contact?", `/contacts/${el.dataset.delContact}/delete`, () => renderAccountDetail(id))
+  ));
+  setFab(() => openModal("New event", `
+    <form>
+      <div class="field"><label>Type</label><input name="type" placeholder="Wedding" required></div>
+      <div class="field"><label>Date</label><input name="event_date" type="date"></div>
+      <div class="field"><label>Venue</label><input name="venue"></div>
+      <button type="submit" style="width:100%;">Create event</button>
+    </form>
+  `, async data => {
     data.account_id = id;
-    await api("/events", { method: "POST", body: JSON.stringify(data) });
-    renderAccountDetail(id);
-  });
-  main.querySelector("#newContact").addEventListener("submit", async e => {
-    e.preventDefault();
-    await api(`/accounts/${id}/contacts`, { method: "POST", body: JSON.stringify(Object.fromEntries(new FormData(e.target).entries())) });
-    renderAccountDetail(id);
-  });
+    const r = await api("/events", { method: "POST", body: JSON.stringify(data) });
+    toast("Event created");
+    go("eventDetail", r.id);
+  }));
 }
 
 // ── Packages ───────────────────────────────────────────────
 async function renderPackages() {
   const [packages, services] = await Promise.all([api("/packages"), api("/services")]);
+  const svcCheckboxes = (checkedIds) => services.map(s => `<label style="display:inline-flex;align-items:center;gap:5px;margin:2px 12px 2px 0;font-weight:400;text-transform:none;font-size:13px;"><input type="checkbox" name="service_ids" value="${s.id}" ${checkedIds && checkedIds.has(s.id) ? "checked" : ""}> ${s.name}</label>`).join("");
   main.innerHTML = `
     <h1>Packages</h1>
-    <div class="card"><h2>Create a package</h2>
-      <form id="newPackage">
-        <div class="row2">
-          <div class="field"><label>Name</label><input name="name" placeholder="e.g. Gold Wedding Package" required></div>
-          <div class="field"><label>Bundle price (₹)</label><input name="base_price" type="number" required></div>
-        </div>
-        <div class="field"><label>Description</label><input name="description" placeholder="What's included, in plain words"></div>
-        <div class="field"><label>Included services (reference only — doesn't change the bundle price)</label>
-          ${services.map(s => `<label style="display:inline-flex;align-items:center;gap:5px;margin:2px 12px 2px 0;font-weight:400;text-transform:none;font-size:13px;"><input type="checkbox" name="service_ids" value="${s.id}"> ${s.name}</label>`).join("")}
-        </div>
-        <button type="submit">Create package</button>
-      </form>
-    </div>
     <div class="card"><h2>Active packages</h2>
-      ${packages.map(p => `
-        <div class="svc" style="align-items:flex-start;flex-direction:column;">
-          <div style="display:flex;justify-content:space-between;width:100%;"><b>${p.name}</b><span class="pill">₹${p.base_price}</span></div>
-          <div style="color:var(--ink-soft);font-size:12.5px;margin-top:2px;">${p.description || ""}</div>
-          <div style="color:var(--ink-soft);font-size:11.5px;margin-top:4px;">Includes: ${p.items.map(i => i.name).join(", ") || "—"}</div>
-        </div>`).join("") || '<div class="empty">No packages yet — create one above.</div>'}
+      <table><thead><tr><th>Name</th><th>Price</th><th>Includes</th><th></th></tr></thead>
+      <tbody>${packages.map(p => `<tr><td><b>${p.name}</b><div class="meta">${p.description || ""}</div></td><td>${money(p.base_price)}</td><td class="meta">${p.items.map(i => i.name).join(", ") || "—"}</td><td class="row-actions"><button type="button" class="icon-btn edit" data-edit-pkg="${p.id}" title="Edit">✎</button><button type="button" class="icon-btn del" data-del-pkg="${p.id}" title="Delete">✕</button></td></tr>`).join("") || `<tr><td colspan="4" class="empty">No packages yet — use the + button to create one.</td></tr>`}</tbody></table>
     </div>
   `;
-  main.querySelector("#newPackage").addEventListener("submit", async e => {
-    e.preventDefault();
-    const form = new FormData(e.target);
-    const data = { name: form.get("name"), base_price: form.get("base_price"), description: form.get("description"), service_ids: form.getAll("service_ids") };
+  setFab(() => openModal("Create a package", `
+    <form>
+      <div class="row2">
+        <div class="field"><label>Name</label><input name="name" placeholder="e.g. Gold Wedding Package" required></div>
+        <div class="field"><label>Bundle price (₹)</label><input name="base_price" type="number" required></div>
+      </div>
+      <div class="field"><label>Description</label><input name="description" placeholder="What's included, in plain words"></div>
+      <div class="field"><label>Included services (reference only — doesn't change the bundle price)</label>
+        ${svcCheckboxes()}
+      </div>
+      <button type="submit" style="width:100%;">Create package</button>
+    </form>
+  `, async (data, form) => {
+    data.service_ids = new FormData(form).getAll("service_ids");
     await api("/packages", { method: "POST", body: JSON.stringify(data) });
+    toast("Package created");
     renderPackages();
-  });
+  }));
+  main.querySelectorAll("[data-edit-pkg]").forEach(el => el.addEventListener("click", () => {
+    const p = packages.find(x => String(x.id) === el.dataset.editPkg);
+    // The package's items only come back as names, not service_ids — match
+    // by name against the loaded services list so the right boxes start checked.
+    const currentNames = new Set(p.items.map(i => i.name));
+    const checkedIds = new Set(services.filter(s => currentNames.has(s.name)).map(s => s.id));
+    openModal("Edit package", `
+      <form>
+        <div class="row2">
+          <div class="field"><label>Name</label><input name="name" value="${p.name}" required></div>
+          <div class="field"><label>Bundle price (₹)</label><input name="base_price" type="number" value="${p.base_price}" required></div>
+        </div>
+        <div class="field"><label>Description</label><input name="description" value="${p.description || ""}"></div>
+        <div class="field"><label>Included services (reference only — doesn't change the bundle price)</label>
+          ${svcCheckboxes(checkedIds)}
+        </div>
+        <button type="submit" style="width:100%;">Save</button>
+      </form>
+    `, async (data, form) => {
+      data.service_ids = new FormData(form).getAll("service_ids");
+      await api(`/packages/${p.id}`, { method: "POST", body: JSON.stringify(data) });
+      toast("Package updated");
+      renderPackages();
+    });
+  }));
+  main.querySelectorAll("[data-del-pkg]").forEach(el => el.addEventListener("click", () =>
+    confirmDelete("Remove this package? Events that already applied it keep their booked price.", `/packages/${el.dataset.delPkg}/delete`, renderPackages)
+  ));
 }
 
 // ── Event detail (pricing, resourcing, cost/profit, payments, ops) ─
@@ -379,6 +599,7 @@ async function renderEventDetail(id) {
     </div>
 
     <div class="card"><h2>Pre-event checklist — ${checklistDone}/${ev.checklist.length} ready ${checklistDone < ev.checklist.length ? '<span class="pill" style="background:var(--critical-soft);color:var(--critical)">incomplete</span>' : '<span class="pill" style="background:var(--success-soft);color:var(--success)">all set</span>'}</h2>
+      ${ev.checklist.length ? `<div class="bar"><div class="bar-fill" style="width:${Math.round(checklistDone / ev.checklist.length * 100)}%;background:${checklistDone < ev.checklist.length ? 'var(--warning)' : 'var(--success)'}"></div></div>` : ""}
       ${ev.checklist.map(c => `<div class="check-row ${c.done ? "done" : ""}"><input type="checkbox" data-check="${c.id}" ${c.done ? "checked" : ""}> ${c.item}</div>`).join("") || '<div class="empty">No checklist template defined.</div>'}
     </div>
 
@@ -396,54 +617,31 @@ async function renderEventDetail(id) {
     </div>
 
     <div class="row2">
-      <div class="card"><h2>Internal staff (cost against this event)</h2>
-        <form id="linkForm">
-          <div class="row2">
-            <div class="field"><label>Photographer name</label><input name="staff_name" required></div>
-            <div class="field"><label>Role</label><input name="role" placeholder="Lead photographer"></div>
-          </div>
-          <div class="field"><label>Cost for this event (₹)</label><input name="cost" type="number" value="0"></div>
-          <button type="submit">Generate link</button>
-        </form>
-        ${ev.staff_links.map(l => `<div class="svc">${l.staff_name}${l.role ? ` <span class="pill">${l.role}</span>` : ""} <span>${money(l.cost)}</span></div>`).join("") || '<div class="empty">No staff assigned yet.</div>'}
+      <div class="card"><h2>Internal staff (cost against this event) <button class="icon-btn" id="addStaffBtn">+ Add</button></h2>
+        ${ev.staff_links.map(l => `<div class="list-row"><span>${l.staff_name}${l.role ? ` <span class="pill">${l.role}</span>` : ""} <span class="meta">${money(l.cost)}</span></span><span class="row-actions"><button type="button" class="icon-btn edit" data-edit-staff="${l.id}" title="Edit">✎</button><button type="button" class="icon-btn del" data-del-staff="${l.id}" title="Remove">✕</button></span></div>`).join("") || '<div class="empty">No staff assigned yet — use + Add.</div>'}
         <div id="linkOut"></div>
       </div>
-      <div class="card"><h2>Outside vendors / procurement</h2>
-        <form id="vendorForm">
-          <div class="row2">
-            <div class="field"><label>Vendor</label><select name="vendor_id" required>${vendors.map(v => `<option value="${v.id}">${v.name} (${v.category||"—"})</option>`).join("") || `<option value="">No vendors yet — add one in the Vendors tab</option>`}</select></div>
-            <div class="field"><label>Role for this event</label><input name="role" placeholder="Drone operator"></div>
-          </div>
-          <div class="field"><label>Cost (₹)</label><input name="cost" type="number" value="0"></div>
-          <button type="submit">Add vendor to event</button>
-        </form>
-        ${ev.vendors.map(v => `<div class="svc">${v.vendor_name}${v.role ? ` <span class="pill">${v.role}</span>` : ""} <span>${money(v.cost)} ${statusPill(v.payment_status)} ${v.payment_status !== "Paid" ? `<button class="icon-btn" data-vendor-paid="${v.id}">Mark paid</button>` : ""}</span></div>`).join("") || '<div class="empty">No outside vendors on this event.</div>'}
+      <div class="card"><h2>Outside vendors / procurement <button class="icon-btn" id="addVendorBtn">+ Add</button></h2>
+        ${ev.vendors.map(v => `<div class="list-row"><span>${v.vendor_name}${v.role ? ` <span class="pill">${v.role}</span>` : ""} <span class="meta">${money(v.cost)}</span> ${statusPill(v.payment_status)}</span><span class="row-actions">${v.payment_status !== "Paid" ? `<button class="icon-btn" data-vendor-paid="${v.id}">Mark paid</button>` : ""}<button type="button" class="icon-btn edit" data-edit-evendor="${v.id}" title="Edit">✎</button><button type="button" class="icon-btn del" data-del-evendor="${v.id}" title="Remove">✕</button></span></div>`).join("") || '<div class="empty">No outside vendors on this event.</div>'}
       </div>
     </div>
 
     <div class="row2">
-      <div class="card"><h2>Payment schedule — ${money(ev.advance_paid)} of ${money(ev.quote_total)} received</h2>
-        <form id="schedForm" class="inline-form"><div class="field"><label>Label</label><input name="label" placeholder="Advance / Before event / On delivery" required></div><div class="field"><label>Amount</label><input name="amount" type="number" required></div><div class="field"><label>Due date</label><input name="due_date" type="date"></div><button type="submit">Add installment</button></form>
-        ${ev.payment_schedule.map(p => `<div class="svc">${p.label} — ${money(p.amount)} <span style="color:var(--ink-soft);font-size:11.5px">${p.due_date||"no due date"}</span> ${statusPill(p.status)} ${p.status !== "Paid" ? `<button class="icon-btn" data-sched-paid="${p.id}">Mark paid</button>` : ""}</div>`).join("") || '<div class="empty">No installments planned — log ad-hoc payments below instead.</div>'}
+      <div class="card"><h2>Payment schedule — ${money(ev.advance_paid)} of ${money(ev.quote_total)} received <button class="icon-btn" id="addSchedBtn">+ Add</button></h2>
+        ${ev.quote_total ? `<div class="bar"><div class="bar-fill" style="width:${Math.min(100, Math.round(ev.advance_paid / ev.quote_total * 100))}%"></div></div>` : ""}
+        ${ev.payment_schedule.map(p => `<div class="list-row"><span>${p.label} — ${money(p.amount)} <span class="meta">${p.due_date||"no due date"}</span></span><span class="row-actions">${statusPill(p.status)}${p.status !== "Paid" ? `<button class="icon-btn" data-sched-paid="${p.id}">Mark paid</button><button type="button" class="icon-btn edit" data-edit-sched="${p.id}" title="Edit">✎</button><button type="button" class="icon-btn del" data-del-sched="${p.id}" title="Remove">✕</button>` : ""}</span></div>`).join("") || '<div class="empty">No installments planned — log ad-hoc payments below instead.</div>'}
       </div>
-      <div class="card"><h2>Payments received (ledger)</h2>
-        <form id="payForm" class="inline-form"><div class="field"><label>Amount</label><input name="amount" type="number" required></div><div class="field"><label>Method</label><input name="method"></div><button type="submit">Log payment</button></form>
-        ${ev.payments.map(p => `<div class="svc">${money(p.amount)} — ${p.method||"—"} <span style="color:var(--ink-soft);font-size:11.5px">${p.date}</span></div>`).join("") || '<div class="empty">No payments yet.</div>'}
+      <div class="card"><h2>Payments received (ledger) <button class="icon-btn" id="addPayBtn">+ Add</button></h2>
+        ${ev.payments.map(p => `<div class="list-row"><span>${money(p.amount)} — ${p.method||"—"} <span class="meta">${p.date}</span></span><button type="button" class="icon-btn del" data-del-pay="${p.id}" title="Delete">✕</button></div>`).join("") || '<div class="empty">No payments yet.</div>'}
       </div>
     </div>
 
     <div class="row2">
-      <div class="card"><h2>Deliverables — album/video production status</h2>
-        <form id="delivForm" class="inline-form"><div class="field"><label>Name</label><input name="name" placeholder="Wedding album" required></div><div class="field"><label>Due date</label><input name="due_date" type="date"></div><button type="submit">Add</button></form>
-        ${ev.deliverables.map(d => `<div class="svc">${d.name} <span style="color:var(--ink-soft);font-size:11.5px">${d.due_date?`due ${d.due_date}`:""}</span><select data-deliv-status="${d.id}">${["Not started","In progress","Client review","Delivered"].map(s=>`<option ${s===d.status?"selected":""}>${s}</option>`).join("")}</select></div>`).join("") || '<div class="empty">No deliverables tracked yet.</div>'}
+      <div class="card"><h2>Deliverables — album/video production status <button class="icon-btn" id="addDelivBtn">+ Add</button></h2>
+        ${ev.deliverables.map(d => `<div class="list-row"><span>${d.name} <span class="meta">${d.due_date?`due ${d.due_date}`:""}</span></span><span class="row-actions"><select data-deliv-status="${d.id}">${["Not started","In progress","Client review","Delivered"].map(s=>`<option ${s===d.status?"selected":""}>${s}</option>`).join("")}</select><button type="button" class="icon-btn edit" data-edit-deliv="${d.id}" title="Edit">✎</button><button type="button" class="icon-btn del" data-del-deliv="${d.id}" title="Delete">✕</button></span></div>`).join("") || '<div class="empty">No deliverables tracked yet.</div>'}
       </div>
-      <div class="card"><h2>Staff tasks</h2>
-        <form id="taskForm" class="inline-form">
-          <div class="field"><label>Assign to</label><select name="link_id"><option value="">Anyone on this event</option>${ev.staff_links.map(l=>`<option value="${l.id}">${l.staff_name}</option>`).join("")}</select></div>
-          <div class="field"><label>Task</label><input name="task" placeholder="Upload raw footage" required></div>
-          <button type="submit">Assign</button>
-        </form>
-        ${ev.tasks.map(t => `<div class="svc">${t.task} ${t.staff_name?`<span class="pill">${t.staff_name}</span>`:'<span class="pill">Anyone</span>'} ${statusPill(t.status)}</div>`).join("") || '<div class="empty">No tasks assigned — staff also see and update these from their own link.</div>'}
+      <div class="card"><h2>Staff tasks <button class="icon-btn" id="addTaskBtn">+ Add</button></h2>
+        ${ev.tasks.map(t => `<div class="list-row"><span>${t.task} ${t.staff_name?`<span class="pill">${t.staff_name}</span>`:'<span class="pill">Anyone</span>'} ${statusPill(t.status)}</span><span class="row-actions"><button type="button" class="icon-btn edit" data-edit-task="${t.id}" title="Edit">✎</button><button type="button" class="icon-btn del" data-del-task="${t.id}" title="Delete">✕</button></span></div>`).join("") || '<div class="empty">No tasks assigned — staff also see and update these from their own link.</div>'}
       </div>
     </div>
   `;
@@ -455,18 +653,148 @@ async function renderEventDetail(id) {
   main.querySelectorAll("[data-vendor-paid]").forEach(el => el.addEventListener("click", async () => { await api(`/event-vendors/${el.dataset.vendorPaid}/paid`, { method: "POST", body: "{}" }); renderEventDetail(id); }));
   main.querySelectorAll("[data-sched-paid]").forEach(el => el.addEventListener("click", async () => { await api(`/payment-schedule/${el.dataset.schedPaid}/paid`, { method: "POST", body: "{}" }); renderEventDetail(id); }));
   main.querySelectorAll("[data-deliv-status]").forEach(el => el.addEventListener("change", async e => { await api(`/deliverables/${el.dataset.delivStatus}/status`, { method: "POST", body: JSON.stringify({ status: e.target.value }) }); renderEventDetail(id); }));
-  main.querySelector("#payForm").addEventListener("submit", async e => { e.preventDefault(); await api(`/events/${id}/payments`, { method: "POST", body: JSON.stringify(Object.fromEntries(new FormData(e.target).entries())) }); renderEventDetail(id); });
-  main.querySelector("#schedForm").addEventListener("submit", async e => { e.preventDefault(); await api(`/events/${id}/payment-schedule`, { method: "POST", body: JSON.stringify(Object.fromEntries(new FormData(e.target).entries())) }); renderEventDetail(id); });
-  main.querySelector("#delivForm").addEventListener("submit", async e => { e.preventDefault(); await api(`/events/${id}/deliverables`, { method: "POST", body: JSON.stringify(Object.fromEntries(new FormData(e.target).entries())) }); renderEventDetail(id); });
-  main.querySelector("#taskForm").addEventListener("submit", async e => { e.preventDefault(); await api(`/events/${id}/tasks`, { method: "POST", body: JSON.stringify(Object.fromEntries(new FormData(e.target).entries())) }); renderEventDetail(id); });
-  main.querySelector("#vendorForm").addEventListener("submit", async e => { e.preventDefault(); await api(`/events/${id}/vendors`, { method: "POST", body: JSON.stringify(Object.fromEntries(new FormData(e.target).entries())) }); renderEventDetail(id); });
-  main.querySelector("#linkForm").addEventListener("submit", async e => {
-    e.preventDefault();
-    const data = Object.fromEntries(new FormData(e.target).entries());
+  main.querySelector("#addStaffBtn").addEventListener("click", () => openModal("Add internal staff", `
+    <form>
+      <div class="field"><label>Photographer name</label><input name="staff_name" required></div>
+      <div class="field"><label>Role</label><input name="role" placeholder="Lead photographer"></div>
+      <div class="field"><label>Cost for this event (₹)</label><input name="cost" type="number" value="0"></div>
+      <button type="submit" style="width:100%;">Generate link</button>
+    </form>
+  `, async data => {
     data.event_id = id;
     const r = await api("/staff-links", { method: "POST", body: JSON.stringify(data) });
     document.getElementById("linkOut").innerHTML = `<div class="copybox">${r.url}</div>`;
-  });
+    toast("Staff link generated");
+  }));
+  main.querySelector("#addVendorBtn").addEventListener("click", () => openModal("Add vendor to event", `
+    <form>
+      <div class="field"><label>Vendor</label><select name="vendor_id" required>${vendors.map(v => `<option value="${v.id}">${v.name} (${v.category||"—"})</option>`).join("") || `<option value="">No vendors yet — add one in the Vendors tab</option>`}</select></div>
+      <div class="field"><label>Role for this event</label><input name="role" placeholder="Drone operator"></div>
+      <div class="field"><label>Cost (₹)</label><input name="cost" type="number" value="0"></div>
+      <button type="submit" style="width:100%;">Add vendor to event</button>
+    </form>
+  `, async data => {
+    await api(`/events/${id}/vendors`, { method: "POST", body: JSON.stringify(data) });
+    toast("Vendor added to event");
+    renderEventDetail(id);
+  }));
+  main.querySelector("#addSchedBtn").addEventListener("click", () => openModal("Add installment", `
+    <form>
+      <div class="field"><label>Label</label><input name="label" placeholder="Advance / Before event / On delivery" required></div>
+      <div class="field"><label>Amount</label><input name="amount" type="number" required></div>
+      <div class="field"><label>Due date</label><input name="due_date" type="date"></div>
+      <button type="submit" style="width:100%;">Add installment</button>
+    </form>
+  `, async data => {
+    await api(`/events/${id}/payment-schedule`, { method: "POST", body: JSON.stringify(data) });
+    toast("Installment added");
+    renderEventDetail(id);
+  }));
+  main.querySelector("#addPayBtn").addEventListener("click", () => openModal("Log payment", `
+    <form>
+      <div class="field"><label>Amount</label><input name="amount" type="number" required></div>
+      <div class="field"><label>Method</label><input name="method"></div>
+      <button type="submit" style="width:100%;">Log payment</button>
+    </form>
+  `, async data => {
+    await api(`/events/${id}/payments`, { method: "POST", body: JSON.stringify(data) });
+    toast("Payment logged");
+    renderEventDetail(id);
+  }));
+  main.querySelector("#addDelivBtn").addEventListener("click", () => openModal("Add deliverable", `
+    <form>
+      <div class="field"><label>Name</label><input name="name" placeholder="Wedding album" required></div>
+      <div class="field"><label>Due date</label><input name="due_date" type="date"></div>
+      <button type="submit" style="width:100%;">Add</button>
+    </form>
+  `, async data => {
+    await api(`/events/${id}/deliverables`, { method: "POST", body: JSON.stringify(data) });
+    toast("Deliverable added");
+    renderEventDetail(id);
+  }));
+  main.querySelector("#addTaskBtn").addEventListener("click", () => openModal("Assign a task", `
+    <form>
+      <div class="field"><label>Assign to</label><select name="link_id"><option value="">Anyone on this event</option>${ev.staff_links.map(l=>`<option value="${l.id}">${l.staff_name}</option>`).join("")}</select></div>
+      <div class="field"><label>Task</label><input name="task" placeholder="Upload raw footage" required></div>
+      <button type="submit" style="width:100%;">Assign</button>
+    </form>
+  `, async data => {
+    await api(`/events/${id}/tasks`, { method: "POST", body: JSON.stringify(data) });
+    toast("Task assigned");
+    renderEventDetail(id);
+  }));
+
+  // ── Row-level edit/delete for every sub-list above ──
+  main.querySelectorAll("[data-edit-staff]").forEach(el => el.addEventListener("click", () => {
+    const l = ev.staff_links.find(x => String(x.id) === el.dataset.editStaff);
+    openModal("Edit staff assignment", `
+      <form>
+        <div class="field"><label>Photographer name</label><input name="staff_name" value="${l.staff_name}" required></div>
+        <div class="field"><label>Role</label><input name="role" value="${l.role || ""}"></div>
+        <div class="field"><label>Cost for this event (₹)</label><input name="cost" type="number" value="${l.cost}"></div>
+        <button type="submit" style="width:100%;">Save</button>
+      </form>
+    `, async data => { await api(`/staff-links/${l.id}`, { method: "POST", body: JSON.stringify(data) }); toast("Updated"); renderEventDetail(id); });
+  }));
+  main.querySelectorAll("[data-del-staff]").forEach(el => el.addEventListener("click", () =>
+    confirmDelete("Remove this staff assignment? Their portal link will stop working.", `/staff-links/${el.dataset.delStaff}/delete`, () => renderEventDetail(id))
+  ));
+  main.querySelectorAll("[data-edit-evendor]").forEach(el => el.addEventListener("click", () => {
+    const v = ev.vendors.find(x => String(x.id) === el.dataset.editEvendor);
+    openModal("Edit vendor on event", `
+      <form>
+        <div class="field"><label>Role for this event</label><input name="role" value="${v.role || ""}"></div>
+        <div class="field"><label>Cost (₹)</label><input name="cost" type="number" value="${v.cost}"></div>
+        <button type="submit" style="width:100%;">Save</button>
+      </form>
+    `, async data => { await api(`/event-vendors/${v.id}`, { method: "POST", body: JSON.stringify(data) }); toast("Updated"); renderEventDetail(id); });
+  }));
+  main.querySelectorAll("[data-del-evendor]").forEach(el => el.addEventListener("click", () =>
+    confirmDelete("Remove this vendor from the event?", `/event-vendors/${el.dataset.delEvendor}/delete`, () => renderEventDetail(id))
+  ));
+  main.querySelectorAll("[data-edit-sched]").forEach(el => el.addEventListener("click", () => {
+    const p = ev.payment_schedule.find(x => String(x.id) === el.dataset.editSched);
+    openModal("Edit installment", `
+      <form>
+        <div class="field"><label>Label</label><input name="label" value="${p.label}" required></div>
+        <div class="field"><label>Amount</label><input name="amount" type="number" value="${p.amount}" required></div>
+        <div class="field"><label>Due date</label><input name="due_date" type="date" value="${p.due_date || ""}"></div>
+        <button type="submit" style="width:100%;">Save</button>
+      </form>
+    `, async data => { await api(`/payment-schedule/${p.id}`, { method: "POST", body: JSON.stringify(data) }); toast("Updated"); renderEventDetail(id); });
+  }));
+  main.querySelectorAll("[data-del-sched]").forEach(el => el.addEventListener("click", () =>
+    confirmDelete("Remove this installment from the schedule?", `/payment-schedule/${el.dataset.delSched}/delete`, () => renderEventDetail(id))
+  ));
+  main.querySelectorAll("[data-del-pay]").forEach(el => el.addEventListener("click", () =>
+    confirmDelete("Delete this payment? This will also reduce the amount received on this event.", `/payments/${el.dataset.delPay}/delete`, () => renderEventDetail(id))
+  ));
+  main.querySelectorAll("[data-edit-deliv]").forEach(el => el.addEventListener("click", () => {
+    const d = ev.deliverables.find(x => String(x.id) === el.dataset.editDeliv);
+    openModal("Edit deliverable", `
+      <form>
+        <div class="field"><label>Name</label><input name="name" value="${d.name}" required></div>
+        <div class="field"><label>Due date</label><input name="due_date" type="date" value="${d.due_date || ""}"></div>
+        <button type="submit" style="width:100%;">Save</button>
+      </form>
+    `, async data => { await api(`/deliverables/${d.id}`, { method: "POST", body: JSON.stringify(data) }); toast("Updated"); renderEventDetail(id); });
+  }));
+  main.querySelectorAll("[data-del-deliv]").forEach(el => el.addEventListener("click", () =>
+    confirmDelete("Remove this deliverable?", `/deliverables/${el.dataset.delDeliv}/delete`, () => renderEventDetail(id))
+  ));
+  main.querySelectorAll("[data-edit-task]").forEach(el => el.addEventListener("click", () => {
+    const t = ev.tasks.find(x => String(x.id) === el.dataset.editTask);
+    openModal("Edit task", `
+      <form>
+        <div class="field"><label>Assign to</label><select name="link_id"><option value="" ${!t.link_id?"selected":""}>Anyone on this event</option>${ev.staff_links.map(l=>`<option value="${l.id}" ${l.id===t.link_id?"selected":""}>${l.staff_name}</option>`).join("")}</select></div>
+        <div class="field"><label>Task</label><input name="task" value="${t.task}" required></div>
+        <button type="submit" style="width:100%;">Save</button>
+      </form>
+    `, async data => { await api(`/event-tasks/${t.id}`, { method: "POST", body: JSON.stringify(data) }); toast("Updated"); renderEventDetail(id); });
+  }));
+  main.querySelectorAll("[data-del-task]").forEach(el => el.addEventListener("click", () =>
+    confirmDelete("Remove this task?", `/event-tasks/${el.dataset.delTask}/delete`, () => renderEventDetail(id))
+  ));
 }
 
 // ── Vendors ────────────────────────────────────────────────
@@ -475,26 +803,38 @@ async function renderVendors() {
   main.innerHTML = `
     <h1>Vendors</h1>
     <p class="empty" style="margin-top:-10px;margin-bottom:16px;">People and businesses you procure for an event but don't employ — catering, decoration, drone/equipment, partner studios you collaborate with.</p>
-    <div class="card"><h2>Add a vendor</h2>
-      <form id="newVendor" class="inline-form">
-        <div class="field"><label>Name</label><input name="name" required></div>
-        <div class="field"><label>Category</label>
-          <select name="category"><option>Catering</option><option>Decoration</option><option>Drone/Equipment</option><option>Makeup</option><option>Venue</option><option>Partner studio</option><option>Other</option></select>
-        </div>
-        <div class="field"><label>Phone</label><input name="phone"></div>
-        <button type="submit">Add vendor</button>
-      </form>
-    </div>
     <div class="card"><h2>All vendors</h2>
-      <table><thead><tr><th>Name</th><th>Category</th><th>Phone</th></tr></thead>
-      <tbody>${vendors.map(v => `<tr><td>${v.name}</td><td><span class="pill">${v.category||"—"}</span></td><td>${v.phone||"—"}</td></tr>`).join("") || `<tr><td colspan="3" class="empty">No vendors yet.</td></tr>`}</tbody></table>
+      <table><thead><tr><th>Name</th><th>Category</th><th>Phone</th><th></th></tr></thead>
+      <tbody>${vendors.map(v => `<tr><td>${v.name}</td><td><span class="pill">${v.category||"—"}</span></td><td>${v.phone||"—"}</td><td class="row-actions"><button type="button" class="icon-btn edit" data-edit-vendor="${v.id}" title="Edit">✎</button><button type="button" class="icon-btn del" data-del-vendor="${v.id}" title="Delete">✕</button></td></tr>`).join("") || `<tr><td colspan="4" class="empty">No vendors yet — use the + button to add one.</td></tr>`}</tbody></table>
     </div>
   `;
-  main.querySelector("#newVendor").addEventListener("submit", async e => {
-    e.preventDefault();
-    await api("/vendors", { method: "POST", body: JSON.stringify(Object.fromEntries(new FormData(e.target).entries())) });
+  const categoryOptions = (selected) => ["Catering","Decoration","Drone/Equipment","Makeup","Venue","Partner studio","Other"].map(c => `<option ${c===selected?"selected":""}>${c}</option>`).join("");
+  setFab(() => openModal("Add a vendor", `
+    <form>
+      <div class="field"><label>Name</label><input name="name" required></div>
+      <div class="field"><label>Category</label><select name="category">${categoryOptions()}</select></div>
+      <div class="field"><label>Phone</label><input name="phone"></div>
+      <button type="submit" style="width:100%;">Add vendor</button>
+    </form>
+  `, async data => {
+    await api("/vendors", { method: "POST", body: JSON.stringify(data) });
+    toast("Vendor added");
     renderVendors();
-  });
+  }));
+  main.querySelectorAll("[data-edit-vendor]").forEach(el => el.addEventListener("click", () => {
+    const v = vendors.find(x => String(x.id) === el.dataset.editVendor);
+    openModal("Edit vendor", `
+      <form>
+        <div class="field"><label>Name</label><input name="name" value="${v.name}" required></div>
+        <div class="field"><label>Category</label><select name="category">${categoryOptions(v.category)}</select></div>
+        <div class="field"><label>Phone</label><input name="phone" value="${v.phone || ""}"></div>
+        <button type="submit" style="width:100%;">Save</button>
+      </form>
+    `, async data => { await api(`/vendors/${v.id}`, { method: "POST", body: JSON.stringify(data) }); toast("Vendor updated"); renderVendors(); });
+  }));
+  main.querySelectorAll("[data-del-vendor]").forEach(el => el.addEventListener("click", () =>
+    confirmDelete("Remove this vendor?", `/vendors/${el.dataset.delVendor}/delete`, renderVendors)
+  ));
 }
 
 // ── Reports ────────────────────────────────────────────────
