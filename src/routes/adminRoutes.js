@@ -162,6 +162,23 @@ export async function addNote(request, env, id, staff) {
   return json({ ok: true });
 }
 
+export async function deleteLead(request, env, id) {
+  const lead = await env.DB.prepare(`SELECT id FROM leads WHERE id = ?`).bind(id).first();
+  if (!lead) return notFound("lead not found");
+  // A converted lead has become a real customer — that's business history,
+  // not a mistaken entry. Block the delete and point at the account instead,
+  // same guard style as vendor/account deletes below.
+  const account = await env.DB.prepare(`SELECT id FROM accounts WHERE lead_id = ?`).bind(id).first();
+  if (account) return badRequest("This lead was converted to a customer account — it can't be deleted. Edit or remove the account instead.");
+
+  await env.DB.batch([
+    env.DB.prepare(`DELETE FROM lead_notes WHERE lead_id = ?`).bind(id),
+    env.DB.prepare(`DELETE FROM lead_status_history WHERE lead_id = ?`).bind(id),
+    env.DB.prepare(`DELETE FROM leads WHERE id = ?`).bind(id),
+  ]);
+  return json({ ok: true });
+}
+
 // ── Convert lead → account ──────────────────────────────────────────
 export async function convertLead(request, env, id) {
   const lead = await env.DB.prepare(`SELECT * FROM leads WHERE id = ?`).bind(id).first();
@@ -232,6 +249,22 @@ export async function updateAccountDetails(request, env, id) {
   const email = body.email !== undefined ? body.email || null : account.email;
   await env.DB.prepare(`UPDATE accounts SET name = ?, phone = ?, email = ? WHERE id = ?`)
     .bind(name, phone, email, id).run();
+  return json({ ok: true });
+}
+
+export async function deleteAccount(request, env, id) {
+  const account = await env.DB.prepare(`SELECT id FROM accounts WHERE id = ?`).bind(id).first();
+  if (!account) return notFound("account not found");
+  // Any event means real booked history — same "can't delete real business
+  // history" guard as vendors/leads. Delete the event(s) first if this was
+  // truly a mistaken account.
+  const { count } = await env.DB.prepare(`SELECT COUNT(*) AS count FROM events WHERE account_id = ?`).bind(id).first();
+  if (count > 0) return badRequest("This customer has event history — remove their event(s) first before deleting the account.");
+
+  await env.DB.batch([
+    env.DB.prepare(`DELETE FROM contacts WHERE account_id = ?`).bind(id),
+    env.DB.prepare(`DELETE FROM accounts WHERE id = ?`).bind(id),
+  ]);
   return json({ ok: true });
 }
 
@@ -345,6 +378,46 @@ export async function createEvent(request, env) {
   return json({ ok: true, id: eventId }, { status: 201 });
 }
 
+// Fixes a typo'd type/venue/date/status on the event itself — separate from
+// the pricing/resourcing sub-actions (services, tier, payments) below.
+export async function updateEvent(request, env, id) {
+  const body = await request.json().catch(() => null);
+  if (!body) return badRequest("no fields given");
+  const event = await env.DB.prepare(`SELECT * FROM events WHERE id = ?`).bind(id).first();
+  if (!event) return notFound("event not found");
+  const type = body.type ?? event.type;
+  const venue = body.venue !== undefined ? body.venue || null : event.venue;
+  const event_date = body.event_date !== undefined ? body.event_date || null : event.event_date;
+  const status = body.status ?? event.status;
+  await env.DB.prepare(`UPDATE events SET type = ?, venue = ?, event_date = ?, status = ? WHERE id = ?`)
+    .bind(type, venue, event_date, status, id).run();
+  return json({ ok: true });
+}
+
+export async function deleteEvent(request, env, id) {
+  const event = await env.DB.prepare(`SELECT id FROM events WHERE id = ?`).bind(id).first();
+  if (!event) return notFound("event not found");
+  // Any payment recorded is real money against this event — block rather
+  // than silently destroy financial history. Delete the payment(s) first
+  // (which itself reverses advance_paid) if this was truly a mistaken event.
+  const { count } = await env.DB.prepare(`SELECT COUNT(*) AS count FROM payments WHERE event_id = ?`).bind(id).first();
+  if (count > 0) return badRequest("This event has payment(s) recorded — remove those first before deleting the event.");
+
+  await env.DB.batch([
+    env.DB.prepare(`DELETE FROM event_services WHERE event_id = ?`).bind(id),
+    env.DB.prepare(`DELETE FROM event_staff_links WHERE event_id = ?`).bind(id),
+    env.DB.prepare(`DELETE FROM event_vendors WHERE event_id = ?`).bind(id),
+    env.DB.prepare(`DELETE FROM payment_schedule WHERE event_id = ?`).bind(id),
+    env.DB.prepare(`DELETE FROM deliverables WHERE event_id = ?`).bind(id),
+    env.DB.prepare(`DELETE FROM event_checklist WHERE event_id = ?`).bind(id),
+    env.DB.prepare(`DELETE FROM event_tasks WHERE event_id = ?`).bind(id),
+    env.DB.prepare(`DELETE FROM expenses WHERE event_id = ?`).bind(id),
+    env.DB.prepare(`DELETE FROM support_requests WHERE event_id = ?`).bind(id),
+    env.DB.prepare(`DELETE FROM events WHERE id = ?`).bind(id),
+  ]);
+  return json({ ok: true });
+}
+
 export async function getEvent(request, env, id) {
   const event = await env.DB.prepare(
     `SELECT e.*, pt.name AS tier_name, pt.multiplier FROM events e LEFT JOIN pricing_tiers pt ON pt.id = e.pricing_tier_id WHERE e.id = ?`
@@ -404,6 +477,16 @@ export async function addEventService(request, env, id) {
   ).bind(id, body.service_id, service.base_price, body.is_crosssell ? 1 : 0).run();
 
   await recomputeQuote(env, id);
+  return json({ ok: true });
+}
+
+// Removes one line item (a service or an applied package) from an event —
+// the "Line items" list had no way back out before this.
+export async function removeEventService(request, env, eventServiceId) {
+  const row = await env.DB.prepare(`SELECT event_id FROM event_services WHERE id = ?`).bind(eventServiceId).first();
+  if (!row) return notFound("line item not found");
+  await env.DB.prepare(`DELETE FROM event_services WHERE id = ?`).bind(eventServiceId).run();
+  await recomputeQuote(env, row.event_id);
   return json({ ok: true });
 }
 

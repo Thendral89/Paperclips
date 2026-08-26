@@ -313,6 +313,40 @@ coming up this week/month") without the extra surface area of a full
 calendar component — worth adding later only if list view proves
 insufficient in practice.
 
+## Completing CRUD — delete was missing everywhere it mattered (added after go-live)
+
+Direct response to a fair complaint: there was no delete on Leads, and an
+audit of the rest of the app found the same gap repeated across every
+top-level entity — inconsistent, not a one-off miss. Every list-level entity
+now has full create/read/update/delete, with the same guard philosophy used
+everywhere real business or financial history is at stake: block the delete
+and say exactly why, rather than either silently allowing data loss or
+silently doing nothing.
+
+- **Leads** — delete added (list row icon and a button on the lead detail
+  page). Blocked if the lead has already been converted to a customer
+  account — that's real business history, not a bad entry; edit or remove
+  the account instead.
+- **Customers/Accounts** — delete added (list row icon). Blocked if the
+  account has any event history, same reasoning as vendors already had.
+- **Events** — this was the bigger gap: there was no way to fix a typo'd
+  date/venue/type, or remove a mistaken event, anywhere in the app, on any
+  event, ever. Both are now in two places — the Events tab's row icons, and
+  the event detail page's own header (✎ Edit / ✕ Delete) for when you're
+  already looking at the one you want to fix. Delete is blocked if the event
+  has any payment recorded (edit is never blocked — a typo shouldn't require
+  deleting real financial history to fix).
+- **Event line items** — the "what this event is billed for" list could only
+  ever grow; there was no way to remove a wrongly-added service or package
+  without deleting the whole event. Each line now has its own ✕, and removing
+  one correctly recomputes the event's quote total (tier multiplier included).
+
+Known, deliberately deferred: the services/pricing-tier catalog itself (the
+underlying add-on list, not what's booked on an event) still has no
+create/edit UI — it's seed data, rarely touched, and adding a management
+screen for it is a real scope decision worth its own go-ahead rather than
+folding into a delete-parity pass.
+
 ## Local development (optional)
 
 Not required — everything ships through GitHub Actions. If you want to run

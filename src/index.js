@@ -23,6 +23,7 @@ const ADMIN_ROUTES = [
   ["POST", /^\/api\/admin\/leads\/(\d+)\/followup$/, (req, env, staff, [id]) => admin.setFollowUp(req, env, id)],
   ["POST", /^\/api\/admin\/leads\/(\d+)\/notes$/, (req, env, staff, [id]) => admin.addNote(req, env, id, staff)],
   ["POST", /^\/api\/admin\/leads\/(\d+)\/convert$/, (req, env, staff, [id]) => admin.convertLead(req, env, id)],
+  ["POST", /^\/api\/admin\/leads\/(\d+)\/delete$/, (req, env, staff, [id]) => admin.deleteLead(req, env, id)],
 
   ["GET", /^\/api\/admin\/accounts$/, (req, env) => admin.listAccounts(req, env)],
   ["GET", /^\/api\/admin\/accounts\/(\d+)$/, (req, env, staff, [id]) => admin.getAccount360(req, env, id)],
@@ -30,11 +31,15 @@ const ADMIN_ROUTES = [
   ["POST", /^\/api\/admin\/accounts\/(\d+)\/contacts$/, (req, env, staff, [id]) => admin.addContact(req, env, id)],
   ["POST", /^\/api\/admin\/contacts\/(\d+)$/, (req, env, staff, [id]) => admin.updateContact(req, env, id)],
   ["POST", /^\/api\/admin\/contacts\/(\d+)\/delete$/, (req, env, staff, [id]) => admin.deleteContact(req, env, id)],
+  ["POST", /^\/api\/admin\/accounts\/(\d+)\/delete$/, (req, env, staff, [id]) => admin.deleteAccount(req, env, id)],
 
   ["GET", /^\/api\/admin\/events$/, (req, env) => admin.listEvents(req, env)],
   ["POST", /^\/api\/admin\/events$/, (req, env) => admin.createEvent(req, env)],
   ["GET", /^\/api\/admin\/events\/(\d+)$/, (req, env, staff, [id]) => admin.getEvent(req, env, id)],
+  ["POST", /^\/api\/admin\/events\/(\d+)\/details$/, (req, env, staff, [id]) => admin.updateEvent(req, env, id)],
+  ["POST", /^\/api\/admin\/events\/(\d+)\/delete$/, (req, env, staff, [id]) => admin.deleteEvent(req, env, id)],
   ["POST", /^\/api\/admin\/events\/(\d+)\/services$/, (req, env, staff, [id]) => admin.addEventService(req, env, id)],
+  ["POST", /^\/api\/admin\/event-services\/(\d+)\/delete$/, (req, env, staff, [id]) => admin.removeEventService(req, env, id)],
   ["POST", /^\/api\/admin\/events\/(\d+)\/package$/, (req, env, staff, [id]) => admin.applyPackageToEvent(req, env, id)],
   ["POST", /^\/api\/admin\/events\/(\d+)\/tier$/, (req, env, staff, [id]) => admin.setEventTier(req, env, id)],
   ["POST", /^\/api\/admin\/events\/(\d+)\/payments$/, (req, env, staff, [id]) => admin.addPayment(req, env, id)],

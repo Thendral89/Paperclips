@@ -356,7 +356,7 @@ async function renderLeads() {
     ${f ? `<div class="filter-chip">${f.label} <span data-clear>✕</span></div>` : ""}
     <div class="card"><h2>${f ? f.label : "All leads"} (${leads.length})</h2>
       <table><thead><tr><th>Name</th><th>Source</th><th>Stage</th><th>Budget</th><th></th></tr></thead>
-      <tbody>${leads.map(l => `<tr class="clickable" data-lead="${l.id}"><td>${l.name}</td><td><span class="pill">${l.source}</span></td><td>${l.stage}</td><td>${money(l.budget_est)}</td><td class="row-actions"><button type="button" class="icon-btn edit" data-edit-lead="${l.id}" title="Edit">✎</button></td></tr>`).join("") || `<tr><td colspan="5" class="empty">No leads match this filter.</td></tr>`}</tbody></table>
+      <tbody>${leads.map(l => `<tr class="clickable" data-lead="${l.id}"><td>${l.name}</td><td><span class="pill">${l.source}</span></td><td>${l.stage}</td><td>${money(l.budget_est)}</td><td class="row-actions"><button type="button" class="icon-btn edit" data-edit-lead="${l.id}" title="Edit">✎</button><button type="button" class="icon-btn del" data-del-lead="${l.id}" title="Delete">✕</button></td></tr>`).join("") || `<tr><td colspan="5" class="empty">No leads match this filter.</td></tr>`}</tbody></table>
     </div>
   `;
   main.querySelectorAll("[data-lead]").forEach(el => el.addEventListener("click", () => go("leadDetail", el.dataset.lead)));
@@ -382,6 +382,10 @@ async function renderLeads() {
         <button type="submit" style="width:100%;">Save</button>
       </form>
     `, async data => { await api(`/leads/${l.id}/details`, { method: "POST", body: JSON.stringify(data) }); toast("Lead updated"); renderLeads(); });
+  }));
+  main.querySelectorAll("[data-del-lead]").forEach(el => el.addEventListener("click", e => {
+    e.stopPropagation();
+    confirmDelete("Delete this lead? This can't be undone.", `/leads/${el.dataset.delLead}/delete`, renderLeads);
   }));
   setPrimaryAction(() => openModal("Add a lead", `
     <form>
@@ -437,7 +441,7 @@ async function renderLeadDetail(id) {
         <div class="field"><label>Next follow-up</label><input id="fuDate" type="date" value="${l.next_follow_up_date || ""}"></div>
         ${l.account_id
           ? `<a class="btn" style="text-decoration:none;display:inline-block" data-acct="${l.account_id}">View account →</a>`
-          : `<button id="convertBtn">Convert to account</button>`}
+          : `<button id="convertBtn">Convert to account</button> <button type="button" class="ghost" id="deleteLeadBtn">Delete lead</button>`}
       </div>
       <div class="card">
         <h2>Notes</h2>
@@ -473,6 +477,8 @@ async function renderLeadDetail(id) {
   main.querySelector("#fuDate").addEventListener("change", async e => { await api(`/leads/${id}/followup`, { method: "POST", body: JSON.stringify({ date: e.target.value }) }); toast("Follow-up date saved"); });
   const convertBtn = main.querySelector("#convertBtn");
   if (convertBtn) convertBtn.addEventListener("click", async () => { const r = await api(`/leads/${id}/convert`, { method: "POST", body: "{}" }); toast("Converted to account"); go("accountDetail", r.account_id); });
+  const deleteLeadBtn = main.querySelector("#deleteLeadBtn");
+  if (deleteLeadBtn) deleteLeadBtn.addEventListener("click", () => confirmDelete("Delete this lead? This can't be undone.", `/leads/${id}/delete`, () => go("leads")));
   main.querySelector("#noteForm").addEventListener("submit", async e => {
     e.preventDefault();
     await api(`/leads/${id}/notes`, { method: "POST", body: JSON.stringify(Object.fromEntries(new FormData(e.target).entries())) });
@@ -486,7 +492,7 @@ async function renderAccounts() {
   const accts = await api("/accounts");
   main.innerHTML = `<h1>Customers / Accounts</h1><div class="card">
     <table><thead><tr><th>Name</th><th>Phone</th><th>Client since</th><th></th></tr></thead>
-    <tbody>${accts.map(a => `<tr class="clickable" data-acct="${a.id}"><td>${a.name}${a.is_signature ? ' <span class="pill" style="background:var(--warning-soft);color:var(--warning)">Signature</span>' : ""}</td><td>${a.phone||"—"}</td><td>${a.client_since}</td><td class="row-actions"><button type="button" class="icon-btn edit" data-edit-acct="${a.id}" title="Edit">✎</button></td></tr>`).join("") || `<tr><td colspan="4" class="empty">No customers yet — convert a lead first.</td></tr>`}</tbody></table>
+    <tbody>${accts.map(a => `<tr class="clickable" data-acct="${a.id}"><td>${a.name}${a.is_signature ? ' <span class="pill" style="background:var(--warning-soft);color:var(--warning)">Signature</span>' : ""}</td><td>${a.phone||"—"}</td><td>${a.client_since}</td><td class="row-actions"><button type="button" class="icon-btn edit" data-edit-acct="${a.id}" title="Edit">✎</button><button type="button" class="icon-btn del" data-del-acct="${a.id}" title="Delete">✕</button></td></tr>`).join("") || `<tr><td colspan="4" class="empty">No customers yet — convert a lead first.</td></tr>`}</tbody></table>
   </div>`;
   main.querySelectorAll("[data-acct]").forEach(el => el.addEventListener("click", () => go("accountDetail", el.dataset.acct)));
   main.querySelectorAll("[data-edit-acct]").forEach(el => el.addEventListener("click", e => {
@@ -500,6 +506,10 @@ async function renderAccounts() {
         <button type="submit" style="width:100%;">Save</button>
       </form>
     `, async data => { await api(`/accounts/${a.id}/details`, { method: "POST", body: JSON.stringify(data) }); toast("Customer updated"); renderAccounts(); });
+  }));
+  main.querySelectorAll("[data-del-acct]").forEach(el => el.addEventListener("click", e => {
+    e.stopPropagation();
+    confirmDelete("Delete this customer? Only possible if they have no events.", `/accounts/${el.dataset.delAcct}/delete`, renderAccounts);
   }));
 }
 
@@ -596,18 +606,38 @@ async function renderEvents(range) {
         <button type="button" class="ghost" id="applyCustom">Apply</button>
       </div>` : ""}
     <div class="card"><h2>${range === "all" ? "All events" : rangeLabel} (${data.events.length})</h2>
-      <table><thead><tr><th>Customer</th><th>Type</th><th>Date</th><th>Status</th><th>Balance due</th></tr></thead>
+      <table><thead><tr><th>Customer</th><th>Type</th><th>Date</th><th>Status</th><th>Balance due</th><th></th></tr></thead>
       <tbody>${data.events.map(e => `<tr class="clickable" data-event="${e.id}">
           <td>${e.account_name}</td>
           <td>${e.type}</td>
           <td>${e.event_date || "TBD"}</td>
           <td>${statusPill(e.status)}${e.payment_overdue ? ` <span class="pill" style="background:var(--critical-soft);color:var(--critical)">Payment overdue</span>` : ""}</td>
           <td>${money(e.balance_due)}</td>
-        </tr>`).join("") || `<tr><td colspan="5" class="empty">${range === "custom" && !qs ? "Pick a date range above." : "No events in this range."}</td></tr>`}</tbody></table>
+          <td class="row-actions"><button type="button" class="icon-btn edit" data-edit-event="${e.id}" title="Edit">✎</button><button type="button" class="icon-btn del" data-del-event="${e.id}" title="Delete">✕</button></td>
+        </tr>`).join("") || `<tr><td colspan="6" class="empty">${range === "custom" && !qs ? "Pick a date range above." : "No events in this range."}</td></tr>`}</tbody></table>
     </div>
   `;
   main.querySelectorAll("[data-event]").forEach(el => el.addEventListener("click", () => go("eventDetail", el.dataset.event)));
   main.querySelectorAll("[data-range]").forEach(el => el.addEventListener("click", () => renderEvents(el.dataset.range)));
+  main.querySelectorAll("[data-edit-event]").forEach(el => el.addEventListener("click", e => {
+    e.stopPropagation();
+    const ev = data.events.find(x => String(x.id) === el.dataset.editEvent);
+    openModal("Edit event", `
+      <form>
+        <div class="field"><label>Type</label><input name="type" value="${ev.type}" required></div>
+        <div class="field"><label>Date</label><input name="event_date" type="date" value="${ev.event_date || ""}"></div>
+        <div class="field"><label>Venue</label><input name="venue" value="${ev.venue || ""}"></div>
+        <div class="field"><label>Status</label>
+          <select name="status">${["Planned","In progress","Delivered"].map(s => `<option ${s===ev.status?"selected":""}>${s}</option>`).join("")}</select>
+        </div>
+        <button type="submit" style="width:100%;">Save</button>
+      </form>
+    `, async data2 => { await api(`/events/${ev.id}/details`, { method: "POST", body: JSON.stringify(data2) }); toast("Event updated"); renderEvents(range); });
+  }));
+  main.querySelectorAll("[data-del-event]").forEach(el => el.addEventListener("click", e => {
+    e.stopPropagation();
+    confirmDelete("Delete this event? Only possible if it has no payments recorded.", `/events/${el.dataset.delEvent}/delete`, () => renderEvents(range));
+  }));
   const applyBtn = main.querySelector("#applyCustom");
   if (applyBtn) applyBtn.addEventListener("click", () => {
     eventsCustom.from = main.querySelector("#customFrom").value;
@@ -699,8 +729,8 @@ async function renderEventDetail(id) {
   const bookedIds = new Set(ev.services.map(s => s.service_id));
   const checklistDone = ev.checklist.filter(c => c.done).length;
   main.innerHTML = `
-    <span class="back" data-back>← Account</span>
-    <h1>${ev.type} <span class="pill">${money(ev.quote_total)}</span></h1>
+    <span class="back" data-back>← Back</span>
+    <h1>${ev.type} <span class="pill">${money(ev.quote_total)}</span> <button class="icon-btn" id="editEventBtn">✎ Edit</button> <button type="button" class="icon-btn del" id="deleteEventBtn" title="Delete event">✕ Delete</button></h1>
     <div class="kpis">
       <div class="kpi"><div class="l">Revenue</div><div class="v">${money(ev.quote_total)}</div></div>
       <div class="kpi"><div class="l">Real cost</div><div class="v">${money(ev.cost_breakdown.total)}</div></div>
@@ -717,7 +747,7 @@ async function renderEventDetail(id) {
       <div style="display:flex;gap:8px;">${tiers.map(t => `<div class="tier ${t.id===ev.pricing_tier_id?"sel":""}" data-tier="${t.id}"><b>${t.name}</b><div style="font-size:11px;color:var(--ink-soft)">${t.perks}</div></div>`).join("")}</div>
     </div>
     <div class="card"><h2>Line items — what this event is actually billed for</h2>
-      ${ev.services.map(s => `<div class="svc">${s.name} ${s.is_package ? '<span class="pill" style="background:var(--warning-soft);color:var(--warning)">Package</span>' : ""} — ${money(s.price_at_booking)}</div>`).join("") || '<div class="empty">Nothing added yet — apply a package or add services below.</div>'}
+      ${ev.services.map(s => `<div class="svc">${s.name} ${s.is_package ? '<span class="pill" style="background:var(--warning-soft);color:var(--warning)">Package</span>' : ""} — ${money(s.price_at_booking)} <button type="button" class="icon-btn del" data-del-lineitem="${s.id}" title="Remove">✕</button></div>`).join("") || '<div class="empty">Nothing added yet — apply a package or add services below.</div>'}
     </div>
     <div class="card"><h2>Apply a package</h2>
       <div style="display:flex;gap:8px;flex-wrap:wrap;">${packages.map(p => `<div class="tier" data-pkg="${p.id}"><b>${p.name}</b><div style="font-size:11px;color:var(--ink-soft)">${money(p.base_price)} · ${p.items.map(i=>i.name).join(", ")}</div></div>`).join("") || '<div class="empty">No packages defined yet.</div>'}</div>
@@ -756,6 +786,23 @@ async function renderEventDetail(id) {
     </div>
   `;
   main.querySelector("[data-back]").addEventListener("click", () => history.back());
+  main.querySelector("#editEventBtn").addEventListener("click", () => openModal("Edit event", `
+    <form>
+      <div class="field"><label>Type</label><input name="type" value="${ev.type}" required></div>
+      <div class="field"><label>Date</label><input name="event_date" type="date" value="${ev.event_date || ""}"></div>
+      <div class="field"><label>Venue</label><input name="venue" value="${ev.venue || ""}"></div>
+      <div class="field"><label>Status</label>
+        <select name="status">${["Planned","In progress","Delivered"].map(s => `<option ${s===ev.status?"selected":""}>${s}</option>`).join("")}</select>
+      </div>
+      <button type="submit" style="width:100%;">Save</button>
+    </form>
+  `, async data => { await api(`/events/${id}/details`, { method: "POST", body: JSON.stringify(data) }); toast("Event updated"); renderEventDetail(id); }));
+  main.querySelector("#deleteEventBtn").addEventListener("click", () =>
+    confirmDelete("Delete this event? Only possible if it has no payments recorded.", `/events/${id}/delete`, () => history.back())
+  );
+  main.querySelectorAll("[data-del-lineitem]").forEach(el => el.addEventListener("click", () =>
+    confirmDelete("Remove this line item from the event?", `/event-services/${el.dataset.delLineitem}/delete`, () => renderEventDetail(id))
+  ));
   main.querySelectorAll("[data-tier]").forEach(el => el.addEventListener("click", async () => { await api(`/events/${id}/tier`, { method: "POST", body: JSON.stringify({ pricing_tier_id: el.dataset.tier }) }); renderEventDetail(id); }));
   main.querySelectorAll("[data-pkg]").forEach(el => el.addEventListener("click", async () => { await api(`/events/${id}/package`, { method: "POST", body: JSON.stringify({ package_id: el.dataset.pkg }) }); renderEventDetail(id); }));
   main.querySelectorAll("[data-svc]").forEach(el => el.addEventListener("click", async () => { await api(`/events/${id}/services`, { method: "POST", body: JSON.stringify({ service_id: el.dataset.svc, is_crosssell: true }) }); renderEventDetail(id); }));
