@@ -63,6 +63,17 @@
       </div>
 
       <div class="card">
+        <h2>Your tasks</h2>
+        ${d.tasks.length ? d.tasks.map(t => `
+          <div class="row">
+            <span>${t.task}${!t.mine ? ` <span class="pill" style="background:var(--warning-soft);color:var(--warning);">${t.staff_name || "assigned to someone else"}</span>` : ""}</span>
+            ${t.mine
+              ? `<select data-task="${t.id}" ${t.status === "Done" ? 'style="color:var(--success);font-weight:700;"' : ""}>${["Pending","In progress","Done"].map(s => `<option ${s===t.status?"selected":""}>${s}</option>`).join("")}</select>`
+              : `<span class="pill ${t.status === "Done" ? "ok" : "pending"}">${t.status}</span>`}
+          </div>`).join("") : `<div class="sub">No tasks assigned yet.</div>`}
+      </div>
+
+      <div class="card">
         <h2>Log an expense</h2>
         <form id="expenseForm">
           <div class="field"><label>Category</label>
@@ -112,6 +123,12 @@
       if (!res.ok) { m.className = "msg err"; m.textContent = out.error; return; }
       load();
     });
+    document.querySelectorAll("[data-task]").forEach(el => el.addEventListener("change", async (e) => {
+      await fetch(`/api/portal/${token}/tasks/${el.dataset.task}/status`, {
+        method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ status: e.target.value }),
+      });
+      load();
+    }));
   }
 
   load();

@@ -25,8 +25,8 @@ export async function captureLead(request, env) {
   const source = (body.source || "Website").trim();
 
   const result = await env.DB.prepare(
-    `INSERT INTO leads (name, phone, phone_normalized, email, source, event_type, event_date, budget_est, message, possible_duplicate_of, stage)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'New')`
+    `INSERT INTO leads (name, phone, phone_normalized, email, source, event_type, event_date, budget_est, referred_by, message, possible_duplicate_of, stage)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'New')`
   )
     .bind(
       body.name,
@@ -37,6 +37,7 @@ export async function captureLead(request, env) {
       body.event_type || null,
       body.event_date || null,
       body.budget_est ? Number(body.budget_est) : null,
+      body.referred_by || null,
       body.message || null,
       dup ? dup.id : null
     )

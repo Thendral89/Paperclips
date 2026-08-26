@@ -87,14 +87,77 @@ Pushing this update: same as any other change — commit, CI applies the
 new migration automatically via `wrangler d1 migrations apply --remote`
 (already wired in `deploy.yml`), no manual DB step needed.
 
+## Operations layer — resourcing, real cost/profit, payments, checklists, tasks (added after go-live)
+
+The biggest addition yet, shipped in `migrations/0003_operations.sql`. Every
+piece is additive — nothing about auth, packages, or contacts changed.
+
+- **Vendors / procurement** — new **Vendors** tab. This is the "are we using
+  our own people or procuring outside" split you asked for: `staff` +
+  `event_staff_links` (now with a `role` and `cost` field) is your own team;
+  the new `vendors` + `event_vendors` tables are everyone else you pay per
+  event — catering, decoration, drone/equipment rental, a partner studio you
+  collaborate with on a shoot. Each has its own cost and paid/unpaid status
+  against the event.
+- **Real event cost & profit** — every event now shows Revenue / Real cost /
+  Profit at the top. Real cost = internal staff cost + outside vendor cost +
+  reimbursed field expenses (the existing photographer expense submissions)
+  — not just what was quoted. This is genuinely new: before this, you could
+  see what you billed, not what you made.
+- **Payment schedule** — since you confirmed there's no fixed split, this is
+  fully manual per event: add installments with a label, amount, and due
+  date ("Advance", "Before event", "On delivery", or anything custom), mark
+  each paid when it lands. The existing payment ledger (`payments`) still
+  records every actual rupee received — the schedule is just the plan.
+- **Deliverables** — track album/video production status per event: Not
+  started → In progress → Client review → Delivered. This is the "is the
+  album pending" answer, per event, not something you have to remember.
+- **Pre-event checklist** — one shared checklist (edit the template via the
+  `checklist-templates` API for now — no dedicated tab yet, see below)
+  snapshotted onto every new event when it's created. The dashboard flags
+  any event in the next 7 days that still has incomplete items, and each
+  event's detail page shows a live ready/not-ready count.
+- **Staff tasks** — assign a task to a specific staff member (or leave it
+  unassigned for "anyone on this event") from the event detail page. They
+  see and update their own tasks through their existing tokenized portal
+  link — no new login system. A staff member can only mark their *own*
+  assigned tasks done; the server checks this server-side, not just in the UI.
+- **Reports tab** — profitability per event (revenue, real cost, profit,
+  margin %) and a trailing 6-month revenue/cost/profit rollup by month —
+  this is where "3-month sales," "turnover," and "running profit" live now.
+- **Dashboard drill-down** — the KPI tiles (New leads 7d / Today's
+  follow-ups / Overdue) are now clickable and take you straight to a
+  filtered Leads list instead of just being a number. The dashboard also
+  now shows events in the next 7 days with their checklist status, and any
+  payment installments due in the next 3 days.
+- **Lead editing** — an Edit button on the lead detail page lets you fix a
+  captured name/phone/email/event type/date/budget directly, separate from
+  moving its pipeline stage.
+
+One honest limitation, not hidden: the checklist template itself (the 6
+default items) has no dedicated admin-console tab yet — the API exists
+(`GET/POST /api/admin/checklist-templates`, `POST
+/api/admin/checklist-templates/:id/remove`) but editing it today means a
+couple of API calls, not a form. Say the word if you want that wired into
+the UI next; I left it out of this batch to ship the rest sooner rather
+than let one more screen hold up everything else.
+
 ## Embedding the lead capture form
 
-The public form at `/` replaces the Google Form. Link to it with a `?src=`
-parameter so the source column fills in correctly:
+The public form at `/` replaces the Google Form. It's a 3-step wizard now
+(event details → budget → contact info) instead of one long page —
+progressive disclosure like this measurably reduces abandonment on mobile,
+which is most of your Instagram traffic. Contact info (the highest-friction
+field) is asked last, after the visitor's already invested effort on the
+easier questions.
+
+Link to it with a `?src=` parameter so the source column fills in correctly:
 
 - Instagram bio link: `https://pcs--prod.pcstudios.workers.dev/?src=instagram`
 - WhatsApp broadcast/status: `.../?src=whatsapp`
 - Facebook ad destination URL: `.../?src=facebook`
+- Shared by an existing client: `.../?src=referral` — this one additionally
+  reveals a "Who referred you?" field, so referral leads are traceable
 
 No `?src=` at all defaults to "Website."
 

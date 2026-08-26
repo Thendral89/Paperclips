@@ -5,7 +5,7 @@ import { json, badRequest, notFound, makeToken } from "../lib/util.js";
 
 // ── Dashboard ────────────────────────────────────────────────────────
 export async function dashboard(request, env) {
-  const [today, overdue, newThisWeek, pendingPayments] = await Promise.all([
+  const [today, overdue, newThisWeek, pendingPayments, upcomingEvents, dueInstallments] = await Promise.all([
     env.DB.prepare(
       `SELECT * FROM leads WHERE next_follow_up_date = date('now') AND stage NOT IN ('Booked','Lost')`
     ).all(),
@@ -13,29 +13,59 @@ export async function dashboard(request, env) {
       `SELECT * FROM leads WHERE next_follow_up_date < date('now') AND stage NOT IN ('Booked','Lost') ORDER BY next_follow_up_date ASC`
     ).all(),
     env.DB.prepare(
-      `SELECT COUNT(*) AS n FROM leads WHERE created_at >= datetime('now','-7 days')`
-    ).first(),
+      `SELECT * FROM leads WHERE created_at >= datetime('now','-7 days') ORDER BY created_at DESC`
+    ).all(),
     env.DB.prepare(
       `SELECT e.id, a.name, (e.quote_total - e.advance_paid) AS balance
        FROM events e JOIN accounts a ON a.id = e.account_id
        WHERE (e.quote_total - e.advance_paid) > 0`
     ).all(),
+    // Events in the next 7 days, with a live count of incomplete checklist
+    // items — this is the "have I arranged everything" warning.
+    env.DB.prepare(
+      `SELECT e.id, e.type, e.event_date, a.name AS account_name,
+              (SELECT COUNT(*) FROM event_checklist ec WHERE ec.event_id = e.id AND ec.done = 0) AS incomplete_checklist_items
+       FROM events e JOIN accounts a ON a.id = e.account_id
+       WHERE e.event_date BETWEEN date('now') AND date('now', '+7 days')
+       ORDER BY e.event_date ASC`
+    ).all(),
+    env.DB.prepare(
+      `SELECT ps.id, ps.event_id, ps.label, ps.amount, ps.due_date, a.name AS account_name
+       FROM payment_schedule ps
+       JOIN events e ON e.id = ps.event_id JOIN accounts a ON a.id = e.account_id
+       WHERE ps.status = 'Pending' AND ps.due_date <= date('now', '+3 days')
+       ORDER BY ps.due_date ASC`
+    ).all(),
   ]);
   return json({
     todays_followups: today.results,
     overdue_followups: overdue.results,
-    new_leads_7d: newThisWeek.n,
+    new_leads_7d: newThisWeek.results,
     pending_payments: pendingPayments.results,
+    upcoming_events: upcomingEvents.results,
+    installments_due: dueInstallments.results,
   });
 }
 
 // ── Leads ────────────────────────────────────────────────────────────
 export async function listLeads(request, env) {
-  const stage = new URL(request.url).searchParams.get("stage");
-  const q = stage
-    ? env.DB.prepare(`SELECT * FROM leads WHERE stage = ? ORDER BY created_at DESC`).bind(stage)
-    : env.DB.prepare(`SELECT * FROM leads ORDER BY created_at DESC LIMIT 200`);
-  const { results } = await q.all();
+  const params = new URL(request.url).searchParams;
+  const stage = params.get("stage");
+  const since = params.get("since_days");     // e.g. "7" — created in the last N days
+  const followUp = params.get("follow_up");   // "today" | "overdue"
+
+  const clauses = [];
+  const binds = [];
+  if (stage) { clauses.push("stage = ?"); binds.push(stage); }
+  if (since) { clauses.push("created_at >= datetime('now', ?)"); binds.push(`-${Number(since)} days`); }
+  if (followUp === "today") { clauses.push("next_follow_up_date = date('now')"); }
+  if (followUp === "overdue") { clauses.push("next_follow_up_date < date('now')"); }
+
+  const where = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
+  const limit = clauses.length ? "" : "LIMIT 200";
+  const { results } = await env.DB.prepare(
+    `SELECT * FROM leads ${where} ORDER BY created_at DESC ${limit}`
+  ).bind(...binds).all();
   return json(results);
 }
 
@@ -69,6 +99,31 @@ export async function createLeadManual(request, env, staff) {
   await env.DB.prepare(`INSERT INTO lead_status_history (lead_id, to_stage, changed_by) VALUES (?, 'New', ?)`)
     .bind(id, staff.email).run();
   return json({ ok: true, id }, { status: 201 });
+}
+
+// Edits the lead's own captured details (name/phone/etc.) — separate from
+// updateLeadStage, which only ever moves the pipeline stage and is audited
+// via lead_status_history. This endpoint fixes typos/updates from a call,
+// not a pipeline event, so it deliberately doesn't touch stage or history.
+export async function updateLeadDetails(request, env, id) {
+  const body = await request.json().catch(() => null);
+  if (!body) return badRequest("no fields given");
+  const lead = await env.DB.prepare(`SELECT * FROM leads WHERE id = ?`).bind(id).first();
+  if (!lead) return notFound("lead not found");
+  const { normalizePhone } = await import("../lib/util.js");
+
+  const name = body.name ?? lead.name;
+  const phone = body.phone ?? lead.phone;
+  const email = body.email !== undefined ? body.email || null : lead.email;
+  const event_type = body.event_type !== undefined ? body.event_type || null : lead.event_type;
+  const event_date = body.event_date !== undefined ? body.event_date || null : lead.event_date;
+  const budget_est = body.budget_est !== undefined ? (body.budget_est ? Number(body.budget_est) : null) : lead.budget_est;
+  const phone_normalized = body.phone !== undefined ? normalizePhone(phone) : lead.phone_normalized;
+
+  await env.DB.prepare(
+    `UPDATE leads SET name = ?, phone = ?, phone_normalized = ?, email = ?, event_type = ?, event_date = ?, budget_est = ?, updated_at = datetime('now') WHERE id = ?`
+  ).bind(name, phone, phone_normalized, email, event_type, event_date, budget_est, id).run();
+  return json({ ok: true });
 }
 
 export async function updateLeadStage(request, env, id, staff) {
@@ -174,7 +229,17 @@ export async function createEvent(request, env) {
   )
     .bind(body.account_id, body.type, body.event_date || null, body.venue || null, body.pricing_tier_id || 1)
     .run();
-  return json({ ok: true, id: result.meta.last_row_id }, { status: 201 });
+  const eventId = result.meta.last_row_id;
+
+  // Snapshot the shared checklist template onto this event — later template
+  // edits shouldn't retroactively change events already in progress.
+  const { results: template } = await env.DB.prepare(`SELECT item FROM checklist_templates ORDER BY sort_order`).all();
+  if (template.length) {
+    await env.DB.batch(
+      template.map((t) => env.DB.prepare(`INSERT INTO event_checklist (event_id, item) VALUES (?, ?)`).bind(eventId, t.item))
+    );
+  }
+  return json({ ok: true, id: eventId }, { status: 201 });
 }
 
 export async function getEvent(request, env, id) {
@@ -182,7 +247,7 @@ export async function getEvent(request, env, id) {
     `SELECT e.*, pt.name AS tier_name, pt.multiplier FROM events e LEFT JOIN pricing_tiers pt ON pt.id = e.pricing_tier_id WHERE e.id = ?`
   ).bind(id).first();
   if (!event) return notFound("event not found");
-  const [services, payments, links] = await Promise.all([
+  const [services, payments, links, vendors, schedule, deliverables, checklist, tasks] = await Promise.all([
     env.DB.prepare(
       `SELECT es.*, COALESCE(s.name, p.name) AS name, COALESCE(s.category, 'Package') AS category,
               CASE WHEN es.package_id IS NOT NULL THEN 1 ELSE 0 END AS is_package
@@ -192,9 +257,38 @@ export async function getEvent(request, env, id) {
        WHERE es.event_id = ?`
     ).bind(id).all(),
     env.DB.prepare(`SELECT * FROM payments WHERE event_id = ? ORDER BY date DESC`).bind(id).all(),
-    env.DB.prepare(`SELECT id, staff_name, scope, expires_at, created_at FROM event_staff_links WHERE event_id = ?`).bind(id).all(),
+    env.DB.prepare(`SELECT id, staff_name, role, cost, scope, expires_at, created_at FROM event_staff_links WHERE event_id = ?`).bind(id).all(),
+    env.DB.prepare(
+      `SELECT ev.*, v.name AS vendor_name, v.category AS vendor_category FROM event_vendors ev JOIN vendors v ON v.id = ev.vendor_id WHERE ev.event_id = ?`
+    ).bind(id).all(),
+    env.DB.prepare(`SELECT * FROM payment_schedule WHERE event_id = ? ORDER BY due_date ASC`).bind(id).all(),
+    env.DB.prepare(`SELECT * FROM deliverables WHERE event_id = ? ORDER BY due_date ASC`).bind(id).all(),
+    env.DB.prepare(`SELECT * FROM event_checklist WHERE event_id = ? ORDER BY id ASC`).bind(id).all(),
+    env.DB.prepare(
+      `SELECT et.*, esl.staff_name FROM event_tasks et LEFT JOIN event_staff_links esl ON esl.id = et.link_id WHERE et.event_id = ? ORDER BY et.created_at DESC`
+    ).bind(id).all(),
   ]);
-  return json({ ...event, services: services.results, payments: payments.results, staff_links: links.results });
+  // Real cost of running this event — internal staff cost + external vendor
+  // cost + ad-hoc reimbursed expenses — set against the quote to show profit.
+  const staffCost = links.results.reduce((s, l) => s + (l.cost || 0), 0);
+  const vendorCost = vendors.results.reduce((s, v) => s + (v.cost || 0), 0);
+  const { results: expenseRows } = await env.DB.prepare(`SELECT COALESCE(SUM(amount),0) AS total FROM expenses WHERE event_id = ?`).bind(id).all();
+  const expenseCost = expenseRows[0]?.total || 0;
+  const total_cost = staffCost + vendorCost + expenseCost;
+
+  return json({
+    ...event,
+    services: services.results,
+    payments: payments.results,
+    staff_links: links.results,
+    vendors: vendors.results,
+    payment_schedule: schedule.results,
+    deliverables: deliverables.results,
+    checklist: checklist.results,
+    tasks: tasks.results,
+    cost_breakdown: { staff: staffCost, vendors: vendorCost, expenses: expenseCost, total: total_cost },
+    profit: event.quote_total - total_cost,
+  });
 }
 
 export async function addEventService(request, env, id) {
@@ -301,10 +395,124 @@ export async function createStaffLink(request, env) {
   const token = makeToken();
   const expiresAt = body.expires_at || null; // e.g. event date + a few days, set by the caller
   await env.DB.prepare(
-    `INSERT INTO event_staff_links (event_id, staff_name, token, scope, expires_at) VALUES (?, ?, ?, ?, ?)`
-  ).bind(body.event_id, body.staff_name, token, body.scope || "expenses,support", expiresAt).run();
+    `INSERT INTO event_staff_links (event_id, staff_name, role, cost, token, scope, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?)`
+  ).bind(body.event_id, body.staff_name, body.role || null, body.cost ? Number(body.cost) : 0, token, body.scope || "expenses,support,tasks", expiresAt).run();
   const url = new URL(request.url);
   return json({ ok: true, token, url: `${url.origin}/portal/${token}` }, { status: 201 });
+}
+
+// ── Vendors / procurement — the "resources from outside" half ───────
+export async function listVendors(request, env) {
+  const { results } = await env.DB.prepare(`SELECT * FROM vendors ORDER BY category, name`).all();
+  return json(results);
+}
+
+export async function createVendor(request, env) {
+  const body = await request.json().catch(() => null);
+  if (!body || !body.name) return badRequest("name is required");
+  const result = await env.DB.prepare(
+    `INSERT INTO vendors (name, category, phone, email, notes) VALUES (?, ?, ?, ?, ?)`
+  ).bind(body.name, body.category || null, body.phone || null, body.email || null, body.notes || null).run();
+  return json({ ok: true, id: result.meta.last_row_id }, { status: 201 });
+}
+
+export async function addEventVendor(request, env, id) {
+  const body = await request.json().catch(() => null);
+  if (!body || !body.vendor_id) return badRequest("vendor_id is required");
+  await env.DB.prepare(
+    `INSERT INTO event_vendors (event_id, vendor_id, role, cost) VALUES (?, ?, ?, ?)`
+  ).bind(id, body.vendor_id, body.role || null, body.cost ? Number(body.cost) : 0).run();
+  return json({ ok: true }, { status: 201 });
+}
+
+export async function markEventVendorPaid(request, env, eventVendorId) {
+  await env.DB.prepare(`UPDATE event_vendors SET payment_status = 'Paid' WHERE id = ?`).bind(eventVendorId).run();
+  return json({ ok: true });
+}
+
+// ── Payment schedule — the plan; `payments` (above) stays the ledger ──
+export async function addPaymentScheduleItem(request, env, id) {
+  const body = await request.json().catch(() => null);
+  if (!body || !body.label || !body.amount) return badRequest("label and amount are required");
+  await env.DB.prepare(
+    `INSERT INTO payment_schedule (event_id, label, amount, due_date) VALUES (?, ?, ?, ?)`
+  ).bind(id, body.label, Number(body.amount), body.due_date || null).run();
+  return json({ ok: true }, { status: 201 });
+}
+
+export async function markPaymentScheduleItemPaid(request, env, scheduleId) {
+  const body = await request.json().catch(() => ({}));
+  const item = await env.DB.prepare(`SELECT * FROM payment_schedule WHERE id = ?`).bind(scheduleId).first();
+  if (!item) return notFound("payment schedule item not found");
+  const result = await env.DB.prepare(
+    `INSERT INTO payments (event_id, amount, method, note) VALUES (?, ?, ?, ?)`
+  ).bind(item.event_id, item.amount, body?.method || null, `Installment: ${item.label}`).run();
+  await env.DB.batch([
+    env.DB.prepare(`UPDATE payment_schedule SET status = 'Paid', paid_payment_id = ? WHERE id = ?`)
+      .bind(result.meta.last_row_id, scheduleId),
+    env.DB.prepare(`UPDATE events SET advance_paid = advance_paid + ? WHERE id = ?`).bind(item.amount, item.event_id),
+  ]);
+  return json({ ok: true });
+}
+
+// ── Deliverables — post-event production pipeline ────────────────────
+export async function addDeliverable(request, env, id) {
+  const body = await request.json().catch(() => null);
+  if (!body || !body.name) return badRequest("name is required");
+  await env.DB.prepare(
+    `INSERT INTO deliverables (event_id, name, due_date, notes) VALUES (?, ?, ?, ?)`
+  ).bind(id, body.name, body.due_date || null, body.notes || null).run();
+  return json({ ok: true }, { status: 201 });
+}
+
+export async function updateDeliverableStatus(request, env, deliverableId) {
+  const body = await request.json().catch(() => null);
+  if (!body || !body.status) return badRequest("status is required");
+  const deliveredAt = body.status === "Delivered" ? "datetime('now')" : "NULL";
+  await env.DB.prepare(
+    `UPDATE deliverables SET status = ?, delivered_at = ${deliveredAt} WHERE id = ?`
+  ).bind(body.status, deliverableId).run();
+  return json({ ok: true });
+}
+
+// ── Pre-event checklist ────────────────────────────────────────────
+export async function toggleChecklistItem(request, env, itemId) {
+  const item = await env.DB.prepare(`SELECT done FROM event_checklist WHERE id = ?`).bind(itemId).first();
+  if (!item) return notFound("checklist item not found");
+  const done = item.done ? 0 : 1;
+  await env.DB.prepare(
+    `UPDATE event_checklist SET done = ?, done_at = ${done ? "datetime('now')" : "NULL"} WHERE id = ?`
+  ).bind(done, itemId).run();
+  return json({ ok: true, done: !!done });
+}
+
+export async function listChecklistTemplates(request, env) {
+  const { results } = await env.DB.prepare(`SELECT * FROM checklist_templates ORDER BY sort_order`).all();
+  return json(results);
+}
+
+export async function addChecklistTemplateItem(request, env) {
+  const body = await request.json().catch(() => null);
+  if (!body || !body.item) return badRequest("item is required");
+  const { results } = await env.DB.prepare(`SELECT COALESCE(MAX(sort_order),0) AS m FROM checklist_templates`).all();
+  await env.DB.prepare(`INSERT INTO checklist_templates (item, sort_order) VALUES (?, ?)`)
+    .bind(body.item, (results[0]?.m || 0) + 1).run();
+  return json({ ok: true }, { status: 201 });
+}
+
+export async function removeChecklistTemplateItem(request, env, itemId) {
+  await env.DB.prepare(`DELETE FROM checklist_templates WHERE id = ?`).bind(itemId).run();
+  return json({ ok: true });
+}
+
+// ── Staff tasks — admin assigns, staff update via their portal link ──
+export async function addEventTask(request, env, id) {
+  const body = await request.json().catch(() => null);
+  if (!body || !body.task) return badRequest("task is required");
+  await env.DB.prepare(
+    `INSERT INTO event_tasks (event_id, link_id, task) VALUES (?, ?, ?)`
+  ).bind(id, body.link_id || null, body.task).run();
+  return json({ ok: true }, { status: 201 });
 }
 
 // ── Reports (blueprint §6) ───────────────────────────────────────────
@@ -329,4 +537,46 @@ export async function reportSourceRoi(request, env) {
      FROM leads GROUP BY source ORDER BY booked_value DESC`
   ).all();
   return json(results);
+}
+
+// Per-event profit — revenue (quote_total) minus real cost (internal staff +
+// external vendors + reimbursed expenses). This is the "what did we actually
+// make on this event" number, not just what was billed.
+export async function reportProfitability(request, env) {
+  const { results: events } = await env.DB.prepare(
+    `SELECT e.id, e.type, e.event_date, e.quote_total, a.name AS account_name,
+            COALESCE((SELECT SUM(cost) FROM event_staff_links WHERE event_id = e.id), 0) AS staff_cost,
+            COALESCE((SELECT SUM(cost) FROM event_vendors WHERE event_id = e.id), 0) AS vendor_cost,
+            COALESCE((SELECT SUM(amount) FROM expenses WHERE event_id = e.id), 0) AS expense_cost
+     FROM events e JOIN accounts a ON a.id = e.account_id
+     ORDER BY e.event_date DESC`
+  ).all();
+  const rows = events.map((e) => {
+    const cost = e.staff_cost + e.vendor_cost + e.expense_cost;
+    const profit = e.quote_total - cost;
+    return { ...e, cost, profit, margin_pct: e.quote_total ? Math.round((profit / e.quote_total) * 1000) / 10 : 0 };
+  });
+  const totals = rows.reduce(
+    (acc, r) => ({ revenue: acc.revenue + r.quote_total, cost: acc.cost + r.cost, profit: acc.profit + r.profit }),
+    { revenue: 0, cost: 0, profit: 0 }
+  );
+  return json({ events: rows, totals });
+}
+
+// Trailing 6-month revenue/cost/profit rollup — "3-month sale", "turnover",
+// "running profit" all read off this one report.
+export async function reportMonthly(request, env) {
+  const { results } = await env.DB.prepare(
+    `SELECT
+       strftime('%Y-%m', e.event_date) AS month,
+       COUNT(*) AS events,
+       SUM(e.quote_total) AS revenue,
+       SUM(COALESCE((SELECT SUM(cost) FROM event_staff_links WHERE event_id = e.id), 0)
+         + COALESCE((SELECT SUM(cost) FROM event_vendors WHERE event_id = e.id), 0)
+         + COALESCE((SELECT SUM(amount) FROM expenses WHERE event_id = e.id), 0)) AS cost
+     FROM events e
+     WHERE e.event_date >= date('now', '-6 months')
+     GROUP BY month ORDER BY month ASC`
+  ).all();
+  return json(results.map((r) => ({ ...r, profit: r.revenue - r.cost })));
 }

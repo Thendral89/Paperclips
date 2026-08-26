@@ -45,6 +45,18 @@
   .svc{display:flex;justify-content:space-between;align-items:center;padding:7px 0;border-bottom:1px dashed var(--line);font-size:13px;}
   .copybox{font-family:monospace;font-size:12px;background:var(--accent-soft);color:var(--accent);padding:8px 10px;border-radius:6px;word-break:break-all;margin-top:8px;}
   .empty{color:var(--ink-soft);font-size:13px;}
+  .kpi.clickable{cursor:pointer;}
+  .kpi.clickable:hover{border-color:var(--accent);}
+  .warn-banner{background:var(--warning-soft);color:var(--warning);border-radius:8px;padding:8px 12px;font-size:12.5px;font-weight:600;margin-bottom:8px;}
+  .check-row{display:flex;align-items:center;gap:9px;padding:6px 0;border-bottom:1px dashed var(--line);font-size:13px;}
+  .check-row input{width:auto;}
+  .check-row.done{color:var(--ink-soft);text-decoration:line-through;}
+  .filter-chip{display:inline-flex;align-items:center;gap:6px;background:var(--accent-soft);color:var(--accent);font-size:12.5px;font-weight:700;padding:5px 11px;border-radius:100px;margin-bottom:14px;}
+  .filter-chip span{cursor:pointer;}
+  .icon-btn{background:transparent;border:1px solid var(--line);color:var(--ink-soft);border-radius:6px;padding:4px 9px;font-size:12px;}
+  .status-pill-Pending,.status-pill-Unpaid,.status-pill-NotStarted{background:var(--warning-soft);color:var(--warning);}
+  .status-pill-Paid,.status-pill-Delivered,.status-pill-Done{background:var(--success-soft);color:var(--success);}
+  .status-pill-InProgress,.status-pill-ClientReview,.status-pill-PartiallyPaid{background:var(--accent-soft);color:var(--accent);}
 </style>
 </head>
 <body>
@@ -55,6 +67,8 @@
     <div class="navlink" data-view="leads">Leads</div>
     <div class="navlink" data-view="accounts">Accounts</div>
     <div class="navlink" data-view="packages">Packages</div>
+    <div class="navlink" data-view="vendors">Vendors</div>
+    <div class="navlink" data-view="reports">Reports</div>
   </aside>
   <main class="main" id="main">Loading…</main>
 </div>
@@ -65,12 +79,12 @@ const api = (path, opts) => fetch(`/api/admin${path}`, {
 }).then(async r => { const d = await r.json(); if (!r.ok) throw new Error(d.error || "Request failed"); return d; });
 
 const main = document.getElementById("main");
-let state = { view: "dashboard", id: null };
+let state = { view: "dashboard", id: null, filter: null };
 
 document.querySelectorAll(".navlink").forEach(el => el.addEventListener("click", () => go(el.dataset.view)));
 
-function go(view, id) {
-  state = { view, id };
+function go(view, id, filter) {
+  state = { view, id, filter: filter || null };
   document.querySelectorAll(".navlink").forEach(el => el.classList.toggle("active", el.dataset.view === view));
   render();
 }
@@ -85,10 +99,14 @@ async function render() {
     if (state.view === "accountDetail") return renderAccountDetail(state.id);
     if (state.view === "eventDetail") return renderEventDetail(state.id);
     if (state.view === "packages") return renderPackages();
+    if (state.view === "vendors") return renderVendors();
+    if (state.view === "reports") return renderReports();
   } catch (e) {
     main.innerHTML = `<div class="card">Error: ${e.message}</div>`;
   }
 }
+function money(n) { return `₹${(n || 0).toLocaleString("en-IN")}`; }
+function statusPill(status) { return `<span class="pill status-pill-${String(status).replace(/\s/g,"")}">${status}</span>`; }
 
 // ── Dashboard ──────────────────────────────────────────────
 async function renderDashboard() {
@@ -96,17 +114,33 @@ async function renderDashboard() {
   main.innerHTML = `
     <h1>Dashboard</h1>
     <div class="kpis">
-      <div class="kpi"><div class="l">New leads (7d)</div><div class="v">${d.new_leads_7d}</div></div>
-      <div class="kpi"><div class="l">Today's follow-ups</div><div class="v">${d.todays_followups.length}</div></div>
-      <div class="kpi"><div class="l">Overdue</div><div class="v" style="color:var(--critical)">${d.overdue_followups.length}</div></div>
+      <div class="kpi clickable" data-kpi="7d"><div class="l">New leads (7d)</div><div class="v">${d.new_leads_7d.length}</div></div>
+      <div class="kpi clickable" data-kpi="today"><div class="l">Today's follow-ups</div><div class="v">${d.todays_followups.length}</div></div>
+      <div class="kpi clickable" data-kpi="overdue"><div class="l">Overdue</div><div class="v" style="color:var(--critical)">${d.overdue_followups.length}</div></div>
       <div class="kpi"><div class="l">Accounts w/ balance due</div><div class="v">${d.pending_payments.length}</div></div>
     </div>
+    ${d.upcoming_events.some(e => e.incomplete_checklist_items > 0) ? `<div class="warn-banner">⚠ ${d.upcoming_events.filter(e=>e.incomplete_checklist_items>0).length} event(s) in the next 7 days still have unfinished checklist items — see below.</div>` : ""}
     <div class="row2">
       <div class="card"><h2>Today's follow-ups</h2>${leadRows(d.todays_followups) || '<div class="empty">Nothing due today.</div>'}</div>
       <div class="card"><h2>Overdue</h2>${leadRows(d.overdue_followups) || '<div class="empty">Nothing overdue.</div>'}</div>
     </div>
+    <div class="row2">
+      <div class="card"><h2>Events in the next 7 days</h2>
+        ${d.upcoming_events.map(e => `<div class="svc"><span data-event="${e.id}" style="cursor:pointer;">${e.account_name} — ${e.type} <span style="color:var(--ink-soft);font-size:11.5px">${e.event_date}</span></span>${e.incomplete_checklist_items > 0 ? `<span class="pill" style="background:var(--critical-soft);color:var(--critical)">${e.incomplete_checklist_items} checklist item(s) left</span>` : `<span class="pill" style="background:var(--success-soft);color:var(--success)">Ready</span>`}</div>`).join("") || '<div class="empty">Nothing coming up in the next week.</div>'}
+      </div>
+      <div class="card"><h2>Payments due (next 3 days)</h2>
+        ${d.installments_due.map(p => `<div class="svc"><span data-event="${p.event_id}" style="cursor:pointer;">${p.account_name} — ${p.label}</span><span>${money(p.amount)} due ${p.due_date}</span></div>`).join("") || '<div class="empty">Nothing due imminently.</div>'}
+      </div>
+    </div>
   `;
   main.querySelectorAll("[data-lead]").forEach(el => el.addEventListener("click", () => go("leadDetail", el.dataset.lead)));
+  main.querySelectorAll("[data-event]").forEach(el => el.addEventListener("click", () => go("eventDetail", el.dataset.event)));
+  main.querySelectorAll("[data-kpi]").forEach(el => el.addEventListener("click", () => {
+    const kpi = el.dataset.kpi;
+    if (kpi === "7d") go("leads", null, { since_days: 7, label: "New in the last 7 days" });
+    if (kpi === "today") go("leads", null, { follow_up: "today", label: "Follow-up due today" });
+    if (kpi === "overdue") go("leads", null, { follow_up: "overdue", label: "Overdue follow-ups" });
+  }));
 }
 function leadRows(rows) {
   if (!rows.length) return "";
@@ -115,9 +149,16 @@ function leadRows(rows) {
 
 // ── Leads ──────────────────────────────────────────────────
 async function renderLeads() {
-  const leads = await api("/leads");
+  const f = state.filter;
+  const qs = f ? new URLSearchParams({
+    ...(f.since_days ? { since_days: f.since_days } : {}),
+    ...(f.follow_up ? { follow_up: f.follow_up } : {}),
+    ...(f.stage ? { stage: f.stage } : {}),
+  }).toString() : "";
+  const leads = await api(`/leads${qs ? "?" + qs : ""}`);
   main.innerHTML = `
     <h1>Leads</h1>
+    ${f ? `<div class="filter-chip">${f.label} <span data-clear>✕</span></div>` : ""}
     <div class="card">
       <h2>Add a lead manually</h2>
       <form id="newLead" class="inline-form">
@@ -131,12 +172,14 @@ async function renderLeads() {
         <button type="submit">Add lead</button>
       </form>
     </div>
-    <div class="card"><h2>All leads</h2>
+    <div class="card"><h2>${f ? f.label : "All leads"} (${leads.length})</h2>
       <table><thead><tr><th>Name</th><th>Source</th><th>Stage</th><th>Budget</th></tr></thead>
-      <tbody>${leads.map(l => `<tr class="clickable" data-lead="${l.id}"><td>${l.name}</td><td><span class="pill">${l.source}</span></td><td>${l.stage}</td><td>₹${l.budget_est || "—"}</td></tr>`).join("")}</tbody></table>
+      <tbody>${leads.map(l => `<tr class="clickable" data-lead="${l.id}"><td>${l.name}</td><td><span class="pill">${l.source}</span></td><td>${l.stage}</td><td>${money(l.budget_est)}</td></tr>`).join("") || `<tr><td colspan="4" class="empty">No leads match this filter.</td></tr>`}</tbody></table>
     </div>
   `;
   main.querySelectorAll("[data-lead]").forEach(el => el.addEventListener("click", () => go("leadDetail", el.dataset.lead)));
+  const clear = main.querySelector("[data-clear]");
+  if (clear) clear.addEventListener("click", () => go("leads"));
   document.getElementById("newLead").addEventListener("submit", async e => {
     e.preventDefault();
     const data = Object.fromEntries(new FormData(e.target).entries());
@@ -149,19 +192,34 @@ async function renderLeadDetail(id) {
   const l = await api(`/leads/${id}`);
   main.innerHTML = `
     <span class="back" data-back>← Leads</span>
-    <h1>${l.name}</h1>
+    <h1>${l.name} <button class="icon-btn" id="editLeadBtn">✎ Edit</button></h1>
     <div class="row2">
       <div class="card">
         <h2>Details</h2>
-        <table>
+        <table id="detailsView">
           <tr><td>Phone</td><td>${l.phone}</td></tr>
           <tr><td>Email</td><td>${l.email || "—"}</td></tr>
           <tr><td>Source</td><td>${l.source}</td></tr>
           <tr><td>Event</td><td>${l.event_type || "—"} · ${l.event_date || "TBD"}</td></tr>
-          <tr><td>Budget</td><td>₹${l.budget_est || "—"}</td></tr>
+          <tr><td>Budget</td><td>${money(l.budget_est)}</td></tr>
           ${l.possible_duplicate_of ? `<tr><td>⚠ Possible duplicate of</td><td>lead #${l.possible_duplicate_of}</td></tr>` : ""}
           ${l.stage === "Lost" && l.lost_reason ? `<tr><td>Lost reason</td><td>${l.lost_reason}</td></tr>` : ""}
         </table>
+        <form id="editLeadForm" style="display:none;">
+          <div class="row2">
+            <div class="field"><label>Name</label><input name="name" value="${l.name}" required></div>
+            <div class="field"><label>Phone</label><input name="phone" value="${l.phone}" required></div>
+          </div>
+          <div class="row2">
+            <div class="field"><label>Email</label><input name="email" value="${l.email || ""}"></div>
+            <div class="field"><label>Budget est.</label><input name="budget_est" type="number" value="${l.budget_est || ""}"></div>
+          </div>
+          <div class="row2">
+            <div class="field"><label>Event type</label><input name="event_type" value="${l.event_type || ""}"></div>
+            <div class="field"><label>Event date</label><input name="event_date" type="date" value="${l.event_date || ""}"></div>
+          </div>
+          <button type="submit">Save</button> <button type="button" class="ghost" id="cancelEdit">Cancel</button>
+        </form>
         <div class="field" style="margin-top:14px;"><label>Stage</label>
           <select id="stageSel">
             ${["New","Contacted","Quoted","Follow-up","Booked","Lost"].map(s => `<option ${s===l.stage?"selected":""}>${s}</option>`).join("")}
@@ -180,6 +238,16 @@ async function renderLeadDetail(id) {
     </div>
   `;
   main.querySelector("[data-back]").addEventListener("click", () => go("leads"));
+  main.querySelector("#editLeadBtn").addEventListener("click", () => {
+    main.querySelector("#detailsView").style.display = "none";
+    main.querySelector("#editLeadForm").style.display = "block";
+  });
+  main.querySelector("#cancelEdit").addEventListener("click", () => renderLeadDetail(id));
+  main.querySelector("#editLeadForm").addEventListener("submit", async e => {
+    e.preventDefault();
+    await api(`/leads/${id}/details`, { method: "POST", body: JSON.stringify(Object.fromEntries(new FormData(e.target).entries())) });
+    renderLeadDetail(id);
+  });
   const acctLink = main.querySelector("[data-acct]");
   if (acctLink) acctLink.addEventListener("click", () => go("accountDetail", acctLink.dataset.acct));
   main.querySelector("#stageSel").addEventListener("change", async e => {
@@ -293,34 +361,89 @@ async function renderPackages() {
   });
 }
 
-// ── Event detail (pricing, cross-sell, payments, staff link) ─
+// ── Event detail (pricing, resourcing, cost/profit, payments, ops) ─
 async function renderEventDetail(id) {
-  const [ev, services, tiers, packages] = await Promise.all([api(`/events/${id}`), api("/services"), api("/tiers"), api("/packages")]);
+  const [ev, services, tiers, packages, vendors] = await Promise.all([
+    api(`/events/${id}`), api("/services"), api("/tiers"), api("/packages"), api("/vendors"),
+  ]);
   const bookedIds = new Set(ev.services.map(s => s.service_id));
+  const checklistDone = ev.checklist.filter(c => c.done).length;
   main.innerHTML = `
     <span class="back" data-back>← Account</span>
-    <h1>${ev.type} <span class="pill">₹${ev.quote_total}</span></h1>
+    <h1>${ev.type} <span class="pill">${money(ev.quote_total)}</span></h1>
+    <div class="kpis">
+      <div class="kpi"><div class="l">Revenue</div><div class="v">${money(ev.quote_total)}</div></div>
+      <div class="kpi"><div class="l">Real cost</div><div class="v">${money(ev.cost_breakdown.total)}</div></div>
+      <div class="kpi"><div class="l">Profit</div><div class="v" style="color:${ev.profit >= 0 ? 'var(--success)' : 'var(--critical)'}">${money(ev.profit)}</div></div>
+      <div class="kpi"><div class="l">Received</div><div class="v">${money(ev.advance_paid)}</div></div>
+    </div>
+
+    <div class="card"><h2>Pre-event checklist — ${checklistDone}/${ev.checklist.length} ready ${checklistDone < ev.checklist.length ? '<span class="pill" style="background:var(--critical-soft);color:var(--critical)">incomplete</span>' : '<span class="pill" style="background:var(--success-soft);color:var(--success)">all set</span>'}</h2>
+      ${ev.checklist.map(c => `<div class="check-row ${c.done ? "done" : ""}"><input type="checkbox" data-check="${c.id}" ${c.done ? "checked" : ""}> ${c.item}</div>`).join("") || '<div class="empty">No checklist template defined.</div>'}
+    </div>
+
     <div class="card"><h2>Pricing tier</h2>
       <div style="display:flex;gap:8px;">${tiers.map(t => `<div class="tier ${t.id===ev.pricing_tier_id?"sel":""}" data-tier="${t.id}"><b>${t.name}</b><div style="font-size:11px;color:var(--ink-soft)">${t.perks}</div></div>`).join("")}</div>
     </div>
     <div class="card"><h2>Line items — what this event is actually billed for</h2>
-      ${ev.services.map(s => `<div class="svc">${s.name} ${s.is_package ? '<span class="pill" style="background:var(--warning-soft);color:var(--warning)">Package</span>' : ""} — ₹${s.price_at_booking}</div>`).join("") || '<div class="empty">Nothing added yet — apply a package or add services below.</div>'}
+      ${ev.services.map(s => `<div class="svc">${s.name} ${s.is_package ? '<span class="pill" style="background:var(--warning-soft);color:var(--warning)">Package</span>' : ""} — ${money(s.price_at_booking)}</div>`).join("") || '<div class="empty">Nothing added yet — apply a package or add services below.</div>'}
     </div>
     <div class="card"><h2>Apply a package</h2>
-      <div style="display:flex;gap:8px;flex-wrap:wrap;">${packages.map(p => `<div class="tier" data-pkg="${p.id}"><b>${p.name}</b><div style="font-size:11px;color:var(--ink-soft)">₹${p.base_price} · ${p.items.map(i=>i.name).join(", ")}</div></div>`).join("") || '<div class="empty">No packages defined yet.</div>'}</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;">${packages.map(p => `<div class="tier" data-pkg="${p.id}"><b>${p.name}</b><div style="font-size:11px;color:var(--ink-soft)">${money(p.base_price)} · ${p.items.map(i=>i.name).join(", ")}</div></div>`).join("") || '<div class="empty">No packages defined yet.</div>'}</div>
     </div>
     <div class="card"><h2>Add-ons</h2>
-      ${services.map(s => `<div class="svc">${s.name} — ₹${s.base_price} ${bookedIds.has(s.id) ? '<span class="pill">added</span>' : `<button class="ghost" data-svc="${s.id}">+ Add</button>`}</div>`).join("")}
+      ${services.map(s => `<div class="svc">${s.name} — ${money(s.base_price)} ${bookedIds.has(s.id) ? '<span class="pill">added</span>' : `<button class="ghost" data-svc="${s.id}">+ Add</button>`}</div>`).join("")}
     </div>
+
     <div class="row2">
-      <div class="card"><h2>Payments — ₹${ev.advance_paid} of ₹${ev.quote_total} received</h2>
-        <form id="payForm" class="inline-form"><div class="field"><label>Amount</label><input name="amount" type="number" required></div><div class="field"><label>Method</label><input name="method"></div><button type="submit">Log payment</button></form>
-        ${ev.payments.map(p => `<div class="svc">₹${p.amount} — ${p.method||"—"} <span style="color:var(--ink-soft);font-size:11.5px">${p.date}</span></div>`).join("") || '<div class="empty">No payments yet.</div>'}
-      </div>
-      <div class="card"><h2>Field staff access</h2>
-        <form id="linkForm" class="inline-form"><div class="field"><label>Photographer name</label><input name="staff_name" required></div><button type="submit">Generate link</button></form>
-        ${ev.staff_links.map(l => `<div class="svc">${l.staff_name} <span style="color:var(--ink-soft);font-size:11.5px">created ${l.created_at}</span></div>`).join("")}
+      <div class="card"><h2>Internal staff (cost against this event)</h2>
+        <form id="linkForm">
+          <div class="row2">
+            <div class="field"><label>Photographer name</label><input name="staff_name" required></div>
+            <div class="field"><label>Role</label><input name="role" placeholder="Lead photographer"></div>
+          </div>
+          <div class="field"><label>Cost for this event (₹)</label><input name="cost" type="number" value="0"></div>
+          <button type="submit">Generate link</button>
+        </form>
+        ${ev.staff_links.map(l => `<div class="svc">${l.staff_name}${l.role ? ` <span class="pill">${l.role}</span>` : ""} <span>${money(l.cost)}</span></div>`).join("") || '<div class="empty">No staff assigned yet.</div>'}
         <div id="linkOut"></div>
+      </div>
+      <div class="card"><h2>Outside vendors / procurement</h2>
+        <form id="vendorForm">
+          <div class="row2">
+            <div class="field"><label>Vendor</label><select name="vendor_id" required>${vendors.map(v => `<option value="${v.id}">${v.name} (${v.category||"—"})</option>`).join("") || `<option value="">No vendors yet — add one in the Vendors tab</option>`}</select></div>
+            <div class="field"><label>Role for this event</label><input name="role" placeholder="Drone operator"></div>
+          </div>
+          <div class="field"><label>Cost (₹)</label><input name="cost" type="number" value="0"></div>
+          <button type="submit">Add vendor to event</button>
+        </form>
+        ${ev.vendors.map(v => `<div class="svc">${v.vendor_name}${v.role ? ` <span class="pill">${v.role}</span>` : ""} <span>${money(v.cost)} ${statusPill(v.payment_status)} ${v.payment_status !== "Paid" ? `<button class="icon-btn" data-vendor-paid="${v.id}">Mark paid</button>` : ""}</span></div>`).join("") || '<div class="empty">No outside vendors on this event.</div>'}
+      </div>
+    </div>
+
+    <div class="row2">
+      <div class="card"><h2>Payment schedule — ${money(ev.advance_paid)} of ${money(ev.quote_total)} received</h2>
+        <form id="schedForm" class="inline-form"><div class="field"><label>Label</label><input name="label" placeholder="Advance / Before event / On delivery" required></div><div class="field"><label>Amount</label><input name="amount" type="number" required></div><div class="field"><label>Due date</label><input name="due_date" type="date"></div><button type="submit">Add installment</button></form>
+        ${ev.payment_schedule.map(p => `<div class="svc">${p.label} — ${money(p.amount)} <span style="color:var(--ink-soft);font-size:11.5px">${p.due_date||"no due date"}</span> ${statusPill(p.status)} ${p.status !== "Paid" ? `<button class="icon-btn" data-sched-paid="${p.id}">Mark paid</button>` : ""}</div>`).join("") || '<div class="empty">No installments planned — log ad-hoc payments below instead.</div>'}
+      </div>
+      <div class="card"><h2>Payments received (ledger)</h2>
+        <form id="payForm" class="inline-form"><div class="field"><label>Amount</label><input name="amount" type="number" required></div><div class="field"><label>Method</label><input name="method"></div><button type="submit">Log payment</button></form>
+        ${ev.payments.map(p => `<div class="svc">${money(p.amount)} — ${p.method||"—"} <span style="color:var(--ink-soft);font-size:11.5px">${p.date}</span></div>`).join("") || '<div class="empty">No payments yet.</div>'}
+      </div>
+    </div>
+
+    <div class="row2">
+      <div class="card"><h2>Deliverables — album/video production status</h2>
+        <form id="delivForm" class="inline-form"><div class="field"><label>Name</label><input name="name" placeholder="Wedding album" required></div><div class="field"><label>Due date</label><input name="due_date" type="date"></div><button type="submit">Add</button></form>
+        ${ev.deliverables.map(d => `<div class="svc">${d.name} <span style="color:var(--ink-soft);font-size:11.5px">${d.due_date?`due ${d.due_date}`:""}</span><select data-deliv-status="${d.id}">${["Not started","In progress","Client review","Delivered"].map(s=>`<option ${s===d.status?"selected":""}>${s}</option>`).join("")}</select></div>`).join("") || '<div class="empty">No deliverables tracked yet.</div>'}
+      </div>
+      <div class="card"><h2>Staff tasks</h2>
+        <form id="taskForm" class="inline-form">
+          <div class="field"><label>Assign to</label><select name="link_id"><option value="">Anyone on this event</option>${ev.staff_links.map(l=>`<option value="${l.id}">${l.staff_name}</option>`).join("")}</select></div>
+          <div class="field"><label>Task</label><input name="task" placeholder="Upload raw footage" required></div>
+          <button type="submit">Assign</button>
+        </form>
+        ${ev.tasks.map(t => `<div class="svc">${t.task} ${t.staff_name?`<span class="pill">${t.staff_name}</span>`:'<span class="pill">Anyone</span>'} ${statusPill(t.status)}</div>`).join("") || '<div class="empty">No tasks assigned — staff also see and update these from their own link.</div>'}
       </div>
     </div>
   `;
@@ -328,7 +451,15 @@ async function renderEventDetail(id) {
   main.querySelectorAll("[data-tier]").forEach(el => el.addEventListener("click", async () => { await api(`/events/${id}/tier`, { method: "POST", body: JSON.stringify({ pricing_tier_id: el.dataset.tier }) }); renderEventDetail(id); }));
   main.querySelectorAll("[data-pkg]").forEach(el => el.addEventListener("click", async () => { await api(`/events/${id}/package`, { method: "POST", body: JSON.stringify({ package_id: el.dataset.pkg }) }); renderEventDetail(id); }));
   main.querySelectorAll("[data-svc]").forEach(el => el.addEventListener("click", async () => { await api(`/events/${id}/services`, { method: "POST", body: JSON.stringify({ service_id: el.dataset.svc, is_crosssell: true }) }); renderEventDetail(id); }));
+  main.querySelectorAll("[data-check]").forEach(el => el.addEventListener("change", async () => { await api(`/checklist/${el.dataset.check}/toggle`, { method: "POST", body: "{}" }); renderEventDetail(id); }));
+  main.querySelectorAll("[data-vendor-paid]").forEach(el => el.addEventListener("click", async () => { await api(`/event-vendors/${el.dataset.vendorPaid}/paid`, { method: "POST", body: "{}" }); renderEventDetail(id); }));
+  main.querySelectorAll("[data-sched-paid]").forEach(el => el.addEventListener("click", async () => { await api(`/payment-schedule/${el.dataset.schedPaid}/paid`, { method: "POST", body: "{}" }); renderEventDetail(id); }));
+  main.querySelectorAll("[data-deliv-status]").forEach(el => el.addEventListener("change", async e => { await api(`/deliverables/${el.dataset.delivStatus}/status`, { method: "POST", body: JSON.stringify({ status: e.target.value }) }); renderEventDetail(id); }));
   main.querySelector("#payForm").addEventListener("submit", async e => { e.preventDefault(); await api(`/events/${id}/payments`, { method: "POST", body: JSON.stringify(Object.fromEntries(new FormData(e.target).entries())) }); renderEventDetail(id); });
+  main.querySelector("#schedForm").addEventListener("submit", async e => { e.preventDefault(); await api(`/events/${id}/payment-schedule`, { method: "POST", body: JSON.stringify(Object.fromEntries(new FormData(e.target).entries())) }); renderEventDetail(id); });
+  main.querySelector("#delivForm").addEventListener("submit", async e => { e.preventDefault(); await api(`/events/${id}/deliverables`, { method: "POST", body: JSON.stringify(Object.fromEntries(new FormData(e.target).entries())) }); renderEventDetail(id); });
+  main.querySelector("#taskForm").addEventListener("submit", async e => { e.preventDefault(); await api(`/events/${id}/tasks`, { method: "POST", body: JSON.stringify(Object.fromEntries(new FormData(e.target).entries())) }); renderEventDetail(id); });
+  main.querySelector("#vendorForm").addEventListener("submit", async e => { e.preventDefault(); await api(`/events/${id}/vendors`, { method: "POST", body: JSON.stringify(Object.fromEntries(new FormData(e.target).entries())) }); renderEventDetail(id); });
   main.querySelector("#linkForm").addEventListener("submit", async e => {
     e.preventDefault();
     const data = Object.fromEntries(new FormData(e.target).entries());
@@ -336,6 +467,56 @@ async function renderEventDetail(id) {
     const r = await api("/staff-links", { method: "POST", body: JSON.stringify(data) });
     document.getElementById("linkOut").innerHTML = `<div class="copybox">${r.url}</div>`;
   });
+}
+
+// ── Vendors ────────────────────────────────────────────────
+async function renderVendors() {
+  const vendors = await api("/vendors");
+  main.innerHTML = `
+    <h1>Vendors</h1>
+    <p class="empty" style="margin-top:-10px;margin-bottom:16px;">People and businesses you procure for an event but don't employ — catering, decoration, drone/equipment, partner studios you collaborate with.</p>
+    <div class="card"><h2>Add a vendor</h2>
+      <form id="newVendor" class="inline-form">
+        <div class="field"><label>Name</label><input name="name" required></div>
+        <div class="field"><label>Category</label>
+          <select name="category"><option>Catering</option><option>Decoration</option><option>Drone/Equipment</option><option>Makeup</option><option>Venue</option><option>Partner studio</option><option>Other</option></select>
+        </div>
+        <div class="field"><label>Phone</label><input name="phone"></div>
+        <button type="submit">Add vendor</button>
+      </form>
+    </div>
+    <div class="card"><h2>All vendors</h2>
+      <table><thead><tr><th>Name</th><th>Category</th><th>Phone</th></tr></thead>
+      <tbody>${vendors.map(v => `<tr><td>${v.name}</td><td><span class="pill">${v.category||"—"}</span></td><td>${v.phone||"—"}</td></tr>`).join("") || `<tr><td colspan="3" class="empty">No vendors yet.</td></tr>`}</tbody></table>
+    </div>
+  `;
+  main.querySelector("#newVendor").addEventListener("submit", async e => {
+    e.preventDefault();
+    await api("/vendors", { method: "POST", body: JSON.stringify(Object.fromEntries(new FormData(e.target).entries())) });
+    renderVendors();
+  });
+}
+
+// ── Reports ────────────────────────────────────────────────
+async function renderReports() {
+  const [profitability, monthly] = await Promise.all([api("/reports/profitability"), api("/reports/monthly")]);
+  main.innerHTML = `
+    <h1>Reports</h1>
+    <div class="kpis">
+      <div class="kpi"><div class="l">Total revenue (all events)</div><div class="v">${money(profitability.totals.revenue)}</div></div>
+      <div class="kpi"><div class="l">Total cost</div><div class="v">${money(profitability.totals.cost)}</div></div>
+      <div class="kpi"><div class="l">Total profit</div><div class="v" style="color:var(--success)">${money(profitability.totals.profit)}</div></div>
+    </div>
+    <div class="card"><h2>Monthly turnover (trailing 6 months, by event date)</h2>
+      <table><thead><tr><th>Month</th><th>Events</th><th>Revenue</th><th>Cost</th><th>Profit</th></tr></thead>
+      <tbody>${monthly.map(m => `<tr><td>${m.month}</td><td>${m.events}</td><td>${money(m.revenue)}</td><td>${money(m.cost)}</td><td>${money(m.profit)}</td></tr>`).join("") || `<tr><td colspan="5" class="empty">No dated events yet.</td></tr>`}</tbody></table>
+    </div>
+    <div class="card"><h2>Profitability per event</h2>
+      <table><thead><tr><th>Account</th><th>Event</th><th>Revenue</th><th>Cost</th><th>Profit</th><th>Margin</th></tr></thead>
+      <tbody>${profitability.events.map(e => `<tr class="clickable" data-event="${e.id}"><td>${e.account_name}</td><td>${e.type} <span style="color:var(--ink-soft);font-size:11.5px">${e.event_date||""}</span></td><td>${money(e.quote_total)}</td><td>${money(e.cost)}</td><td style="color:${e.profit>=0?'var(--success)':'var(--critical)'}">${money(e.profit)}</td><td>${e.margin_pct}%</td></tr>`).join("") || `<tr><td colspan="6" class="empty">No events yet.</td></tr>`}</tbody></table>
+    </div>
+  `;
+  main.querySelectorAll("[data-event]").forEach(el => el.addEventListener("click", () => go("eventDetail", el.dataset.event)));
 }
 
 go("dashboard");

@@ -18,6 +18,7 @@ const ADMIN_ROUTES = [
   ["GET", /^\/api\/admin\/leads$/, (req, env) => admin.listLeads(req, env)],
   ["POST", /^\/api\/admin\/leads$/, (req, env, staff) => admin.createLeadManual(req, env, staff)],
   ["GET", /^\/api\/admin\/leads\/(\d+)$/, (req, env, staff, [id]) => admin.getLead(req, env, id)],
+  ["POST", /^\/api\/admin\/leads\/(\d+)\/details$/, (req, env, staff, [id]) => admin.updateLeadDetails(req, env, id)],
   ["POST", /^\/api\/admin\/leads\/(\d+)\/stage$/, (req, env, staff, [id]) => admin.updateLeadStage(req, env, id, staff)],
   ["POST", /^\/api\/admin\/leads\/(\d+)\/followup$/, (req, env, staff, [id]) => admin.setFollowUp(req, env, id)],
   ["POST", /^\/api\/admin\/leads\/(\d+)\/notes$/, (req, env, staff, [id]) => admin.addNote(req, env, id, staff)],
@@ -33,21 +34,37 @@ const ADMIN_ROUTES = [
   ["POST", /^\/api\/admin\/events\/(\d+)\/package$/, (req, env, staff, [id]) => admin.applyPackageToEvent(req, env, id)],
   ["POST", /^\/api\/admin\/events\/(\d+)\/tier$/, (req, env, staff, [id]) => admin.setEventTier(req, env, id)],
   ["POST", /^\/api\/admin\/events\/(\d+)\/payments$/, (req, env, staff, [id]) => admin.addPayment(req, env, id)],
+  ["POST", /^\/api\/admin\/events\/(\d+)\/vendors$/, (req, env, staff, [id]) => admin.addEventVendor(req, env, id)],
+  ["POST", /^\/api\/admin\/event-vendors\/(\d+)\/paid$/, (req, env, staff, [id]) => admin.markEventVendorPaid(req, env, id)],
+  ["POST", /^\/api\/admin\/events\/(\d+)\/payment-schedule$/, (req, env, staff, [id]) => admin.addPaymentScheduleItem(req, env, id)],
+  ["POST", /^\/api\/admin\/payment-schedule\/(\d+)\/paid$/, (req, env, staff, [id]) => admin.markPaymentScheduleItemPaid(req, env, id)],
+  ["POST", /^\/api\/admin\/events\/(\d+)\/deliverables$/, (req, env, staff, [id]) => admin.addDeliverable(req, env, id)],
+  ["POST", /^\/api\/admin\/deliverables\/(\d+)\/status$/, (req, env, staff, [id]) => admin.updateDeliverableStatus(req, env, id)],
+  ["POST", /^\/api\/admin\/checklist\/(\d+)\/toggle$/, (req, env, staff, [id]) => admin.toggleChecklistItem(req, env, id)],
+  ["POST", /^\/api\/admin\/events\/(\d+)\/tasks$/, (req, env, staff, [id]) => admin.addEventTask(req, env, id)],
 
   ["GET", /^\/api\/admin\/services$/, (req, env) => admin.listServices(req, env)],
   ["GET", /^\/api\/admin\/tiers$/, (req, env) => admin.listTiers(req, env)],
   ["GET", /^\/api\/admin\/packages$/, (req, env) => admin.listPackages(req, env)],
   ["POST", /^\/api\/admin\/packages$/, (req, env) => admin.createPackage(req, env)],
+  ["GET", /^\/api\/admin\/vendors$/, (req, env) => admin.listVendors(req, env)],
+  ["POST", /^\/api\/admin\/vendors$/, (req, env) => admin.createVendor(req, env)],
+  ["GET", /^\/api\/admin\/checklist-templates$/, (req, env) => admin.listChecklistTemplates(req, env)],
+  ["POST", /^\/api\/admin\/checklist-templates$/, (req, env) => admin.addChecklistTemplateItem(req, env)],
+  ["POST", /^\/api\/admin\/checklist-templates\/(\d+)\/remove$/, (req, env, staff, [id]) => admin.removeChecklistTemplateItem(req, env, id)],
   ["POST", /^\/api\/admin\/staff-links$/, (req, env) => admin.createStaffLink(req, env)],
 
   ["GET", /^\/api\/admin\/reports\/conversion$/, (req, env) => admin.reportConversion(req, env)],
   ["GET", /^\/api\/admin\/reports\/source-roi$/, (req, env) => admin.reportSourceRoi(req, env)],
+  ["GET", /^\/api\/admin\/reports\/profitability$/, (req, env) => admin.reportProfitability(req, env)],
+  ["GET", /^\/api\/admin\/reports\/monthly$/, (req, env) => admin.reportMonthly(req, env)],
 ];
 
 const PORTAL_ROUTES = [
   ["GET", /^\/api\/portal\/([a-f0-9]+)$/, (req, env, link) => portal.getScopedEvent(req, env, link)],
   ["POST", /^\/api\/portal\/([a-f0-9]+)\/expenses$/, (req, env, link) => portal.submitExpense(req, env, link)],
   ["POST", /^\/api\/portal\/([a-f0-9]+)\/support$/, (req, env, link) => portal.submitSupportRequest(req, env, link)],
+  ["POST", /^\/api\/portal\/([a-f0-9]+)\/tasks\/(\d+)\/status$/, (req, env, link, [taskId]) => portal.updateTaskStatus(req, env, link, taskId)],
 ];
 
 export default {
@@ -73,7 +90,7 @@ export default {
       if (!m) continue;
       const link = await requireEventLink(env, m[1]);
       if (!link) return unauthorized("invalid or expired link");
-      return handler(request, env, link).catch((e) => json({ error: String(e) }, { status: 500 }));
+      return handler(request, env, link, m.slice(2)).catch((e) => json({ error: String(e) }, { status: 500 }));
     }
 
     // 3. Admin API — gated by the Google Sign-In session cookie. Fails

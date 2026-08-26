@@ -5,71 +5,179 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Paperclip Studios — Tell us about your event</title>
 <style>
-  :root{ --ink:#211D18; --ink-soft:#5B5449; --paper:#F6F3EC; --card:#FFFFFF; --line:#DCD5C7; --accent:#4B3FA0; }
+  :root{ --ink:#211D18; --ink-soft:#5B5449; --paper:#F6F3EC; --card:#FFFFFF; --line:#DCD5C7; --accent:#4B3FA0; --accent-soft:#EEEBFA; --success:#2E8B57; --success-soft:#E4F3EA; --critical:#BE4038; --critical-soft:#FBE7E4; }
   *{box-sizing:border-box;}
   body{margin:0;background:var(--paper);color:var(--ink);font-family:-apple-system,'Segoe UI',sans-serif;line-height:1.5;}
-  .wrap{max-width:520px;margin:0 auto;padding:48px 20px 70px;}
-  h1{font-size:24px;margin:0 0 6px;}
-  p.lede{color:var(--ink-soft);font-size:14px;margin:0 0 28px;}
-  form{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:22px;}
+  .wrap{max-width:480px;margin:0 auto;padding:40px 20px 70px;}
+  h1{font-size:23px;margin:0 0 6px;}
+  p.lede{color:var(--ink-soft);font-size:14px;margin:0 0 20px;}
+  .progress{display:flex;gap:6px;margin-bottom:18px;}
+  .progress .seg{flex:1;height:4px;border-radius:99px;background:var(--line);}
+  .progress .seg.done{background:var(--accent);}
+  .stepper{font-size:12px;font-weight:700;color:var(--accent);text-transform:uppercase;letter-spacing:.04em;margin-bottom:10px;}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:22px;}
+  .step{display:none;}
+  .step.active{display:block;animation:fade .18s ease;}
+  @keyframes fade{from{opacity:0;transform:translateY(4px);}to{opacity:1;transform:none;}}
   .field{margin-bottom:14px;}
   label{display:block;font-size:12px;font-weight:700;color:var(--ink-soft);text-transform:uppercase;letter-spacing:.03em;margin-bottom:5px;}
-  input,select,textarea{width:100%;padding:10px 11px;border:1px solid var(--line);border-radius:7px;font-size:14px;background:#fff;color:var(--ink);}
+  input,select,textarea{width:100%;padding:11px 12px;border:1px solid var(--line);border-radius:8px;font-size:15px;background:#fff;color:var(--ink);font-family:inherit;}
   input:focus,select:focus,textarea:focus{outline:2px solid var(--accent);outline-offset:1px;}
   .row{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
-  button{width:100%;background:var(--accent);color:#fff;border:none;border-radius:8px;padding:12px;font-size:15px;font-weight:700;cursor:pointer;margin-top:6px;}
-  button:disabled{opacity:.6;cursor:default;}
-  .msg{margin-top:14px;padding:11px 13px;border-radius:8px;font-size:13.5px;display:none;}
-  .msg.ok{background:#E4F3EA;color:#2E8B57;display:block;}
-  .msg.err{background:#FBE7E4;color:#BE4038;display:block;}
+  .choice-grid{display:grid;gap:8px;}
+  .choice{border:1.5px solid var(--line);border-radius:10px;padding:12px 14px;cursor:pointer;font-size:14px;font-weight:600;display:flex;justify-content:space-between;align-items:center;}
+  .choice:active{transform:scale(.99);}
+  .choice.sel{border-color:var(--accent);background:var(--accent-soft);color:var(--accent);}
+  .choice .check{width:18px;height:18px;border-radius:50%;border:1.5px solid var(--line);flex-shrink:0;}
+  .choice.sel .check{border-color:var(--accent);background:var(--accent);box-shadow:inset 0 0 0 3px #fff;}
+  .nav{display:flex;gap:10px;margin-top:18px;}
+  button{background:var(--accent);color:#fff;border:none;border-radius:9px;padding:13px;font-size:15px;font-weight:700;cursor:pointer;flex:1;}
+  button.back{background:transparent;color:var(--ink-soft);border:1px solid var(--line);flex:0 0 auto;padding:13px 18px;}
+  button:disabled{opacity:.45;cursor:default;}
+  .hint{font-size:12px;color:var(--ink-soft);margin-top:6px;}
+  .msg{margin-top:14px;padding:12px 14px;border-radius:9px;font-size:13.5px;display:none;}
+  .msg.ok{background:var(--success-soft);color:var(--success);display:block;}
+  .msg.err{background:var(--critical-soft);color:var(--critical);display:block;}
+  .success{text-align:center;padding:20px 6px;}
+  .success .tick{width:52px;height:52px;border-radius:50%;background:var(--success-soft);color:var(--success);display:flex;align-items:center;justify-content:center;font-size:26px;margin:0 auto 14px;}
 </style>
 </head>
 <body>
 <div class="wrap">
   <h1>Tell us about your event</h1>
-  <p class="lede">Wedding, engagement or a promo reel — share a few details and we'll get back to you within a day.</p>
-  <form id="f">
-    <div class="field"><label>Your name</label><input name="name" required></div>
-    <div class="row">
-      <div class="field"><label>Phone / WhatsApp</label><input name="phone" required></div>
-      <div class="field"><label>Email (optional)</label><input name="email" type="email"></div>
-    </div>
-    <div class="row">
-      <div class="field"><label>Event type</label>
-        <select name="event_type">
-          <option>Wedding</option><option>Engagement</option><option>Pre-wedding shoot</option>
-          <option>Baby shower</option><option>Promo reel</option><option>Other</option>
-        </select>
+  <p class="lede">Wedding, engagement or a promo reel — three quick steps, about 30 seconds.</p>
+
+  <div class="progress" id="progress"></div>
+  <div class="card">
+    <form id="f" novalidate>
+
+      <div class="step active" data-step="1">
+        <div class="stepper">Step 1 of 3 — Your event</div>
+        <div class="field"><label>Event type</label>
+          <div class="choice-grid" id="eventTypeGrid"></div>
+        </div>
+        <div class="field"><label>Event date (if you know it)</label><input name="event_date" type="date"></div>
+        <div class="nav"><button type="button" id="next1">Continue →</button></div>
       </div>
-      <div class="field"><label>Event date</label><input name="event_date" type="date"></div>
-    </div>
-    <div class="field"><label>Budget range (₹)</label>
-      <select name="budget_est">
-        <option value="50000">Under 75,000</option>
-        <option value="120000">75,000 – 1,50,000</option>
-        <option value="175000">1,50,000 – 2,00,000</option>
-        <option value="250000">2,00,000+</option>
-      </select>
-    </div>
-    <div class="field"><label>Tell us a bit more</label><textarea name="message" rows="3"></textarea></div>
-    <button type="submit">Submit enquiry →</button>
-    <div class="msg" id="msg"></div>
-  </form>
+
+      <div class="step" data-step="2">
+        <div class="stepper">Step 2 of 3 — Budget</div>
+        <div class="field"><label>Roughly, what's your budget?</label>
+          <div class="choice-grid" id="budgetGrid"></div>
+          <div class="hint">Just a range — helps us recommend the right package. Nothing is locked in.</div>
+        </div>
+        <div class="nav">
+          <button type="button" class="back" id="back2">← Back</button>
+          <button type="button" id="next2" disabled>Continue →</button>
+        </div>
+      </div>
+
+      <div class="step" data-step="3">
+        <div class="stepper">Step 3 of 3 — How to reach you</div>
+        <div class="field"><label>Your name</label><input name="name" required></div>
+        <div class="row">
+          <div class="field"><label>Phone / WhatsApp</label><input name="phone" required inputmode="tel" maxlength="15"></div>
+          <div class="field"><label>Email (optional)</label><input name="email" type="email"></div>
+        </div>
+        <div class="field" id="referredByField" style="display:none;"><label>Who referred you?</label><input name="referred_by" placeholder="Their name"></div>
+        <div class="field"><label>Anything else? (optional)</label><textarea name="message" rows="2"></textarea></div>
+        <div class="nav">
+          <button type="button" class="back" id="back3">← Back</button>
+          <button type="submit" id="submitBtn">Submit enquiry →</button>
+        </div>
+        <div class="msg" id="msg"></div>
+      </div>
+
+      <div class="step" data-step="done">
+        <div class="success">
+          <div class="tick">✓</div>
+          <h2 style="font-size:18px;margin:0 0 6px;">Thanks — got it!</h2>
+          <p style="color:var(--ink-soft);font-size:14px;margin:0;">We'll reach out within a day. If it's urgent, WhatsApp us directly using the number in our Instagram bio.</p>
+        </div>
+      </div>
+
+    </form>
+  </div>
 </div>
 <script>
-  // Source auto-tag: append ?src=instagram (or whatsapp / facebook / referral)
-  // to the link you embed in each place — defaults to "Website" if absent.
+  // ── Source auto-tag ─────────────────────────────────────────────────
+  // Append ?src=instagram (or whatsapp / facebook / referral) to the link
+  // you embed in each place — defaults to "Website" if absent.
   const SRC_MAP = { instagram: "Instagram", whatsapp: "WhatsApp", facebook: "Facebook", referral: "Referral" };
   const params = new URLSearchParams(location.search);
   const source = SRC_MAP[(params.get("src") || "").toLowerCase()] || "Website";
+  if (source === "Referral") document.getElementById("referredByField").style.display = "block";
 
+  // ── Static option data ───────────────────────────────────────────────
+  const EVENT_TYPES = ["Wedding", "Engagement", "Pre-wedding shoot", "Birthday", "Baby shower", "Ear piercing ceremony", "Corporate event", "Promo reel", "Other"];
+  const BUDGETS = [
+    { value: "50000", label: "Under ₹75,000" },
+    { value: "120000", label: "₹75,000 – ₹1,50,000" },
+    { value: "175000", label: "₹1,50,000 – ₹2,00,000" },
+    { value: "250000", label: "₹2,00,000+" },
+  ];
+
+  const state = { event_type: "Wedding", budget_est: null };
+
+  function renderChoices(container, items, key, getVal, getLabel, onPick) {
+    container.innerHTML = items.map((it, i) => {
+      const val = getVal(it), label = getLabel(it);
+      return `<div class="choice${state[key] === val ? " sel" : ""}" data-val="${val}"><span>${label}</span><span class="check"></span></div>`;
+    }).join("");
+    container.querySelectorAll(".choice").forEach(el => el.addEventListener("click", () => {
+      state[key] = el.dataset.val;
+      container.querySelectorAll(".choice").forEach(c => c.classList.toggle("sel", c === el));
+      onPick && onPick();
+    }));
+  }
+
+  const eventTypeGrid = document.getElementById("eventTypeGrid");
+  renderChoices(eventTypeGrid, EVENT_TYPES, "event_type", v => v, v => v);
+
+  const budgetGrid = document.getElementById("budgetGrid");
+  renderChoices(budgetGrid, BUDGETS, "budget_est", b => b.value, b => b.label, () => {
+    document.getElementById("next2").disabled = !state.budget_est;
+  });
+
+  // ── Step navigation ───────────────────────────────────────────────────
+  const steps = { 1: document.querySelector('[data-step="1"]'), 2: document.querySelector('[data-step="2"]'), 3: document.querySelector('[data-step="3"]'), done: document.querySelector('[data-step="done"]') };
+  const progress = document.getElementById("progress");
+  function renderProgress(n) {
+    const total = 3;
+    progress.innerHTML = Array.from({ length: total }, (_, i) =>
+      `<div class="seg${i < n ? " done" : ""}"></div>`
+    ).join("");
+  }
+  function goStep(n) {
+    Object.values(steps).forEach(s => s.classList.remove("active"));
+    steps[n].classList.add("active");
+    if (n !== "done") renderProgress(n);
+    else progress.style.display = "none";
+  }
+  renderProgress(1);
+
+  document.getElementById("next1").addEventListener("click", () => goStep(2));
+  document.getElementById("back2").addEventListener("click", () => goStep(1));
+  document.getElementById("next2").addEventListener("click", () => goStep(3));
+  document.getElementById("back3").addEventListener("click", () => goStep(2));
+
+  // ── Submit ─────────────────────────────────────────────────────────
   const form = document.getElementById("f");
   const msg = document.getElementById("msg");
   form.addEventListener("submit", async (e) => {
     e.preventDefault();
-    const btn = form.querySelector("button");
+    const phone = form.phone.value.replace(/[^0-9]/g, "");
+    if (phone.length < 10) {
+      msg.className = "msg err";
+      msg.textContent = "Enter a valid 10-digit phone number.";
+      return;
+    }
+    const btn = document.getElementById("submitBtn");
     btn.disabled = true;
+    btn.textContent = "Submitting…";
     const data = Object.fromEntries(new FormData(form).entries());
+    data.event_type = state.event_type;
+    data.budget_est = state.budget_est;
     data.source = source;
     try {
       const res = await fetch("/api/leads/capture", {
@@ -79,14 +187,12 @@
       });
       const out = await res.json();
       if (!res.ok) throw new Error(out.error || "Something went wrong");
-      msg.className = "msg ok";
-      msg.textContent = "Thanks — we've received it and will reach out shortly.";
-      form.reset();
+      goStep("done");
     } catch (err) {
       msg.className = "msg err";
       msg.textContent = err.message;
-    } finally {
       btn.disabled = false;
+      btn.textContent = "Submit enquiry →";
     }
   });
 </script>
