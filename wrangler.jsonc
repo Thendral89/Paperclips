@@ -23,12 +23,20 @@
     // Comma-separated emails allowed to sign in to /admin via Google Sign-In.
     // Checked directly by src/routes/authRoutes.js on every login — this IS
     // the access list, not just a label. Edit to match your team.
-    "STAFF_EMAILS": "teampaperclipstudios@gmail.com,REPLACE_WITH_SECOND_ADMIN_EMAIL@gmail.com",
-    // Public — Google OAuth Client IDs are meant to be visible client-side.
-    // Fill in after creating the OAuth client in Google Cloud Console (see README).
-    "GOOGLE_CLIENT_ID": "REPLACE_ME.apps.googleusercontent.com"
+    //
+    // WARNING: this whole `vars` block gets REPLACED WHOLESALE on every
+    // `wrangler deploy` — unlike `secrets` (see below), which persist across
+    // deploys independently of this file. If you ever change STAFF_EMAILS
+    // by hand in the Cloudflare dashboard instead of here, the next deploy
+    // will silently overwrite it back to whatever is committed. Keep this
+    // file's value in sync with what should actually be live.
+    "STAFF_EMAILS": "teampaperclipstudios@gmail.com,REPLACE_WITH_SECOND_ADMIN_EMAIL@gmail.com"
   }
-  // GOOGLE_CLIENT_SECRET and SESSION_SECRET are real secrets — never put
-  // those here. They're pushed by the GitHub Actions workflow via
+  // GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, and SESSION_SECRET are all real
+  // secrets — never put them in `vars` above. `vars` is fully overwritten on
+  // every deploy (that's exactly what silently reset GOOGLE_CLIENT_ID to a
+  // placeholder once and broke Google Sign-In in production); `secrets` are
+  // not, so they're the only safe home for anything that must survive a
+  // redeploy. All three are pushed by the GitHub Actions workflow via
   // `wrangler secret put`, sourced from GitHub repo secrets. See README.
 }

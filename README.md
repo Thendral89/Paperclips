@@ -347,6 +347,134 @@ create/edit UI — it's seed data, rarely touched, and adding a management
 screen for it is a real scope decision worth its own go-ahead rather than
 folding into a delete-parity pass.
 
+## Production OAuth outage — GOOGLE_CLIENT_ID was a placeholder (fixed after go-live)
+
+Google Sign-In started failing in production with `401: Invalid Client -
+flowname=GeneralOAuthFlow`. Root cause: `GOOGLE_CLIENT_ID` was committed in
+`wrangler.jsonc`'s `vars` block instead of being deployed as a `secret`.
+`vars` gets fully overwritten by whatever's committed on every
+`wrangler deploy` — `secrets` don't. A deploy from an earlier template zip
+silently reset a working client ID back to the placeholder value
+(`REPLACE_ME.apps.googleusercontent.com`), and Google correctly rejected it.
+It looked mobile-specific only because desktop had a live 14-day session
+cookie masking the break; a fresh login on any device hit it.
+
+Fix:
+- `GOOGLE_CLIENT_ID` removed from `wrangler.jsonc` entirely. It's now pushed
+  by the GitHub Actions workflow via `wrangler secret put`, exactly like
+  `GOOGLE_CLIENT_SECRET` and `SESSION_SECRET` already were — so a future
+  deploy can never reset it again.
+- The workflow's secret-push steps (all three: `GOOGLE_CLIENT_ID`,
+  `GOOGLE_CLIENT_SECRET`, `SESSION_SECRET`) are now guarded — each only runs
+  if the corresponding GitHub repo secret is actually set. Before this
+  guard, a repo secret that was ever accidentally deleted or renamed would
+  have pushed an *empty string* to Cloudflare on the next deploy, wiping out
+  a working value instead of leaving it alone. Now a missing repo secret
+  just logs a workflow warning and skips that line.
+- Requires a one-time manual step: add `GOOGLE_CLIENT_ID` as a GitHub repo
+  secret (Settings → Secrets and variables → Actions → New repository
+  secret), same place `GOOGLE_CLIENT_SECRET` and `SESSION_SECRET` live,
+  with the real value from Google Cloud Console. Until that secret exists,
+  the workflow will skip it (per the guard above) rather than break
+  anything — but sign-in stays broken until it's set either there or
+  directly in the Cloudflare dashboard.
+
+`STAFF_EMAILS` was left in `vars` on purpose — it isn't sensitive, so it
+doesn't need `secret` treatment. But the same overwrite mechanism applies to
+it: it still has a placeholder for the second admin email
+(`REPLACE_WITH_SECOND_ADMIN_EMAIL@gmail.com`) in this file, so the *next*
+deploy will push that placeholder live and lock out any second admin whose
+real email was only ever set by hand in the dashboard. Fill in the real
+second email in `wrangler.jsonc` before the next deploy, or drop to a
+single-admin allowlist if there isn't one yet.
+
+## Lead lifecycle, quotes, event resourcing, unified expenses (added after go-live)
+
+Migration `0005_activities_quotes_equipment_expenses.sql`. This is the big
+one — it replaces the old flat "notes" model with a proper activity/quote/
+resourcing layer end to end.
+
+**Lead activities** — `lead_notes` is gone. `lead_activities` replaces it:
+typed entries (`Call`, `WhatsApp`, `Email`, `Meeting`, `Site visit`,
+`Quote sent`, `Quote viewed`, `Stage change`, `Note`, `Other`), each with an
+icon in the timeline. Stage changes now log themselves automatically — you
+no longer have to separately remember what happened and when.
+
+**Lead → quote → engagement tracking.** A lead in `Quote In Progress` (or
+any stage) can have one or more `lead_quotes`, each a token-gated public
+page at `/quote/<token>` — same pattern as the existing portal links, no
+login required for the customer. Admins build the quote from services/
+packages, mark items as optional add-ons the customer can toggle on/off,
+and set a concession (admin-only, read-only to the customer — the customer
+never sees or edits pricing logic, only picks add-ons). Every page load
+increments a view counter and logs the timestamp; a lead with 3+ views on
+any quote gets a "🔥 High engagement" pill on its detail page, so you know
+which leads are actually reading what you sent instead of guessing from
+follow-up calls. Quote status moves Draft → Sent (on send) → Viewed (once,
+on first open — not spammed on every repeat visit, since the granular
+view log already has that data).
+
+**Closed Won → Account conversion is no longer thin.** Converting a lead
+now creates a primary contact record and copies address/notes onto the new
+account — previously it created an empty account shell with none of the
+lead's context carried over. Closing a lead as Lost or Cancelled requires a
+reason (was optional/inconsistent before).
+
+**Event resourcing.** Two new related objects under Events:
+- `equipment` (a reusable catalog: name, category, owned vs. needs-rental)
+  and `event_equipment` (what's assigned to *this* event, with a
+  ready/not-ready toggle) — the point is a single glance at whether a
+  shoot is actually equipment-ready, rental included, before the date
+  arrives. Equipment in active use on an event can't be deleted from the
+  catalog (guarded, same pattern as everywhere else destructive).
+- Per-event checklist rows are now grouped into `Pre-wedding` /
+  `Wedding day` / `Post-wedding` phases (the shared template already had
+  phases seeded; this makes them visible and lets you add one-off items
+  per event on top of the template, e.g. a client-specific request that
+  doesn't belong in the reusable template).
+
+**Expenses, unified.** `expenses.event_id` is now nullable (was required) —
+an expense can be tied to a specific event (shows on that event's detail
+page *and* in the main Expenses ledger — same row, two views, not two
+records) or left general (office rent, subscriptions, misc. overhead).
+This is deliberately kept separate from `monthly_costs` (Financials tab):
+`monthly_costs` is fixed recurring totals for P&L math (rent, salaries,
+ad spend by category, one row per month); `expenses` is an itemized,
+audit-level ledger. Collapsing them into one table would have made the
+monthly P&L a sum-of-many-rows query instead of a lookup — not worth it
+at this scale, and itemized expense tracking and monthly overhead
+budgeting are genuinely different workflows for different moments (logging
+a cab receipt vs. reviewing what a month cost).
+
+**Feedback action queue.** Google-review-link on positive sentiment
+(never stored — straight redirect); negative sentiment stored with rating/
+comment against the event and account, surfaced in a "Feedback needing
+action" queue on the Financials tab until marked resolved with a note on
+what was actually done about it.
+
+**Reports got real analytics.** Monthly P&L now merges revenue, itemized
+event cost, cash collected, and monthly overhead into a net profit line
+(was revenue/cost only, no cash or overhead). Added Quarterly rollups and
+a Seasonality view (by calendar month, all years combined) that flags
+below-average-revenue months as off-season — the actual data you need to
+decide when to run a promotional push, plus a Promotions log to track what
+you ran and what it produced (leads/bookings generated) so next year's
+off-season decision has last year's outcome to look at instead of a guess.
+
+**Fixed along the way, not part of the ask:** Event Detail's "← Back"
+button called `history.back()`, but this app never pushes browser history
+(it's a client-side router that swaps `innerHTML`, not the URL) — so in a
+real browser it exited the app instead of going back a screen. Found this
+during end-to-end testing, not reported by anyone; replaced with proper
+in-app state tracking so back-navigation actually stays inside the app.
+
+**Known gap, deliberately not built this pass:** the public quote page
+lets a customer toggle add-ons but there's no "customer submitted/
+confirmed" action — a quote's status only moves via admin action (Send) or
+passive view tracking. If you want the customer to be able to formally
+accept a quote (as opposed to you calling them once engagement looks high),
+that's a follow-up ask, not an oversight.
+
 ## Local development (optional)
 
 Not required — everything ships through GitHub Actions. If you want to run

@@ -4,7 +4,7 @@
 
 import { json, unauthorized, notFound } from "./lib/util.js";
 import { requireStaff, requireEventLink } from "./lib/auth.js";
-import { captureLead } from "./routes/publicRoutes.js";
+import { captureLead, getFeedbackContext, submitFeedback, getQuoteContext, toggleQuoteItem } from "./routes/publicRoutes.js";
 import * as admin from "./routes/adminRoutes.js";
 import * as portal from "./routes/portalRoutes.js";
 import { startLogin, handleCallback, logout } from "./routes/authRoutes.js";
@@ -21,9 +21,18 @@ const ADMIN_ROUTES = [
   ["POST", /^\/api\/admin\/leads\/(\d+)\/details$/, (req, env, staff, [id]) => admin.updateLeadDetails(req, env, id)],
   ["POST", /^\/api\/admin\/leads\/(\d+)\/stage$/, (req, env, staff, [id]) => admin.updateLeadStage(req, env, id, staff)],
   ["POST", /^\/api\/admin\/leads\/(\d+)\/followup$/, (req, env, staff, [id]) => admin.setFollowUp(req, env, id)],
-  ["POST", /^\/api\/admin\/leads\/(\d+)\/notes$/, (req, env, staff, [id]) => admin.addNote(req, env, id, staff)],
+  ["POST", /^\/api\/admin\/leads\/(\d+)\/activities$/, (req, env, staff, [id]) => admin.addActivity(req, env, id, staff)],
+  ["GET", /^\/api\/admin\/leads\/(\d+)\/convert-preview$/, (req, env, staff, [id]) => admin.getLeadConvertPreview(req, env, id)],
   ["POST", /^\/api\/admin\/leads\/(\d+)\/convert$/, (req, env, staff, [id]) => admin.convertLead(req, env, id)],
   ["POST", /^\/api\/admin\/leads\/(\d+)\/delete$/, (req, env, staff, [id]) => admin.deleteLead(req, env, id)],
+
+  ["POST", /^\/api\/admin\/leads\/(\d+)\/quotes$/, (req, env, staff, [id]) => admin.createQuote(req, env, id)],
+  ["GET", /^\/api\/admin\/quotes\/(\d+)$/, (req, env, staff, [id]) => admin.getQuote(req, env, id)],
+  ["POST", /^\/api\/admin\/quotes\/(\d+)$/, (req, env, staff, [id]) => admin.updateQuote(req, env, id)],
+  ["POST", /^\/api\/admin\/quotes\/(\d+)\/send$/, (req, env, staff, [id]) => admin.sendQuote(req, env, id, staff)],
+  ["POST", /^\/api\/admin\/quotes\/(\d+)\/delete$/, (req, env, staff, [id]) => admin.deleteQuote(req, env, id)],
+  ["POST", /^\/api\/admin\/quotes\/(\d+)\/items$/, (req, env, staff, [id]) => admin.addQuoteItem(req, env, id)],
+  ["POST", /^\/api\/admin\/quote-items\/(\d+)\/delete$/, (req, env, staff, [id]) => admin.removeQuoteItem(req, env, id)],
 
   ["GET", /^\/api\/admin\/accounts$/, (req, env) => admin.listAccounts(req, env)],
   ["GET", /^\/api\/admin\/accounts\/(\d+)$/, (req, env, staff, [id]) => admin.getAccount360(req, env, id)],
@@ -56,10 +65,31 @@ const ADMIN_ROUTES = [
   ["POST", /^\/api\/admin\/deliverables\/(\d+)\/status$/, (req, env, staff, [id]) => admin.updateDeliverableStatus(req, env, id)],
   ["POST", /^\/api\/admin\/deliverables\/(\d+)$/, (req, env, staff, [id]) => admin.updateDeliverable(req, env, id)],
   ["POST", /^\/api\/admin\/deliverables\/(\d+)\/delete$/, (req, env, staff, [id]) => admin.deleteDeliverable(req, env, id)],
+  ["POST", /^\/api\/admin\/events\/(\d+)\/checklist$/, (req, env, staff, [id]) => admin.addEventChecklistItem(req, env, id)],
+  ["POST", /^\/api\/admin\/checklist\/(\d+)\/remove$/, (req, env, staff, [id]) => admin.removeEventChecklistItem(req, env, id)],
   ["POST", /^\/api\/admin\/checklist\/(\d+)\/toggle$/, (req, env, staff, [id]) => admin.toggleChecklistItem(req, env, id)],
+  ["POST", /^\/api\/admin\/events\/(\d+)\/equipment$/, (req, env, staff, [id]) => admin.addEventEquipment(req, env, id)],
+  ["POST", /^\/api\/admin\/event-equipment\/(\d+)\/toggle$/, (req, env, staff, [id]) => admin.toggleEventEquipmentReady(req, env, id)],
+  ["POST", /^\/api\/admin\/event-equipment\/(\d+)\/delete$/, (req, env, staff, [id]) => admin.removeEventEquipment(req, env, id)],
   ["POST", /^\/api\/admin\/events\/(\d+)\/tasks$/, (req, env, staff, [id]) => admin.addEventTask(req, env, id)],
   ["POST", /^\/api\/admin\/event-tasks\/(\d+)$/, (req, env, staff, [id]) => admin.updateEventTask(req, env, id)],
   ["POST", /^\/api\/admin\/event-tasks\/(\d+)\/delete$/, (req, env, staff, [id]) => admin.deleteEventTask(req, env, id)],
+  ["GET", /^\/api\/admin\/events\/(\d+)\/feedback-link$/, (req, env, staff, [id]) => admin.getFeedbackLink(req, env, id)],
+
+  ["GET", /^\/api\/admin\/feedback$/, (req, env) => admin.listFeedback(req, env)],
+  ["POST", /^\/api\/admin\/feedback\/(\d+)$/, (req, env, staff, [id]) => admin.updateFeedback(req, env, id)],
+
+  ["GET", /^\/api\/admin\/monthly-costs$/, (req, env) => admin.listMonthlyCosts(req, env)],
+  ["POST", /^\/api\/admin\/monthly-costs$/, (req, env) => admin.setMonthlyCost(req, env)],
+  ["POST", /^\/api\/admin\/monthly-costs\/(\d+)\/delete$/, (req, env, staff, [id]) => admin.deleteMonthlyCost(req, env, id)],
+
+  ["GET", /^\/api\/admin\/promotions$/, (req, env) => admin.listPromotions(req, env)],
+  ["POST", /^\/api\/admin\/promotions$/, (req, env) => admin.createPromotion(req, env)],
+  ["POST", /^\/api\/admin\/promotions\/(\d+)$/, (req, env, staff, [id]) => admin.updatePromotion(req, env, id)],
+  ["POST", /^\/api\/admin\/promotions\/(\d+)\/delete$/, (req, env, staff, [id]) => admin.deletePromotion(req, env, id)],
+
+  ["GET", /^\/api\/admin\/settings$/, (req, env) => admin.getSettings(req, env)],
+  ["POST", /^\/api\/admin\/settings$/, (req, env) => admin.updateSetting(req, env)],
 
   ["GET", /^\/api\/admin\/services$/, (req, env) => admin.listServices(req, env)],
   ["GET", /^\/api\/admin\/tiers$/, (req, env) => admin.listTiers(req, env)],
@@ -71,6 +101,16 @@ const ADMIN_ROUTES = [
   ["POST", /^\/api\/admin\/vendors$/, (req, env) => admin.createVendor(req, env)],
   ["POST", /^\/api\/admin\/vendors\/(\d+)$/, (req, env, staff, [id]) => admin.updateVendor(req, env, id)],
   ["POST", /^\/api\/admin\/vendors\/(\d+)\/delete$/, (req, env, staff, [id]) => admin.deleteVendor(req, env, id)],
+  ["GET", /^\/api\/admin\/equipment$/, (req, env) => admin.listEquipment(req, env)],
+  ["POST", /^\/api\/admin\/equipment$/, (req, env) => admin.createEquipment(req, env)],
+  ["POST", /^\/api\/admin\/equipment\/(\d+)$/, (req, env, staff, [id]) => admin.updateEquipment(req, env, id)],
+  ["POST", /^\/api\/admin\/equipment\/(\d+)\/delete$/, (req, env, staff, [id]) => admin.deleteEquipment(req, env, id)],
+
+  ["GET", /^\/api\/admin\/expenses$/, (req, env) => admin.listExpenses(req, env)],
+  ["POST", /^\/api\/admin\/expenses$/, (req, env) => admin.createExpense(req, env)],
+  ["POST", /^\/api\/admin\/expenses\/(\d+)$/, (req, env, staff, [id]) => admin.updateExpense(req, env, id)],
+  ["POST", /^\/api\/admin\/expenses\/(\d+)\/delete$/, (req, env, staff, [id]) => admin.deleteExpense(req, env, id)],
+
   ["GET", /^\/api\/admin\/checklist-templates$/, (req, env) => admin.listChecklistTemplates(req, env)],
   ["POST", /^\/api\/admin\/checklist-templates$/, (req, env) => admin.addChecklistTemplateItem(req, env)],
   ["POST", /^\/api\/admin\/checklist-templates\/(\d+)\/remove$/, (req, env, staff, [id]) => admin.removeChecklistTemplateItem(req, env, id)],
@@ -82,6 +122,8 @@ const ADMIN_ROUTES = [
   ["GET", /^\/api\/admin\/reports\/source-roi$/, (req, env) => admin.reportSourceRoi(req, env)],
   ["GET", /^\/api\/admin\/reports\/profitability$/, (req, env) => admin.reportProfitability(req, env)],
   ["GET", /^\/api\/admin\/reports\/monthly$/, (req, env) => admin.reportMonthly(req, env)],
+  ["GET", /^\/api\/admin\/reports\/quarterly$/, (req, env) => admin.reportQuarterly(req, env)],
+  ["GET", /^\/api\/admin\/reports\/seasonality$/, (req, env) => admin.reportSeasonality(req, env)],
 ];
 
 const PORTAL_ROUTES = [
@@ -100,6 +142,30 @@ export default {
     //    Instagram/website that replaces the Google Form.
     if (request.method === "POST" && pathname === "/api/leads/capture") {
       return captureLead(request, env).catch((e) => json({ error: String(e) }, { status: 500 }));
+    }
+
+    // 1c. Public post-event feedback — token in the URL, no login, same
+    //     reasoning as lead capture: the customer isn't staff.
+    const feedbackMatch = pathname.match(/^\/api\/feedback\/([a-f0-9]+)$/);
+    if (feedbackMatch) {
+      if (request.method === "GET") {
+        return getFeedbackContext(request, env, feedbackMatch[1]).catch((e) => json({ error: String(e) }, { status: 500 }));
+      }
+      if (request.method === "POST") {
+        return submitFeedback(request, env, feedbackMatch[1]).catch((e) => json({ error: String(e) }, { status: 500 }));
+      }
+    }
+
+    // 1d. Public quote viewing — token in the URL, no login.
+    const quoteMatch = pathname.match(/^\/api\/quote\/([a-f0-9]+)$/);
+    if (quoteMatch) {
+      if (request.method === "GET") {
+        return getQuoteContext(request, env, quoteMatch[1]).catch((e) => json({ error: String(e) }, { status: 500 }));
+      }
+    }
+    const quoteToggleMatch = pathname.match(/^\/api\/quote\/([a-f0-9]+)\/toggle$/);
+    if (quoteToggleMatch && request.method === "POST") {
+      return toggleQuoteItem(request, env, quoteToggleMatch[1]).catch((e) => json({ error: String(e) }, { status: 500 }));
     }
 
     // 1b. Google Sign-In — public by nature (this IS the login flow).
@@ -135,6 +201,16 @@ export default {
     //    matches a static asset; serve the portal app's HTML directly.
     if (pathname.startsWith("/portal/")) {
       return env.ASSETS.fetch(new URL("/portal/index.html", url));
+    }
+
+    // 4b. Feedback page shell — same reasoning, /feedback/<token>.
+    if (pathname.startsWith("/feedback/")) {
+      return env.ASSETS.fetch(new URL("/feedback/index.html", url));
+    }
+
+    // 4c. Quote page shell — same reasoning, /quote/<token>.
+    if (pathname.startsWith("/quote/")) {
+      return env.ASSETS.fetch(new URL("/quote/index.html", url));
     }
 
     // 5. Admin app shell — same reasoning for any /admin/... deep link, but

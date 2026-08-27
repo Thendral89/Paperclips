@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Paperclip Studios — Feedback</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --ink:#211A12; --ink-soft:#7A6C58; --ink-faint:#A79A85;
+    --paper:#FAF6EF; --card:#FFFFFF; --line:#E6DCC7;
+    --accent:#9C6B2E; --accent-deep:#6E4A1E; --accent-soft:#F3E7D2;
+    --success:#3F7D5C; --success-soft:#E6F1EA;
+    --warning:#B4791E; --warning-soft:#FBF0DE;
+    --critical:#B5432E;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--paper);color:var(--ink);font-family:'Inter',-apple-system,'Segoe UI',sans-serif;line-height:1.5;-webkit-font-smoothing:antialiased;}
+  .wrap{max-width:480px;margin:0 auto;padding:40px 20px 70px;text-align:center;}
+  .brandmark{font-family:'Fraunces',serif;font-weight:600;font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--accent-deep);margin:0 0 22px;}
+  h1{font-family:'Fraunces',serif;font-weight:600;font-size:24px;margin:0 0 6px;letter-spacing:-.01em;}
+  .sub{color:var(--ink-soft);font-size:14px;margin-bottom:28px;}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:26px 22px;box-shadow:0 1px 2px rgba(33,26,18,0.04);text-align:left;}
+  .choices{display:flex;flex-direction:column;gap:12px;margin-top:6px;}
+  .choice-btn{display:flex;align-items:center;gap:10px;justify-content:center;background:var(--accent-soft);color:var(--accent-deep);border:1px solid var(--line);border-radius:10px;padding:16px;font-size:15px;font-weight:700;cursor:pointer;font-family:inherit;}
+  .choice-btn:hover{background:#ecdcbc;}
+  .choice-btn.negative{background:var(--card);}
+  label{display:block;font-size:12px;font-weight:700;color:var(--ink-soft);text-transform:uppercase;letter-spacing:.03em;margin-bottom:6px;}
+  .field{margin-bottom:16px;}
+  textarea{width:100%;padding:10px 11px;border:1px solid var(--line);border-radius:8px;font-size:14px;font-family:inherit;resize:vertical;min-height:90px;}
+  .stars{display:flex;gap:6px;font-size:26px;cursor:pointer;margin-bottom:4px;}
+  .stars span{opacity:.3;}
+  .stars span.on{opacity:1;}
+  button.submit{width:100%;background:var(--accent);color:#fff;border:none;border-radius:9px;padding:12px 16px;font-size:14.5px;font-weight:700;cursor:pointer;margin-top:4px;}
+  a.review-btn{display:block;text-align:center;background:var(--success);color:#fff;text-decoration:none;border-radius:9px;padding:13px 16px;font-size:14.5px;font-weight:700;margin-top:18px;}
+  .thanks-icon{font-size:38px;margin-bottom:8px;}
+  .error-screen{padding:60px 20px;text-align:center;color:var(--ink-soft);}
+  .msg.err{color:var(--critical);font-size:13px;margin-top:8px;}
+</style>
+</head>
+<body>
+<div class="wrap" id="app"><div class="brandmark">Paperclip Studios</div>Loading…</div>
+<script>
+  const token = location.pathname.split("/")[2];
+  let ctx = null;
+
+  async function load() {
+    const res = await fetch(`/api/feedback/${token}`);
+    if (!res.ok) {
+      document.getElementById("app").innerHTML =
+        `<div class="error-screen"><div class="brandmark">Paperclip Studios</div><h1>Link not valid</h1><p>This feedback link may have expired or been mistyped. Please check with the studio for a fresh link.</p></div>`;
+      return;
+    }
+    ctx = await res.json();
+    renderGate();
+  }
+
+  function shell(bodyHtml) {
+    document.getElementById("app").innerHTML = `
+      <div class="brandmark">Paperclip Studios</div>
+      <h1>How was your experience?</h1>
+      <div class="sub">${ctx.event_type || "Your event"} — ${ctx.account_name || ""}</div>
+      <div class="card">${bodyHtml}</div>
+    `;
+  }
+
+  function renderGate() {
+    shell(`
+      <div class="choices">
+        <button class="choice-btn" id="posBtn">🎉 &nbsp;It was great!</button>
+        <button class="choice-btn negative" id="negBtn">It could be better</button>
+      </div>
+    `);
+    document.getElementById("posBtn").onclick = submitPositive;
+    document.getElementById("negBtn").onclick = renderNegativeForm;
+  }
+
+  async function submitPositive() {
+    await fetch(`/api/feedback/${token}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ sentiment: "Positive" }),
+    }).catch(() => {});
+    shell(`
+      <div style="text-align:center;">
+        <div class="thanks-icon">🙏</div>
+        <p>Thank you so much — it means a lot to us!</p>
+        ${ctx.google_review_link
+          ? `<a class="review-btn" href="${ctx.google_review_link}" target="_blank" rel="noopener">Leave us a Google review</a>`
+          : ""}
+      </div>
+    `);
+  }
+
+  function renderNegativeForm() {
+    let rating = 0;
+    shell(`
+      <div class="field">
+        <label>Rating (optional)</label>
+        <div class="stars" id="stars">${[1,2,3,4,5].map(n => `<span data-n="${n}">★</span>`).join("")}</div>
+      </div>
+      <div class="field">
+        <label>What could we have done better?</label>
+        <textarea id="comment" placeholder="Tell us honestly — we read every response."></textarea>
+      </div>
+      <button class="submit" id="sendBtn">Send feedback</button>
+      <div class="msg err" id="err"></div>
+    `);
+    const starsEl = document.getElementById("stars");
+    starsEl.querySelectorAll("span").forEach((el) => {
+      el.onclick = () => {
+        rating = Number(el.dataset.n);
+        starsEl.querySelectorAll("span").forEach((s) => s.classList.toggle("on", Number(s.dataset.n) <= rating));
+      };
+    });
+    document.getElementById("sendBtn").onclick = async () => {
+      const comment = document.getElementById("comment").value.trim();
+      try {
+        const res = await fetch(`/api/feedback/${token}`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ sentiment: "Negative", rating: rating || null, comment: comment || null }),
+        });
+        if (!res.ok) throw new Error((await res.json()).error || "Something went wrong");
+        shell(`<div style="text-align:center;"><div class="thanks-icon">🙏</div><p>Thank you for telling us — this has been shared with the team so we can do better.</p></div>`);
+      } catch (e) {
+        document.getElementById("err").textContent = e.message;
+      }
+    };
+  }
+
+  load();
+</script>
+</body>
+</html>

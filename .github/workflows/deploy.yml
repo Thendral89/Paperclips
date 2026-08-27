@@ -19,6 +19,7 @@ jobs:
           wranglerVersion: "4"
           preCommands: |
             npx wrangler d1 migrations apply paperclip-crm --remote
-            echo "${{ secrets.GOOGLE_CLIENT_SECRET }}" | npx wrangler secret put GOOGLE_CLIENT_SECRET
-            echo "${{ secrets.SESSION_SECRET }}" | npx wrangler secret put SESSION_SECRET
+            [ -n "${{ secrets.GOOGLE_CLIENT_ID }}" ] && echo "${{ secrets.GOOGLE_CLIENT_ID }}" | npx wrangler secret put GOOGLE_CLIENT_ID || echo "::warning::GOOGLE_CLIENT_ID repo secret is not set — skipping, leaving whatever is already live untouched"
+            [ -n "${{ secrets.GOOGLE_CLIENT_SECRET }}" ] && echo "${{ secrets.GOOGLE_CLIENT_SECRET }}" | npx wrangler secret put GOOGLE_CLIENT_SECRET || echo "::warning::GOOGLE_CLIENT_SECRET repo secret is not set — skipping, leaving whatever is already live untouched"
+            [ -n "${{ secrets.SESSION_SECRET }}" ] && echo "${{ secrets.SESSION_SECRET }}" | npx wrangler secret put SESSION_SECRET || echo "::warning::SESSION_SECRET repo secret is not set — skipping, leaving whatever is already live untouched"
           command: deploy

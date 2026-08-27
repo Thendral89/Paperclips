@@ -103,7 +103,10 @@
   .list-row .meta{color:var(--ink-soft);font-size:11.5px;}
   .status-pill-Pending,.status-pill-Unpaid,.status-pill-NotStarted{background:var(--warning-soft);color:var(--warning);}
   .status-pill-Paid,.status-pill-Delivered,.status-pill-Done{background:var(--success-soft);color:var(--success);}
-  .status-pill-InProgress,.status-pill-ClientReview,.status-pill-PartiallyPaid{background:var(--accent-soft);color:var(--accent-deep);}
+  .status-pill-InProgress,.status-pill-ClientReview,.status-pill-PartiallyPaid,.status-pill-Sent{background:var(--accent-soft);color:var(--accent-deep);}
+  .status-pill-Viewed,.status-pill-Open{background:var(--warning-soft);color:var(--warning);}
+  .status-pill-Accepted,.status-pill-Resolved{background:var(--success-soft);color:var(--success);}
+  .status-pill-Rejected,.status-pill-Expired{background:var(--critical-soft);color:var(--critical);}
 
   /* ── Progress bars ── */
   .bar{height:6px;background:var(--paper-dim);border-radius:99px;overflow:hidden;margin:5px 0;}
@@ -165,6 +168,9 @@
     <div class="navlink" data-view="events">Events</div>
     <div class="navlink" data-view="packages">Packages</div>
     <div class="navlink" data-view="vendors">Vendors</div>
+    <div class="navlink" data-view="equipment">Equipment</div>
+    <div class="navlink" data-view="expenses">Expenses</div>
+    <div class="navlink" data-view="financials">Financials</div>
     <div class="navlink" data-view="reports">Reports</div>
   </aside>
   <main class="main" id="main">Loading…</main>
@@ -253,10 +259,23 @@ function setPrimaryAction(onClick) {
 
 const main = document.getElementById("main");
 let state = { view: "dashboard", id: null, filter: null };
+// This SPA never pushes browser history — every navigation is an
+// innerHTML swap via go(). A "← Back" that called history.back() would
+// therefore leave the app entirely (there's nothing in real browser
+// history to go back TO) instead of returning to the previous screen.
+// prevState is the lightweight fix: one level of "where did I come from",
+// good enough since nothing here nests more than two views deep.
+let prevState = null;
 
 document.querySelectorAll(".navlink").forEach(el => el.addEventListener("click", () => go(el.dataset.view)));
 
+function goBack(fallbackView) {
+  if (prevState) go(prevState.view, prevState.id, prevState.filter);
+  else go(fallbackView || "dashboard");
+}
+
 function go(view, id, filter) {
+  prevState = state;
   state = { view, id, filter: filter || null };
   document.querySelectorAll(".navlink").forEach(el => el.classList.toggle("active", el.dataset.view === view));
   render();
@@ -270,18 +289,31 @@ async function render() {
     if (state.view === "dashboard") return renderDashboard();
     if (state.view === "leads") return renderLeads();
     if (state.view === "leadDetail") return renderLeadDetail(state.id);
+    if (state.view === "quoteDetail") return renderQuoteDetail(state.id);
     if (state.view === "accounts") return renderAccounts();
     if (state.view === "accountDetail") return renderAccountDetail(state.id);
     if (state.view === "events") return renderEvents();
     if (state.view === "eventDetail") return renderEventDetail(state.id);
     if (state.view === "packages") return renderPackages();
     if (state.view === "vendors") return renderVendors();
+    if (state.view === "equipment") return renderEquipment();
+    if (state.view === "expenses") return renderExpenses();
+    if (state.view === "financials") return renderFinancials();
     if (state.view === "reports") return renderReports();
   } catch (e) {
     main.innerHTML = `<div class="card">Error: ${e.message}</div>`;
   }
 }
 function money(n) { return `₹${(n || 0).toLocaleString("en-IN")}`; }
+const CLOSED_LEAD_STAGES = ["Booked", "Lost", "Cancelled"];
+function followUpCell(l) {
+  if (!l.next_follow_up_date) return '<span class="empty">—</span>';
+  if (CLOSED_LEAD_STAGES.includes(l.stage)) return l.next_follow_up_date;
+  const today = new Date().toISOString().slice(0, 10);
+  if (l.next_follow_up_date < today) return `<span class="pill" style="background:var(--critical-soft);color:var(--critical)">Overdue · ${l.next_follow_up_date}</span>`;
+  if (l.next_follow_up_date === today) return `<span class="pill" style="background:var(--warning-soft);color:var(--warning)">Today</span>`;
+  return l.next_follow_up_date;
+}
 function statusPill(status) {
   // PascalCase each word so e.g. "In progress" matches .status-pill-InProgress —
   // a plain whitespace-strip left multi-word statuses uncolored (fixed here).
@@ -355,8 +387,8 @@ async function renderLeads() {
     ${pageHeader("Leads", "+ New lead")}
     ${f ? `<div class="filter-chip">${f.label} <span data-clear>✕</span></div>` : ""}
     <div class="card"><h2>${f ? f.label : "All leads"} (${leads.length})</h2>
-      <table><thead><tr><th>Name</th><th>Source</th><th>Stage</th><th>Budget</th><th></th></tr></thead>
-      <tbody>${leads.map(l => `<tr class="clickable" data-lead="${l.id}"><td>${l.name}</td><td><span class="pill">${l.source}</span></td><td>${l.stage}</td><td>${money(l.budget_est)}</td><td class="row-actions"><button type="button" class="icon-btn edit" data-edit-lead="${l.id}" title="Edit">✎</button><button type="button" class="icon-btn del" data-del-lead="${l.id}" title="Delete">✕</button></td></tr>`).join("") || `<tr><td colspan="5" class="empty">No leads match this filter.</td></tr>`}</tbody></table>
+      <table><thead><tr><th>Name</th><th>Source</th><th>Stage</th><th>Follow-up</th><th>Budget</th><th></th></tr></thead>
+      <tbody>${leads.map(l => `<tr class="clickable" data-lead="${l.id}"><td>${l.name}</td><td><span class="pill">${l.source}</span></td><td>${l.stage}</td><td>${followUpCell(l)}</td><td>${money(l.budget_est)}</td><td class="row-actions"><button type="button" class="icon-btn edit" data-edit-lead="${l.id}" title="Edit">✎</button><button type="button" class="icon-btn del" data-del-lead="${l.id}" title="Delete">✕</button></td></tr>`).join("") || `<tr><td colspan="6" class="empty">No leads match this filter.</td></tr>`}</tbody></table>
     </div>
   `;
   main.querySelectorAll("[data-lead]").forEach(el => el.addEventListener("click", () => go("leadDetail", el.dataset.lead)));
@@ -401,11 +433,41 @@ async function renderLeads() {
   `, async data => { await api("/leads", { method: "POST", body: JSON.stringify(data) }); toast("Lead added"); renderLeads(); }));
 }
 
+const LEAD_STAGES = [
+  ["New", "New"], ["Contacted", "Contacted"], ["Quoted", "Quoted"], ["Follow-up", "Follow-up"],
+  ["Booked", "Closed Won"], ["Lost", "Lost"], ["Cancelled", "Cancelled"],
+];
+const ACTIVITY_TYPES = ["Call", "WhatsApp", "Email", "Meeting", "Site visit", "Note", "Other"];
+const ACTIVITY_ICON = { Call: "📞", WhatsApp: "💬", Email: "✉️", Meeting: "🤝", "Site visit": "📍", "Quote sent": "📄", "Quote viewed": "👀", "Stage change": "↪", Note: "📝", Other: "•" };
+
+async function openConvertModal(id, lead) {
+  const p = await api(`/leads/${id}/convert-preview`);
+  if (p.already_converted) { go("accountDetail", p.account_id); return; }
+  openModal("Create account — review before converting", `
+    <p class="empty" style="margin-top:-6px;">This lead is Closed Won. Confirm the details below to create the customer account — catches the case where this is actually a repeat/referral for someone already in Accounts.</p>
+    <form>
+      <div class="field"><label>Name</label><input name="name" value="${p.name}" required></div>
+      <div class="row2">
+        <div class="field"><label>Phone</label><input name="phone" value="${p.phone}" required></div>
+        <div class="field"><label>Email</label><input name="email" value="${p.email || ""}"></div>
+      </div>
+      <div class="field"><label>Address</label><input name="address" placeholder="Optional"></div>
+      <div class="field"><label>Notes carried to account</label><textarea name="notes" rows="2">${p.notes || ""}</textarea></div>
+      <button type="submit" style="width:100%;">Create account</button>
+    </form>
+  `, async data => {
+    const r = await api(`/leads/${id}/convert`, { method: "POST", body: JSON.stringify(data) });
+    toast("Account created");
+    go("accountDetail", r.account_id);
+  });
+}
+
 async function renderLeadDetail(id) {
   const l = await api(`/leads/${id}`);
+  const engaged = l.quotes.some(q => q.view_count >= 3);
   main.innerHTML = `
     <span class="back" data-back>← Leads</span>
-    <h1>${l.name} <button class="icon-btn" id="editLeadBtn">✎ Edit</button></h1>
+    <h1>${l.name} ${engaged ? '<span class="pill" style="background:var(--critical-soft);color:var(--critical)">🔥 High engagement</span>' : ""} <button class="icon-btn" id="editLeadBtn">✎ Edit</button></h1>
     <div class="row2">
       <div class="card">
         <h2>Details</h2>
@@ -416,7 +478,7 @@ async function renderLeadDetail(id) {
           <tr><td>Event</td><td>${l.event_type || "—"} · ${l.event_date || "TBD"}</td></tr>
           <tr><td>Budget</td><td>${money(l.budget_est)}</td></tr>
           ${l.possible_duplicate_of ? `<tr><td>⚠ Possible duplicate of</td><td>lead #${l.possible_duplicate_of}</td></tr>` : ""}
-          ${l.stage === "Lost" && l.lost_reason ? `<tr><td>Lost reason</td><td>${l.lost_reason}</td></tr>` : ""}
+          ${["Lost","Cancelled"].includes(l.stage) && l.lost_reason ? `<tr><td>${l.stage} reason</td><td>${l.lost_reason}</td></tr>` : ""}
         </table>
         <form id="editLeadForm" style="display:none;">
           <div class="row2">
@@ -435,19 +497,28 @@ async function renderLeadDetail(id) {
         </form>
         <div class="field" style="margin-top:14px;"><label>Stage</label>
           <select id="stageSel">
-            ${["New","Contacted","Quoted","Follow-up","Booked","Lost"].map(s => `<option ${s===l.stage?"selected":""}>${s}</option>`).join("")}
+            ${LEAD_STAGES.map(([v,label]) => `<option value="${v}" ${v===l.stage?"selected":""}>${label}</option>`).join("")}
           </select>
         </div>
         <div class="field"><label>Next follow-up</label><input id="fuDate" type="date" value="${l.next_follow_up_date || ""}"></div>
         ${l.account_id
           ? `<a class="btn" style="text-decoration:none;display:inline-block" data-acct="${l.account_id}">View account →</a>`
-          : `<button id="convertBtn">Convert to account</button> <button type="button" class="ghost" id="deleteLeadBtn">Delete lead</button>`}
+          : `<button id="convertBtn">Create account</button> <button type="button" class="ghost" id="deleteLeadBtn">Delete lead</button>`}
       </div>
       <div class="card">
-        <h2>Notes</h2>
-        <form id="noteForm" class="field"><textarea name="note" rows="2" placeholder="Log a call, WhatsApp reply..." required></textarea><button style="margin-top:6px" type="submit">Add note</button></form>
-        ${l.notes.map(n => `<div style="padding:6px 0;border-bottom:1px dashed var(--line);font-size:12.5px;"><b>${n.author||"—"}</b> · ${n.created_at}<br>${n.note}</div>`).join("") || '<div class="empty">No notes yet.</div>'}
+        <h2>Quotes ${engaged ? '<span class="pill" style="background:var(--critical-soft);color:var(--critical)">high interest</span>' : ""} <button class="icon-btn" id="newQuoteBtn">+ New quote</button></h2>
+        ${l.quotes.map(q => `<div class="list-row" data-quote="${q.id}" style="cursor:pointer;">
+            <span>${statusPill(q.status)} <span class="meta">created ${q.created_at.slice(0,10)}</span></span>
+            <span class="meta">${q.view_count} view${q.view_count===1?"":"s"}${q.last_viewed_at ? ` · last ${q.last_viewed_at.slice(0,16).replace("T"," ")}` : ""}</span>
+          </div>`).join("") || '<div class="empty">No quote sent yet — use + New quote once this lead reaches Quoted.</div>'}
       </div>
+    </div>
+    <div class="card">
+      <h2>Activity <button class="icon-btn" id="logActivityBtn">+ Log activity</button></h2>
+      ${l.activities.map(a => `<div style="display:flex;gap:9px;padding:7px 0;border-bottom:1px dashed var(--line);font-size:12.5px;">
+          <span>${ACTIVITY_ICON[a.activity_type] || "•"}</span>
+          <span style="flex:1;"><b>${a.activity_type}</b>${a.created_by ? ` · ${a.created_by}` : ""} <span class="meta">${a.created_at}</span>${a.description ? `<br>${a.description}` : ""}</span>
+        </div>`).join("") || '<div class="empty">No activity logged yet.</div>'}
     </div>
   `;
   main.querySelector("[data-back]").addEventListener("click", () => go("leads"));
@@ -463,28 +534,137 @@ async function renderLeadDetail(id) {
   });
   const acctLink = main.querySelector("[data-acct]");
   if (acctLink) acctLink.addEventListener("click", () => go("accountDetail", acctLink.dataset.acct));
+  main.querySelectorAll("[data-quote]").forEach(el => el.addEventListener("click", () => go("quoteDetail", el.dataset.quote)));
   main.querySelector("#stageSel").addEventListener("change", async e => {
     const stage = e.target.value;
     let lost_reason;
-    if (stage === "Lost") {
-      lost_reason = prompt("Why was this lead lost? (e.g. Budget, Date conflict, Chose competitor, Went silent)");
-      if (!lost_reason) { renderLeadDetail(id); return; } // cancelled — revert the dropdown
+    if (stage === "Lost" || stage === "Cancelled") {
+      lost_reason = prompt(`Why was this lead marked ${stage}? (e.g. Budget, Date conflict, Chose competitor, Went silent)`);
+      if (!lost_reason) { renderLeadDetail(id); return; } // cancelled the prompt — revert the dropdown
     }
     await api(`/leads/${id}/stage`, { method: "POST", body: JSON.stringify({ stage, lost_reason }) });
     toast("Stage updated");
+    if (stage === "Booked" && !l.account_id) { await openConvertModal(id, l); return; }
     renderLeadDetail(id);
   });
   main.querySelector("#fuDate").addEventListener("change", async e => { await api(`/leads/${id}/followup`, { method: "POST", body: JSON.stringify({ date: e.target.value }) }); toast("Follow-up date saved"); });
   const convertBtn = main.querySelector("#convertBtn");
-  if (convertBtn) convertBtn.addEventListener("click", async () => { const r = await api(`/leads/${id}/convert`, { method: "POST", body: "{}" }); toast("Converted to account"); go("accountDetail", r.account_id); });
+  if (convertBtn) convertBtn.addEventListener("click", () => openConvertModal(id, l));
   const deleteLeadBtn = main.querySelector("#deleteLeadBtn");
   if (deleteLeadBtn) deleteLeadBtn.addEventListener("click", () => confirmDelete("Delete this lead? This can't be undone.", `/leads/${id}/delete`, () => go("leads")));
-  main.querySelector("#noteForm").addEventListener("submit", async e => {
+  main.querySelector("#logActivityBtn").addEventListener("click", () => openModal("Log activity", `
+    <form>
+      <div class="field"><label>Type</label><select name="activity_type">${ACTIVITY_TYPES.map(t => `<option>${t}</option>`).join("")}</select></div>
+      <div class="field"><label>Details</label><textarea name="description" rows="2" placeholder="What happened / what was discussed"></textarea></div>
+      <button type="submit" style="width:100%;">Log</button>
+    </form>
+  `, async data => { await api(`/leads/${id}/activities`, { method: "POST", body: JSON.stringify(data) }); toast("Activity logged"); renderLeadDetail(id); }));
+  main.querySelector("#newQuoteBtn").addEventListener("click", () => openModal("New quote", `
+    <form>
+      <div class="field"><label>Pricing tier</label>
+        <select name="pricing_tier_id"><option value="1">Standard</option><option value="2">Premium</option><option value="3">Signature</option></select>
+      </div>
+      <button type="submit" style="width:100%;">Create quote</button>
+    </form>
+  `, async data => {
+    const r = await api(`/leads/${id}/quotes`, { method: "POST", body: JSON.stringify(data) });
+    toast("Quote created — add line items next");
+    go("quoteDetail", r.id);
+  }));
+}
+
+// ── Quote detail — admin builds/edits a quote sent to a lead. The public,
+// customer-facing view (read-only except add-on toggles) lives at
+// /quote/<token>; this is the admin side that controls it. ──────────
+async function renderQuoteDetail(id) {
+  const [q, services, packages, tiers] = await Promise.all([
+    api(`/quotes/${id}`), api("/services"), api("/packages"), api("/tiers"),
+  ]);
+  const baseItems = q.items.filter(i => !i.is_addon);
+  const addonItems = q.items.filter(i => i.is_addon);
+  main.innerHTML = `
+    <span class="back" data-lead-back="${q.lead_id}">← ${q.lead_name || "Lead"}</span>
+    <h1>Quote ${statusPill(q.status)} <button type="button" class="icon-btn del" id="deleteQuoteBtn" title="Delete quote">✕ Delete</button></h1>
+    <div class="kpis">
+      <div class="kpi"><div class="l">Subtotal</div><div class="v">${money(q.subtotal)}</div></div>
+      <div class="kpi"><div class="l">Concession</div><div class="v" style="color:var(--success)">${q.concession_amount ? "−" + money(q.concession_amount) : "—"}</div></div>
+      <div class="kpi"><div class="l">Total</div><div class="v">${money(q.total)}</div></div>
+      <div class="kpi"><div class="l">Views</div><div class="v">${q.view_count}${q.view_count >= 3 ? " 🔥" : ""}</div></div>
+    </div>
+
+    ${q.status !== "Draft" ? `<div class="copybox">${q.public_url}</div>` : ""}
+
+    <div class="card"><h2>Pricing tier</h2>
+      <div style="display:flex;gap:8px;">${tiers.map(t => `<div class="tier ${t.id===q.pricing_tier_id?"sel":""}" data-tier="${t.id}"><b>${t.name}</b><div style="font-size:11px;color:var(--ink-soft)">${t.perks}</div></div>`).join("")}</div>
+    </div>
+
+    <div class="card"><h2>Included (base) <button class="icon-btn" id="addBaseBtn">+ Add</button></h2>
+      ${baseItems.map(i => `<div class="svc">${i.label} — ${money(i.price)} <button type="button" class="icon-btn del" data-del-qitem="${i.id}" title="Remove">✕</button></div>`).join("") || '<div class="empty">Nothing added yet.</div>'}
+    </div>
+    <div class="card"><h2>Optional add-ons <span class="meta">customer can toggle these on the public link</span> <button class="icon-btn" id="addAddonBtn">+ Add</button></h2>
+      ${addonItems.map(i => `<div class="svc">${i.label} — ${money(i.price)} ${i.selected ? '<span class="pill" style="background:var(--success-soft);color:var(--success)">selected</span>' : '<span class="pill">not selected</span>'} <button type="button" class="icon-btn del" data-del-qitem="${i.id}" title="Remove">✕</button></div>`).join("") || '<div class="empty">No optional add-ons offered on this quote.</div>'}
+    </div>
+
+    <div class="card"><h2>Concession — admin only, read-only for the customer</h2>
+      <form id="concessionForm">
+        <div class="row2">
+          <div class="field"><label>Discount amount (₹)</label><input name="concession_amount" type="number" value="${q.concession_amount}"></div>
+          <div class="field"><label>Reason (shown to customer)</label><input name="concession_note" value="${q.concession_note || ""}" placeholder="e.g. Early booking discount"></div>
+        </div>
+        <button type="submit">Save concession</button>
+      </form>
+    </div>
+
+    <div class="card"><h2>View history <span class="meta">how many times the customer has actually opened this link</span></h2>
+      ${q.view_log.length ? `<table>${q.view_log.map(v => `<tr><td>${v.viewed_at}</td></tr>`).join("")}</table>` : '<div class="empty">Not viewed yet.</div>'}
+    </div>
+  `;
+  main.querySelector("[data-lead-back]").addEventListener("click", () => go("leadDetail", q.lead_id));
+  main.querySelector("#deleteQuoteBtn").addEventListener("click", () =>
+    confirmDelete("Delete this quote? This can't be undone.", `/quotes/${id}/delete`, () => go("leadDetail", q.lead_id))
+  );
+  main.querySelectorAll("[data-tier]").forEach(el => el.addEventListener("click", async () => {
+    await api(`/quotes/${id}`, { method: "POST", body: JSON.stringify({ pricing_tier_id: el.dataset.tier }) });
+    renderQuoteDetail(id);
+  }));
+  main.querySelectorAll("[data-del-qitem]").forEach(el => el.addEventListener("click", () =>
+    confirmDelete("Remove this line from the quote?", `/quote-items/${el.dataset.delQitem}/delete`, () => renderQuoteDetail(id))
+  ));
+  main.querySelector("#concessionForm").addEventListener("submit", async e => {
     e.preventDefault();
-    await api(`/leads/${id}/notes`, { method: "POST", body: JSON.stringify(Object.fromEntries(new FormData(e.target).entries())) });
-    toast("Note added");
-    renderLeadDetail(id);
+    await api(`/quotes/${id}`, { method: "POST", body: JSON.stringify(Object.fromEntries(new FormData(e.target).entries())) });
+    toast("Concession saved");
+    renderQuoteDetail(id);
   });
+  const itemPicker = (isAddon) => `
+    <form>
+      <div class="field"><label>Service or package</label>
+        <select name="pick" required>
+          <optgroup label="Services">${services.map(s => `<option value="svc:${s.id}">${s.name} — ${money(s.base_price)}</option>`).join("")}</optgroup>
+          <optgroup label="Packages">${packages.map(p => `<option value="pkg:${p.id}">${p.name} — ${money(p.base_price)}</option>`).join("")}</optgroup>
+        </select>
+      </div>
+      <button type="submit" style="width:100%;">Add to quote</button>
+    </form>
+  `;
+  main.querySelector("#addBaseBtn").addEventListener("click", () => openModal("Add included item", itemPicker(false), async data => {
+    const [kind, itemId] = data.pick.split(":");
+    await api(`/quotes/${id}/items`, { method: "POST", body: JSON.stringify({ [kind === "svc" ? "service_id" : "package_id"]: itemId, is_addon: false }) });
+    toast("Added"); renderQuoteDetail(id);
+  }));
+  main.querySelector("#addAddonBtn").addEventListener("click", () => openModal("Add optional add-on", itemPicker(true), async data => {
+    const [kind, itemId] = data.pick.split(":");
+    await api(`/quotes/${id}/items`, { method: "POST", body: JSON.stringify({ [kind === "svc" ? "service_id" : "package_id"]: itemId, is_addon: true }) });
+    toast("Added"); renderQuoteDetail(id);
+  }));
+  if (q.status === "Draft") {
+    main.querySelector("h1").insertAdjacentHTML("beforeend", ` <button type="button" class="icon-btn" id="sendQuoteBtn">Send quote</button>`);
+    main.querySelector("#sendQuoteBtn").addEventListener("click", async () => {
+      const r = await api(`/quotes/${id}/send`, { method: "POST", body: "{}" });
+      toast("Quote sent");
+      renderQuoteDetail(id);
+    });
+  }
 }
 
 // ── Accounts ───────────────────────────────────────────────
@@ -731,6 +911,7 @@ async function renderEventDetail(id) {
   main.innerHTML = `
     <span class="back" data-back>← Back</span>
     <h1>${ev.type} <span class="pill">${money(ev.quote_total)}</span> <button class="icon-btn" id="editEventBtn">✎ Edit</button> <button type="button" class="icon-btn del" id="deleteEventBtn" title="Delete event">✕ Delete</button></h1>
+    <div class="sub" style="margin:-10px 0 16px;font-size:12.5px;color:var(--ink-soft);">Customer: <a data-acct="${ev.account_id}" style="cursor:pointer;color:var(--accent-deep);font-weight:600;">${ev.account_name} →</a></div>
     <div class="kpis">
       <div class="kpi"><div class="l">Revenue</div><div class="v">${money(ev.quote_total)}</div></div>
       <div class="kpi"><div class="l">Real cost</div><div class="v">${money(ev.cost_breakdown.total)}</div></div>
@@ -738,9 +919,15 @@ async function renderEventDetail(id) {
       <div class="kpi"><div class="l">Received</div><div class="v">${money(ev.advance_paid)}</div></div>
     </div>
 
-    <div class="card"><h2>Pre-event checklist — ${checklistDone}/${ev.checklist.length} ready ${checklistDone < ev.checklist.length ? '<span class="pill" style="background:var(--critical-soft);color:var(--critical)">incomplete</span>' : '<span class="pill" style="background:var(--success-soft);color:var(--success)">all set</span>'}</h2>
+    <div class="card"><h2>Event checklist — ${checklistDone}/${ev.checklist.length} ready ${checklistDone < ev.checklist.length ? '<span class="pill" style="background:var(--critical-soft);color:var(--critical)">incomplete</span>' : '<span class="pill" style="background:var(--success-soft);color:var(--success)">all set</span>'}</h2>
       ${ev.checklist.length ? `<div class="bar"><div class="bar-fill" style="width:${Math.round(checklistDone / ev.checklist.length * 100)}%;background:${checklistDone < ev.checklist.length ? 'var(--warning)' : 'var(--success)'}"></div></div>` : ""}
-      ${ev.checklist.map(c => `<div class="check-row ${c.done ? "done" : ""}"><input type="checkbox" data-check="${c.id}" ${c.done ? "checked" : ""}> ${c.item}</div>`).join("") || '<div class="empty">No checklist template defined.</div>'}
+      ${["Pre-wedding","Wedding day","Post-wedding"].map(phase => {
+        const items = ev.checklist.filter(c => c.phase === phase);
+        return `<div style="margin-top:10px;">
+          <div style="display:flex;justify-content:space-between;align-items:center;"><b style="font-size:12px;color:var(--ink-soft);text-transform:uppercase;letter-spacing:.03em;">${phase}</b><button type="button" class="icon-btn" data-add-checklist="${phase}" title="Add item">+ Add</button></div>
+          ${items.map(c => `<div class="check-row ${c.done ? "done" : ""}"><input type="checkbox" data-check="${c.id}" ${c.done ? "checked" : ""}> <span style="flex:1;">${c.item}</span> <button type="button" class="icon-btn del" data-del-checklist="${c.id}" title="Remove">✕</button></div>`).join("") || '<div class="empty" style="padding:6px 0;">Nothing here yet.</div>'}
+        </div>`;
+      }).join("")}
     </div>
 
     <div class="card"><h2>Pricing tier</h2>
@@ -766,6 +953,10 @@ async function renderEventDetail(id) {
       </div>
     </div>
 
+    <div class="card"><h2>Equipment — the other half of "event ready" besides people <button class="icon-btn" id="addEquipBtn">+ Add</button></h2>
+      ${ev.equipment.map(eq => `<div class="list-row"><span>${eq.equipment_name || eq.custom_label}${eq.category ? ` <span class="pill">${eq.category}</span>` : ""}${eq.needs_rental ? ' <span class="pill" style="background:var(--warning-soft);color:var(--warning)">Needs rental</span>' : ""}</span><span class="row-actions"><button type="button" class="icon-btn ${eq.ready ? "" : "edit"}" data-equip-ready="${eq.id}" title="Toggle ready">${eq.ready ? "✓ Ready" : "Mark ready"}</button><button type="button" class="icon-btn del" data-del-equip="${eq.id}" title="Remove">✕</button></span></div>`).join("") || '<div class="empty">No equipment assigned yet.</div>'}
+    </div>
+
     <div class="row2">
       <div class="card"><h2>Payment schedule — ${money(ev.advance_paid)} of ${money(ev.quote_total)} received <button class="icon-btn" id="addSchedBtn">+ Add</button></h2>
         ${ev.quote_total ? `<div class="bar"><div class="bar-fill" style="width:${Math.min(100, Math.round(ev.advance_paid / ev.quote_total * 100))}%"></div></div>` : ""}
@@ -784,8 +975,18 @@ async function renderEventDetail(id) {
         ${ev.tasks.map(t => `<div class="list-row"><span>${t.task} ${t.staff_name?`<span class="pill">${t.staff_name}</span>`:'<span class="pill">Anyone</span>'} ${statusPill(t.status)}</span><span class="row-actions"><button type="button" class="icon-btn edit" data-edit-task="${t.id}" title="Edit">✎</button><button type="button" class="icon-btn del" data-del-task="${t.id}" title="Delete">✕</button></span></div>`).join("") || '<div class="empty">No tasks assigned — staff also see and update these from their own link.</div>'}
       </div>
     </div>
+
+    <div class="row2">
+      <div class="card"><h2>Expenses on this event — ${money(ev.cost_breakdown.expenses)} total <button class="icon-btn" id="addExpenseBtn">+ Add</button></h2>
+        ${ev.expenses.map(x => `<div class="list-row"><span>${x.category} — ${money(x.amount)} <span class="meta">${x.note || ""} · ${(x.submitted_at||"").slice(0,10)}</span></span><span class="row-actions"><button type="button" class="icon-btn edit" data-edit-expense="${x.id}" title="Edit">✎</button><button type="button" class="icon-btn del" data-del-expense="${x.id}" title="Delete">✕</button></span></div>`).join("") || '<div class="empty">No expenses logged on this event yet. Also shown in the Expenses tab alongside every other expense.</div>'}
+      </div>
+      <div class="card"><h2>Feedback <button class="icon-btn" id="getFeedbackLinkBtn">Get feedback link</button></h2>
+        <div id="feedbackLinkOut"></div>
+        ${ev.feedback.map(f => `<div class="list-row"><span>${statusPill(f.sentiment)} ${f.rating ? "★".repeat(f.rating) : ""} <span class="meta">${(f.created_at||"").slice(0,10)}</span>${f.comment ? `<br>${f.comment}` : ""}</span></span>`).join("") || '<div class="empty">No feedback submitted yet.</div>'}
+      </div>
+    </div>
   `;
-  main.querySelector("[data-back]").addEventListener("click", () => history.back());
+  main.querySelector("[data-back]").addEventListener("click", () => goBack("events"));
   main.querySelector("#editEventBtn").addEventListener("click", () => openModal("Edit event", `
     <form>
       <div class="field"><label>Type</label><input name="type" value="${ev.type}" required></div>
@@ -798,7 +999,7 @@ async function renderEventDetail(id) {
     </form>
   `, async data => { await api(`/events/${id}/details`, { method: "POST", body: JSON.stringify(data) }); toast("Event updated"); renderEventDetail(id); }));
   main.querySelector("#deleteEventBtn").addEventListener("click", () =>
-    confirmDelete("Delete this event? Only possible if it has no payments recorded.", `/events/${id}/delete`, () => history.back())
+    confirmDelete("Delete this event? Only possible if it has no payments recorded.", `/events/${id}/delete`, () => goBack("events"))
   );
   main.querySelectorAll("[data-del-lineitem]").forEach(el => el.addEventListener("click", () =>
     confirmDelete("Remove this line item from the event?", `/event-services/${el.dataset.delLineitem}/delete`, () => renderEventDetail(id))
@@ -807,6 +1008,18 @@ async function renderEventDetail(id) {
   main.querySelectorAll("[data-pkg]").forEach(el => el.addEventListener("click", async () => { await api(`/events/${id}/package`, { method: "POST", body: JSON.stringify({ package_id: el.dataset.pkg }) }); renderEventDetail(id); }));
   main.querySelectorAll("[data-svc]").forEach(el => el.addEventListener("click", async () => { await api(`/events/${id}/services`, { method: "POST", body: JSON.stringify({ service_id: el.dataset.svc, is_crosssell: true }) }); renderEventDetail(id); }));
   main.querySelectorAll("[data-check]").forEach(el => el.addEventListener("change", async () => { await api(`/checklist/${el.dataset.check}/toggle`, { method: "POST", body: "{}" }); renderEventDetail(id); }));
+  const acctEl = main.querySelector("[data-acct]");
+  if (acctEl) acctEl.addEventListener("click", () => go("accountDetail", acctEl.dataset.acct));
+  main.querySelectorAll("[data-add-checklist]").forEach(el => el.addEventListener("click", () => openModal(`Add to ${el.dataset.addChecklist}`, `
+    <form>
+      <div class="field"><label>Item</label><input name="item" required></div>
+      <input type="hidden" name="phase" value="${el.dataset.addChecklist}">
+      <button type="submit" style="width:100%;">Add</button>
+    </form>
+  `, async data => { await api(`/events/${id}/checklist`, { method: "POST", body: JSON.stringify(data) }); toast("Added"); renderEventDetail(id); })));
+  main.querySelectorAll("[data-del-checklist]").forEach(el => el.addEventListener("click", () =>
+    confirmDelete("Remove this checklist item from this event?", `/checklist/${el.dataset.delChecklist}/remove`, () => renderEventDetail(id))
+  ));
   main.querySelectorAll("[data-vendor-paid]").forEach(el => el.addEventListener("click", async () => { await api(`/event-vendors/${el.dataset.vendorPaid}/paid`, { method: "POST", body: "{}" }); renderEventDetail(id); }));
   main.querySelectorAll("[data-sched-paid]").forEach(el => el.addEventListener("click", async () => { await api(`/payment-schedule/${el.dataset.schedPaid}/paid`, { method: "POST", body: "{}" }); renderEventDetail(id); }));
   main.querySelectorAll("[data-deliv-status]").forEach(el => el.addEventListener("change", async e => { await api(`/deliverables/${el.dataset.delivStatus}/status`, { method: "POST", body: JSON.stringify({ status: e.target.value }) }); renderEventDetail(id); }));
@@ -880,6 +1093,56 @@ async function renderEventDetail(id) {
     toast("Task assigned");
     renderEventDetail(id);
   }));
+  main.querySelector("#addEquipBtn").addEventListener("click", async () => {
+    const catalog = await api("/equipment");
+    openModal("Add equipment", `
+      <form>
+        <div class="field"><label>From catalog</label>
+          <select name="equipment_id"><option value="">— pick one, or use custom label below —</option>${catalog.map(e => `<option value="${e.id}">${e.name}${e.owned ? "" : " (rental)"}</option>`).join("")}</select>
+        </div>
+        <div class="field"><label>Or a one-off item</label><input name="custom_label" placeholder="e.g. Extra LED panel"></div>
+        <div class="field"><label><input type="checkbox" name="needs_rental" style="width:auto;"> Needs to be rented</label></div>
+        <button type="submit" style="width:100%;">Add</button>
+      </form>
+    `, async (data, form) => {
+      data.needs_rental = form.querySelector('[name="needs_rental"]').checked;
+      if (!data.equipment_id) delete data.equipment_id;
+      if (!data.equipment_id && !data.custom_label) throw new Error("Pick from the catalog or enter a custom label");
+      await api(`/events/${id}/equipment`, { method: "POST", body: JSON.stringify(data) });
+      toast("Equipment added");
+      renderEventDetail(id);
+    });
+  });
+  main.querySelectorAll("[data-equip-ready]").forEach(el => el.addEventListener("click", async () => { await api(`/event-equipment/${el.dataset.equipReady}/toggle`, { method: "POST", body: "{}" }); renderEventDetail(id); }));
+  main.querySelectorAll("[data-del-equip]").forEach(el => el.addEventListener("click", () =>
+    confirmDelete("Remove this equipment from the event?", `/event-equipment/${el.dataset.delEquip}/delete`, () => renderEventDetail(id))
+  ));
+  const expenseForm = (x) => `
+    <form>
+      <div class="field"><label>Category</label><input name="category" value="${x ? x.category : ""}" list="expCats" required></div>
+      <datalist id="expCats"><option>Travel</option><option>Equipment rental</option><option>Food & catering</option><option>Props/Decor</option><option>Miscellaneous</option></datalist>
+      <div class="field"><label>Amount (₹)</label><input name="amount" type="number" value="${x ? x.amount : ""}" required></div>
+      <div class="field"><label>Note</label><input name="note" value="${x ? (x.note||"") : ""}"></div>
+      <button type="submit" style="width:100%;">Save</button>
+    </form>
+  `;
+  main.querySelector("#addExpenseBtn").addEventListener("click", () => openModal("Add expense", expenseForm(), async data => {
+    data.event_id = id;
+    await api("/expenses", { method: "POST", body: JSON.stringify(data) });
+    toast("Expense logged");
+    renderEventDetail(id);
+  }));
+  main.querySelectorAll("[data-edit-expense]").forEach(el => el.addEventListener("click", () => {
+    const x = ev.expenses.find(e => String(e.id) === el.dataset.editExpense);
+    openModal("Edit expense", expenseForm(x), async data => { await api(`/expenses/${x.id}`, { method: "POST", body: JSON.stringify(data) }); toast("Updated"); renderEventDetail(id); });
+  }));
+  main.querySelectorAll("[data-del-expense]").forEach(el => el.addEventListener("click", () =>
+    confirmDelete("Delete this expense?", `/expenses/${el.dataset.delExpense}/delete`, () => renderEventDetail(id))
+  ));
+  main.querySelector("#getFeedbackLinkBtn").addEventListener("click", async () => {
+    const r = await api(`/events/${id}/feedback-link`);
+    document.getElementById("feedbackLinkOut").innerHTML = `<div class="copybox">${r.url}</div>`;
+  });
 
   // ── Row-level edit/delete for every sub-list above ──
   main.querySelectorAll("[data-edit-staff]").forEach(el => el.addEventListener("click", () => {
@@ -994,9 +1257,192 @@ async function renderVendors() {
   ));
 }
 
+// ── Equipment catalog ────────────────────────────────────────
+async function renderEquipment() {
+  const equipment = await api("/equipment");
+  main.innerHTML = `
+    ${pageHeader("Equipment", "+ New equipment")}
+    <p class="empty" style="margin-top:-10px;margin-bottom:16px;">Studio-owned gear you assign to events to plan resourcing — cameras, lenses, drones, lighting. Rented items get their cost tracked as an Outside vendor on the event; this catalog is about what exists and what's owned vs. always-rented.</p>
+    <div class="card"><h2>All equipment</h2>
+      <table><thead><tr><th>Name</th><th>Category</th><th>Ownership</th><th></th></tr></thead>
+      <tbody>${equipment.map(e => `<tr><td>${e.name}</td><td><span class="pill">${e.category||"—"}</span></td><td>${e.owned ? '<span class="pill" style="background:var(--success-soft);color:var(--success)">Owned</span>' : '<span class="pill" style="background:var(--warning-soft);color:var(--warning)">Always rented</span>'}</td><td class="row-actions"><button type="button" class="icon-btn edit" data-edit-equip="${e.id}" title="Edit">✎</button><button type="button" class="icon-btn del" data-del-equip="${e.id}" title="Delete">✕</button></td></tr>`).join("") || `<tr><td colspan="4" class="empty">No equipment yet — use the + button to add one.</td></tr>`}</tbody></table>
+    </div>
+  `;
+  const catOptions = (sel) => ["Camera","Lens","Drone","Lighting","Audio","Stabilizer","Other"].map(c => `<option ${c===sel?"selected":""}>${c}</option>`).join("");
+  setPrimaryAction(() => openModal("Add equipment", `
+    <form>
+      <div class="field"><label>Name</label><input name="name" required></div>
+      <div class="field"><label>Category</label><select name="category">${catOptions()}</select></div>
+      <div class="field"><label><input type="checkbox" name="owned" checked style="width:auto;"> Studio-owned (uncheck if this is always rented)</label></div>
+      <button type="submit" style="width:100%;">Add</button>
+    </form>
+  `, async (data, form) => {
+    data.owned = form.querySelector('[name="owned"]').checked;
+    await api("/equipment", { method: "POST", body: JSON.stringify(data) });
+    toast("Equipment added");
+    renderEquipment();
+  }));
+  main.querySelectorAll("[data-edit-equip]").forEach(el => el.addEventListener("click", () => {
+    const e = equipment.find(x => String(x.id) === el.dataset.editEquip);
+    openModal("Edit equipment", `
+      <form>
+        <div class="field"><label>Name</label><input name="name" value="${e.name}" required></div>
+        <div class="field"><label>Category</label><select name="category">${catOptions(e.category)}</select></div>
+        <div class="field"><label><input type="checkbox" name="owned" ${e.owned?"checked":""} style="width:auto;"> Studio-owned</label></div>
+        <button type="submit" style="width:100%;">Save</button>
+      </form>
+    `, async (data, form) => {
+      data.owned = form.querySelector('[name="owned"]').checked;
+      await api(`/equipment/${e.id}`, { method: "POST", body: JSON.stringify(data) });
+      toast("Updated");
+      renderEquipment();
+    });
+  }));
+  main.querySelectorAll("[data-del-equip]").forEach(el => el.addEventListener("click", () =>
+    confirmDelete("Delete this equipment? Only possible if it's not assigned to any event.", `/equipment/${el.dataset.delEquip}/delete`, renderEquipment)
+  ));
+}
+
+// ── Expenses — the full ledger, event-tied and general/office both ──
+async function renderExpenses() {
+  const [expenses, accounts] = await Promise.all([api("/expenses"), api("/accounts")]);
+  const total = expenses.reduce((s, x) => s + x.amount, 0);
+  main.innerHTML = `
+    ${pageHeader("Expenses", "+ Log expense")}
+    <div class="kpis"><div class="kpi"><div class="l">Total logged</div><div class="v">${money(total)}</div></div></div>
+    <div class="card"><h2>All expenses (${expenses.length})</h2>
+      <table><thead><tr><th>Date</th><th>Category</th><th>Tagged to</th><th>Amount</th><th></th></tr></thead>
+      <tbody>${expenses.map(x => `<tr><td>${(x.submitted_at||"").slice(0,10)}</td><td><span class="pill">${x.category}</span></td><td>${x.event_id ? `<span class="meta">${x.account_name} — ${x.event_type}</span>` : '<span class="meta">Office / general</span>'}</td><td>${money(x.amount)}</td><td class="row-actions"><button type="button" class="icon-btn edit" data-edit-exp="${x.id}" title="Edit">✎</button><button type="button" class="icon-btn del" data-del-exp="${x.id}" title="Delete">✕</button></td></tr>`).join("") || `<tr><td colspan="5" class="empty">No expenses logged yet.</td></tr>`}</tbody></table>
+    </div>
+  `;
+  const expForm = (x) => `
+    <form>
+      <div class="field"><label>Category</label><input name="category" value="${x ? x.category : ""}" list="expCats2" required></div>
+      <datalist id="expCats2"><option>Travel</option><option>Equipment rental</option><option>Food & catering</option><option>Props/Decor</option><option>Rent</option><option>Salaries</option><option>Software/Subscriptions</option><option>Marketing</option><option>Office supplies</option><option>Miscellaneous</option></datalist>
+      <div class="field"><label>Amount (₹)</label><input name="amount" type="number" value="${x ? x.amount : ""}" required></div>
+      <div class="field"><label>Tag to an event's account (optional — leave blank for office/general)</label>
+        <select name="_acct"><option value="">— none, general expense —</option>${accounts.map(a => `<option value="${a.id}" ${x && x.account_name===a.name?"selected":""}>${a.name}</option>`).join("")}</select>
+      </div>
+      <div class="field"><label>Note</label><input name="note" value="${x ? (x.note||"") : ""}"></div>
+      <button type="submit" style="width:100%;">Save</button>
+    </form>
+  `;
+  setPrimaryAction(() => openModal("Log an expense", expForm(), async (data) => {
+    delete data._acct; // event tagging for a brand-new general expense isn't offered here — use the event's own page to tag one to a specific event
+    await api("/expenses", { method: "POST", body: JSON.stringify(data) });
+    toast("Expense logged");
+    renderExpenses();
+  }));
+  main.querySelectorAll("[data-edit-exp]").forEach(el => el.addEventListener("click", () => {
+    const x = expenses.find(e => String(e.id) === el.dataset.editExp);
+    openModal("Edit expense", expForm(x), async data => {
+      delete data._acct;
+      await api(`/expenses/${x.id}`, { method: "POST", body: JSON.stringify(data) });
+      toast("Updated");
+      renderExpenses();
+    });
+  }));
+  main.querySelectorAll("[data-del-exp]").forEach(el => el.addEventListener("click", () =>
+    confirmDelete("Delete this expense?", `/expenses/${el.dataset.delExp}/delete`, renderExpenses)
+  ));
+}
+
+// ── Financials — the data-entry half: monthly running cost, promotions,
+// the feedback action queue, and business settings. Reports (below) stays
+// the read-only analytics side. ──────────────────────────────────────
+async function renderFinancials() {
+  const [costs, promotions, feedback, settings] = await Promise.all([
+    api("/monthly-costs"), api("/promotions"), api("/feedback"), api("/settings"),
+  ]);
+  const thisMonth = new Date().toISOString().slice(0, 7);
+  main.innerHTML = `
+    <h1>Financials</h1>
+    <div class="row2">
+      <div class="card"><h2>Monthly running cost <button class="icon-btn" id="addCostBtn">+ Add</button></h2>
+        <table><thead><tr><th>Month</th><th>Category</th><th>Amount</th><th></th></tr></thead>
+        <tbody>${costs.map(c => `<tr><td>${c.month}</td><td><span class="pill">${c.category}</span></td><td>${money(c.amount)}</td><td class="row-actions"><button type="button" class="icon-btn del" data-del-cost="${c.id}" title="Delete">✕</button></td></tr>`).join("") || `<tr><td colspan="4" class="empty">No overhead logged yet.</td></tr>`}</tbody></table>
+      </div>
+      <div class="card"><h2>Business settings</h2>
+        <form id="settingsForm">
+          <div class="field"><label>Google review link <span class="meta">shown to customers who leave positive feedback</span></label>
+            <input name="google_review_link" value="${settings.google_review_link || ""}" placeholder="https://g.page/r/...">
+          </div>
+          <button type="submit">Save</button>
+        </form>
+      </div>
+    </div>
+
+    <div class="card"><h2>Feedback needing action — ${feedback.filter(f=>f.status==='Open').length} open</h2>
+      ${feedback.map(f => `<div class="list-row"><span>${statusPill(f.status)} <b>${f.account_name}</b> — ${f.event_type} ${f.rating ? "★".repeat(f.rating) : ""} <span class="meta">${(f.created_at||"").slice(0,10)}</span><br><span class="meta">${f.comment||""}</span>${f.action_taken ? `<br><span class="meta">Action taken: ${f.action_taken}</span>` : ""}</span><span class="row-actions">${f.status==='Open' ? `<button class="icon-btn" data-resolve-fb="${f.id}">Mark resolved</button>` : ""}</span></div>`).join("") || '<div class="empty">No negative feedback on file.</div>'}
+    </div>
+
+    <div class="card"><h2>Promotions log — what you ran during a slow month, and what it produced <button class="icon-btn" id="addPromoBtn">+ Add</button></h2>
+      ${promotions.map(p => `<div class="list-row"><span><b>${p.name}</b>${p.channel ? ` <span class="pill">${p.channel}</span>` : ""} <span class="meta">${p.start_date||""}${p.end_date?` – ${p.end_date}`:""} · cost ${money(p.cost)}</span>${p.leads_generated != null || p.bookings_generated != null ? `<br><span class="meta">${p.leads_generated||0} leads, ${p.bookings_generated||0} bookings${p.outcome_notes ? ` — ${p.outcome_notes}` : ""}</span>` : ""}</span><span class="row-actions"><button type="button" class="icon-btn edit" data-edit-promo="${p.id}" title="Record outcome">✎</button><button type="button" class="icon-btn del" data-del-promo="${p.id}" title="Delete">✕</button></span></div>`).join("") || '<div class="empty">No promotions logged yet.</div>'}
+    </div>
+  `;
+  main.querySelector("#addCostBtn").addEventListener("click", () => openModal("Add monthly cost", `
+    <form>
+      <div class="row2">
+        <div class="field"><label>Month</label><input name="month" type="month" value="${thisMonth}" required></div>
+        <div class="field"><label>Category</label><select name="category">${["Rent","Salaries","Ad spend","Equipment","Software","Other"].map(c=>`<option>${c}</option>`).join("")}</select></div>
+      </div>
+      <div class="field"><label>Amount (₹)</label><input name="amount" type="number" required></div>
+      <div class="field"><label>Note</label><input name="note"></div>
+      <button type="submit" style="width:100%;">Save</button>
+    </form>
+  `, async data => { await api("/monthly-costs", { method: "POST", body: JSON.stringify(data) }); toast("Saved"); renderFinancials(); }));
+  main.querySelectorAll("[data-del-cost]").forEach(el => el.addEventListener("click", () =>
+    confirmDelete("Delete this monthly cost entry?", `/monthly-costs/${el.dataset.delCost}/delete`, renderFinancials)
+  ));
+  main.querySelector("#settingsForm").addEventListener("submit", async e => {
+    e.preventDefault();
+    await api("/settings", { method: "POST", body: JSON.stringify({ key: "google_review_link", value: new FormData(e.target).get("google_review_link") }) });
+    toast("Settings saved");
+  });
+  main.querySelectorAll("[data-resolve-fb]").forEach(el => el.addEventListener("click", () => {
+    const action_taken = prompt("What did you do about this? (shown on the feedback record)") || "";
+    api(`/feedback/${el.dataset.resolveFb}`, { method: "POST", body: JSON.stringify({ status: "Resolved", action_taken }) })
+      .then(() => { toast("Marked resolved"); renderFinancials(); });
+  }));
+  main.querySelector("#addPromoBtn").addEventListener("click", () => openModal("Log a promotion", `
+    <form>
+      <div class="field"><label>Name</label><input name="name" placeholder="e.g. Off-season Instagram push" required></div>
+      <div class="row2">
+        <div class="field"><label>Channel</label><select name="channel">${["Instagram","Google Ads","WhatsApp","Referral push","Other"].map(c=>`<option>${c}</option>`).join("")}</select></div>
+        <div class="field"><label>Cost (₹)</label><input name="cost" type="number" value="0"></div>
+      </div>
+      <div class="row2">
+        <div class="field"><label>Start date</label><input name="start_date" type="date"></div>
+        <div class="field"><label>End date</label><input name="end_date" type="date"></div>
+      </div>
+      <button type="submit" style="width:100%;">Log promotion</button>
+    </form>
+  `, async data => { await api("/promotions", { method: "POST", body: JSON.stringify(data) }); toast("Logged"); renderFinancials(); }));
+  main.querySelectorAll("[data-edit-promo]").forEach(el => el.addEventListener("click", () => {
+    const p = promotions.find(x => String(x.id) === el.dataset.editPromo);
+    openModal("Record promotion outcome", `
+      <form>
+        <div class="row2">
+          <div class="field"><label>Leads generated</label><input name="leads_generated" type="number" value="${p.leads_generated ?? ""}"></div>
+          <div class="field"><label>Bookings generated</label><input name="bookings_generated" type="number" value="${p.bookings_generated ?? ""}"></div>
+        </div>
+        <div class="field"><label>Outcome notes</label><textarea name="outcome_notes" rows="2">${p.outcome_notes||""}</textarea></div>
+        <button type="submit" style="width:100%;">Save</button>
+      </form>
+    `, async data => { await api(`/promotions/${p.id}`, { method: "POST", body: JSON.stringify(data) }); toast("Saved"); renderFinancials(); });
+  }));
+  main.querySelectorAll("[data-del-promo]").forEach(el => el.addEventListener("click", () =>
+    confirmDelete("Delete this promotion record?", `/promotions/${el.dataset.delPromo}/delete`, renderFinancials)
+  ));
+}
+
 // ── Reports ────────────────────────────────────────────────
+const MONTH_NAMES = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
 async function renderReports() {
-  const [profitability, monthly] = await Promise.all([api("/reports/profitability"), api("/reports/monthly")]);
+  const [profitability, monthly, quarterly, seasonality] = await Promise.all([
+    api("/reports/profitability"), api("/reports/monthly"), api("/reports/quarterly"), api("/reports/seasonality"),
+  ]);
+  const avgSeasonRevenue = seasonality.length ? seasonality.reduce((s,r)=>s+r.revenue,0) / seasonality.length : 0;
   main.innerHTML = `
     <h1>Reports</h1>
     <div class="kpis">
@@ -1004,9 +1450,19 @@ async function renderReports() {
       <div class="kpi"><div class="l">Total cost</div><div class="v">${money(profitability.totals.cost)}</div></div>
       <div class="kpi"><div class="l">Total profit</div><div class="v" style="color:var(--success)">${money(profitability.totals.profit)}</div></div>
     </div>
-    <div class="card"><h2>Monthly turnover (trailing 6 months, by event date)</h2>
-      <table><thead><tr><th>Month</th><th>Events</th><th>Revenue</th><th>Cost</th><th>Profit</th></tr></thead>
-      <tbody>${monthly.map(m => `<tr><td>${m.month}</td><td>${m.events}</td><td>${money(m.revenue)}</td><td>${money(m.cost)}</td><td>${money(m.profit)}</td></tr>`).join("") || `<tr><td colspan="5" class="empty">No dated events yet.</td></tr>`}</tbody></table>
+    <div class="card"><h2>Monthly P&L (trailing 12 months)</h2>
+      <table><thead><tr><th>Month</th><th>Events</th><th>Revenue</th><th>Event cost</th><th>Cash collected</th><th>Overhead</th><th>Net profit</th></tr></thead>
+      <tbody>${monthly.map(m => `<tr><td>${m.month}</td><td>${m.events}</td><td>${money(m.revenue)}</td><td>${money(m.cost)}</td><td>${money(m.cash_collected)}</td><td>${money(m.overhead_cost)}</td><td style="color:${m.net_profit>=0?'var(--success)':'var(--critical)'}">${money(m.net_profit)}</td></tr>`).join("") || `<tr><td colspan="7" class="empty">No dated events yet.</td></tr>`}</tbody></table>
+    </div>
+    <div class="row2">
+      <div class="card"><h2>Quarterly (event-level)</h2>
+        <table><thead><tr><th>Quarter</th><th>Events</th><th>Revenue</th><th>Profit</th></tr></thead>
+        <tbody>${quarterly.map(q => `<tr><td>${q.quarter}</td><td>${q.events}</td><td>${money(q.revenue)}</td><td style="color:${q.profit>=0?'var(--success)':'var(--critical)'}">${money(q.profit)}</td></tr>`).join("") || `<tr><td colspan="4" class="empty">Not enough history yet.</td></tr>`}</tbody></table>
+      </div>
+      <div class="card"><h2>Seasonality — by calendar month, all years <span class="meta">below-average months are your off-season</span></h2>
+        <table><thead><tr><th>Month</th><th>Events</th><th>Revenue</th></tr></thead>
+        <tbody>${seasonality.map(s => `<tr>${s.revenue < avgSeasonRevenue ? `<td style="color:var(--warning);font-weight:700;">${MONTH_NAMES[Number(s.month_num)-1]} ⚠ off-season</td>` : `<td>${MONTH_NAMES[Number(s.month_num)-1]}</td>`}<td>${s.events}</td><td>${money(s.revenue)}</td></tr>`).join("") || `<tr><td colspan="3" class="empty">Not enough history yet.</td></tr>`}</tbody></table>
+      </div>
     </div>
     <div class="card"><h2>Profitability per event</h2>
       <table><thead><tr><th>Account</th><th>Event</th><th>Revenue</th><th>Cost</th><th>Profit</th><th>Margin</th></tr></thead>

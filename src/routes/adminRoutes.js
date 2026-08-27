@@ -7,10 +7,10 @@ import { json, badRequest, notFound, makeToken } from "../lib/util.js";
 export async function dashboard(request, env) {
   const [today, overdue, newThisWeek, pendingPayments, upcomingEvents, dueInstallments] = await Promise.all([
     env.DB.prepare(
-      `SELECT * FROM leads WHERE next_follow_up_date = date('now') AND stage NOT IN ('Booked','Lost')`
+      `SELECT * FROM leads WHERE next_follow_up_date = date('now') AND stage NOT IN ('Booked','Lost','Cancelled')`
     ).all(),
     env.DB.prepare(
-      `SELECT * FROM leads WHERE next_follow_up_date < date('now') AND stage NOT IN ('Booked','Lost') ORDER BY next_follow_up_date ASC`
+      `SELECT * FROM leads WHERE next_follow_up_date < date('now') AND stage NOT IN ('Booked','Lost','Cancelled') ORDER BY next_follow_up_date ASC`
     ).all(),
     env.DB.prepare(
       `SELECT * FROM leads WHERE created_at >= datetime('now','-7 days') ORDER BY created_at DESC`
@@ -72,12 +72,12 @@ export async function listLeads(request, env) {
 export async function getLead(request, env, id) {
   const lead = await env.DB.prepare(`SELECT * FROM leads WHERE id = ?`).bind(id).first();
   if (!lead) return notFound("lead not found");
-  const [notes, history, account] = await Promise.all([
-    env.DB.prepare(`SELECT * FROM lead_notes WHERE lead_id = ? ORDER BY created_at DESC`).bind(id).all(),
-    env.DB.prepare(`SELECT * FROM lead_status_history WHERE lead_id = ? ORDER BY changed_at DESC`).bind(id).all(),
+  const [activities, account, quotes] = await Promise.all([
+    env.DB.prepare(`SELECT * FROM lead_activities WHERE lead_id = ? ORDER BY created_at DESC`).bind(id).all(),
     env.DB.prepare(`SELECT id FROM accounts WHERE lead_id = ?`).bind(id).first(),
+    env.DB.prepare(`SELECT * FROM lead_quotes WHERE lead_id = ? ORDER BY created_at DESC`).bind(id).all(),
   ]);
-  return json({ ...lead, notes: notes.results, status_history: history.results, account_id: account?.id || null });
+  return json({ ...lead, activities: activities.results, account_id: account?.id || null, quotes: quotes.results });
 }
 
 export async function createLeadManual(request, env, staff) {
@@ -126,19 +126,34 @@ export async function updateLeadDetails(request, env, id) {
   return json({ ok: true });
 }
 
+// Terminal stages: 'Booked' (Closed Won — the UI labels it that; the stored
+// value stays 'Booked' so every existing query/report keyed on it keeps
+// working) and the two ways a lead dies: Lost and Cancelled. Both require a
+// reason — that's the only way "get feedback on what can be done better"
+// actually produces usable data instead of another blank field nobody fills.
+const CLOSED_NEGATIVE_STAGES = ["Lost", "Cancelled"];
+
 export async function updateLeadStage(request, env, id, staff) {
   const body = await request.json().catch(() => null);
   if (!body || !body.stage) return badRequest("stage is required");
-  if (body.stage === "Lost" && !body.lost_reason) return badRequest("lost_reason is required when marking a lead Lost");
+  if (CLOSED_NEGATIVE_STAGES.includes(body.stage) && !body.lost_reason) {
+    return badRequest(`lost_reason is required when marking a lead ${body.stage}`);
+  }
   const lead = await env.DB.prepare(`SELECT stage FROM leads WHERE id = ?`).bind(id).first();
   if (!lead) return notFound("lead not found");
 
+  const reason = CLOSED_NEGATIVE_STAGES.includes(body.stage) ? body.lost_reason : null;
   await env.DB.batch([
     env.DB.prepare(`UPDATE leads SET stage = ?, lost_reason = ?, updated_at = datetime('now') WHERE id = ?`)
-      .bind(body.stage, body.stage === "Lost" ? body.lost_reason : null, id),
+      .bind(body.stage, reason, id),
     env.DB.prepare(`INSERT INTO lead_status_history (lead_id, from_stage, to_stage, changed_by) VALUES (?, ?, ?, ?)`)
       .bind(id, lead.stage, body.stage, staff.email),
   ]);
+  await logActivity(
+    env, id, "Stage change",
+    `${lead.stage} → ${body.stage}${reason ? ` (${reason})` : ""}`,
+    staff.email
+  );
   return json({ ok: true });
 }
 
@@ -154,12 +169,25 @@ export async function setFollowUp(request, env, id) {
   return json({ ok: true });
 }
 
-export async function addNote(request, env, id, staff) {
+// ── Activities — the typed timeline that replaced plain notes. Stage
+// changes and quote status changes log themselves here too (see
+// updateLeadStage and the quote handlers below), so this is the one place
+// that shows "what's actually happened on this lead", not just what staff
+// chose to write down.
+const ACTIVITY_TYPES = ["Call", "WhatsApp", "Email", "Meeting", "Site visit", "Quote sent", "Quote viewed", "Stage change", "Note", "Other"];
+
+export async function addActivity(request, env, id, staff) {
   const body = await request.json().catch(() => null);
-  if (!body || !body.note) return badRequest("note is required");
-  await env.DB.prepare(`INSERT INTO lead_notes (lead_id, author, note) VALUES (?, ?, ?)`)
-    .bind(id, staff.email, body.note).run();
-  return json({ ok: true });
+  if (!body || !body.activity_type) return badRequest("activity_type is required");
+  const activity_type = ACTIVITY_TYPES.includes(body.activity_type) ? body.activity_type : "Other";
+  await env.DB.prepare(`INSERT INTO lead_activities (lead_id, activity_type, description, created_by) VALUES (?, ?, ?, ?)`)
+    .bind(id, activity_type, body.description || null, staff.email).run();
+  return json({ ok: true }, { status: 201 });
+}
+
+async function logActivity(env, leadId, activity_type, description, created_by) {
+  await env.DB.prepare(`INSERT INTO lead_activities (lead_id, activity_type, description, created_by) VALUES (?, ?, ?, ?)`)
+    .bind(leadId, activity_type, description || null, created_by || null).run();
 }
 
 export async function deleteLead(request, env, id) {
@@ -171,28 +199,171 @@ export async function deleteLead(request, env, id) {
   const account = await env.DB.prepare(`SELECT id FROM accounts WHERE lead_id = ?`).bind(id).first();
   if (account) return badRequest("This lead was converted to a customer account — it can't be deleted. Edit or remove the account instead.");
 
+  const { results: quoteIds } = await env.DB.prepare(`SELECT id FROM lead_quotes WHERE lead_id = ?`).bind(id).all();
   await env.DB.batch([
-    env.DB.prepare(`DELETE FROM lead_notes WHERE lead_id = ?`).bind(id),
+    ...quoteIds.flatMap((q) => [
+      env.DB.prepare(`DELETE FROM quote_items WHERE quote_id = ?`).bind(q.id),
+      env.DB.prepare(`DELETE FROM quote_views WHERE quote_id = ?`).bind(q.id),
+    ]),
+    env.DB.prepare(`DELETE FROM lead_quotes WHERE lead_id = ?`).bind(id),
+    env.DB.prepare(`DELETE FROM lead_activities WHERE lead_id = ?`).bind(id),
     env.DB.prepare(`DELETE FROM lead_status_history WHERE lead_id = ?`).bind(id),
     env.DB.prepare(`DELETE FROM leads WHERE id = ?`).bind(id),
   ]);
   return json({ ok: true });
 }
 
-// ── Convert lead → account ──────────────────────────────────────────
+// ── Convert lead → account (semi-automatic: stage → Closed Won opens a
+// pre-filled confirmation in the UI; this is what that confirmation reads
+// and then submits) ──────────────────────────────────────────────────
+
+// Pre-fill data for the "Create account" confirmation screen — read-only,
+// creates nothing. Lets staff review/correct before the account is made,
+// catching the case where this lead is actually a repeat/referral for a
+// customer who already has an account.
+export async function getLeadConvertPreview(request, env, id) {
+  const lead = await env.DB.prepare(`SELECT * FROM leads WHERE id = ?`).bind(id).first();
+  if (!lead) return notFound("lead not found");
+  const existing = await env.DB.prepare(`SELECT id FROM accounts WHERE lead_id = ?`).bind(id).first();
+  return json({
+    already_converted: !!existing,
+    account_id: existing?.id || null,
+    name: lead.name,
+    phone: lead.phone,
+    email: lead.email,
+    notes: lead.message || "",
+  });
+}
+
 export async function convertLead(request, env, id) {
+  const body = await request.json().catch(() => ({}));
   const lead = await env.DB.prepare(`SELECT * FROM leads WHERE id = ?`).bind(id).first();
   if (!lead) return notFound("lead not found");
   const existing = await env.DB.prepare(`SELECT id FROM accounts WHERE lead_id = ?`).bind(id).first();
   if (existing) return json({ ok: true, account_id: existing.id });
 
+  // Confirmation-screen values win when given; otherwise fall back to what
+  // the lead already had. `notes` defaults to the lead's original capture
+  // message so that context isn't lost the moment the lead record stops
+  // being the primary place anyone looks.
+  const name = body.name || lead.name;
+  const phone = body.phone || lead.phone;
+  const email = body.email !== undefined ? body.email || null : lead.email;
+  const address = body.address || null;
+  const notes = body.notes !== undefined ? body.notes || null : lead.message || null;
+
   const result = await env.DB.prepare(
-    `INSERT INTO accounts (lead_id, name, phone, email, client_since) VALUES (?, ?, ?, ?, datetime('now'))`
+    `INSERT INTO accounts (lead_id, name, phone, email, address, notes, client_since) VALUES (?, ?, ?, ?, ?, ?, datetime('now'))`
   )
-    .bind(id, lead.name, lead.phone, lead.email)
+    .bind(id, name, phone, email, address, notes)
     .run();
-  await env.DB.prepare(`UPDATE leads SET stage = 'Booked', updated_at = datetime('now') WHERE id = ?`).bind(id).run();
-  return json({ ok: true, account_id: result.meta.last_row_id }, { status: 201 });
+  const accountId = result.meta.last_row_id;
+
+  // A converted lead had no contact row before — the account existed with
+  // no one listed on it. One primary contact, seeded from the same details,
+  // closes that gap; add more (bride/groom/planner) from the account page.
+  await env.DB.batch([
+    env.DB.prepare(`INSERT INTO contacts (account_id, name, phone, email, is_primary) VALUES (?, ?, ?, ?, 1)`)
+      .bind(accountId, name, phone, email),
+    env.DB.prepare(`UPDATE leads SET stage = 'Booked', updated_at = datetime('now') WHERE id = ?`).bind(id),
+  ]);
+  return json({ ok: true, account_id: accountId }, { status: 201 });
+}
+
+// ── Quotes — built while a lead is Quoted, before there's an account or
+// event yet. Admin controls tier/items/concession; the customer's public
+// view can only toggle add-ons (see publicRoutes.js) — everything else,
+// including the concession, is read-only to them. view_count/last_viewed_at
+// and the quote_views log are the engagement signal: how many times, and
+// how recently, has this actually been looked at.
+async function computeQuoteTotals(env, quoteId) {
+  const quote = await env.DB.prepare(
+    `SELECT q.*, pt.multiplier FROM lead_quotes q LEFT JOIN pricing_tiers pt ON pt.id = q.pricing_tier_id WHERE q.id = ?`
+  ).bind(quoteId).first();
+  const { results: items } = await env.DB.prepare(`SELECT * FROM quote_items WHERE quote_id = ?`).bind(quoteId).all();
+  const subtotal = items.filter((i) => i.selected).reduce((s, i) => s + i.price, 0);
+  const total = Math.max(0, Math.round(subtotal * (quote?.multiplier || 1)) - (quote?.concession_amount || 0));
+  return { quote, items, subtotal, total };
+}
+
+export async function createQuote(request, env, id) {
+  const body = await request.json().catch(() => ({}));
+  const lead = await env.DB.prepare(`SELECT id FROM leads WHERE id = ?`).bind(id).first();
+  if (!lead) return notFound("lead not found");
+  const token = makeToken();
+  const result = await env.DB.prepare(
+    `INSERT INTO lead_quotes (lead_id, token, pricing_tier_id) VALUES (?, ?, ?)`
+  ).bind(id, token, body.pricing_tier_id || 1).run();
+  return json({ ok: true, id: result.meta.last_row_id, token }, { status: 201 });
+}
+
+export async function getQuote(request, env, quoteId) {
+  const { quote, items, subtotal, total } = await computeQuoteTotals(env, quoteId);
+  if (!quote) return notFound("quote not found");
+  const lead = await env.DB.prepare(`SELECT name, event_type FROM leads WHERE id = ?`).bind(quote.lead_id).first();
+  const { results: views } = await env.DB.prepare(`SELECT viewed_at FROM quote_views WHERE quote_id = ? ORDER BY viewed_at DESC LIMIT 20`).bind(quoteId).all();
+  const url = new URL(request.url);
+  return json({ ...quote, lead_name: lead?.name, event_type: lead?.event_type, items, subtotal, total, view_log: views, public_url: `${url.origin}/quote/${quote.token}` });
+}
+
+export async function updateQuote(request, env, quoteId) {
+  const body = await request.json().catch(() => null);
+  if (!body) return badRequest("no fields given");
+  const quote = await env.DB.prepare(`SELECT * FROM lead_quotes WHERE id = ?`).bind(quoteId).first();
+  if (!quote) return notFound("quote not found");
+  const pricing_tier_id = body.pricing_tier_id !== undefined ? body.pricing_tier_id : quote.pricing_tier_id;
+  const concession_amount = body.concession_amount !== undefined ? Number(body.concession_amount) : quote.concession_amount;
+  const concession_note = body.concession_note !== undefined ? body.concession_note || null : quote.concession_note;
+  const valid_until = body.valid_until !== undefined ? body.valid_until || null : quote.valid_until;
+  await env.DB.prepare(
+    `UPDATE lead_quotes SET pricing_tier_id = ?, concession_amount = ?, concession_note = ?, valid_until = ?, updated_at = datetime('now') WHERE id = ?`
+  ).bind(pricing_tier_id, concession_amount, concession_note, valid_until, quoteId).run();
+  return json({ ok: true });
+}
+
+// Marks the quote Sent and logs it on the lead's activity timeline — the
+// moment "we've actually sent this" becomes visible without staff having
+// to remember to note it themselves.
+export async function sendQuote(request, env, quoteId, staff) {
+  const quote = await env.DB.prepare(`SELECT * FROM lead_quotes WHERE id = ?`).bind(quoteId).first();
+  if (!quote) return notFound("quote not found");
+  await env.DB.prepare(`UPDATE lead_quotes SET status = 'Sent', updated_at = datetime('now') WHERE id = ?`).bind(quoteId).run();
+  await logActivity(env, quote.lead_id, "Quote sent", null, staff.email);
+  const url = new URL(request.url);
+  return json({ ok: true, public_url: `${url.origin}/quote/${quote.token}` });
+}
+
+export async function deleteQuote(request, env, quoteId) {
+  await env.DB.batch([
+    env.DB.prepare(`DELETE FROM quote_items WHERE quote_id = ?`).bind(quoteId),
+    env.DB.prepare(`DELETE FROM quote_views WHERE quote_id = ?`).bind(quoteId),
+    env.DB.prepare(`DELETE FROM lead_quotes WHERE id = ?`).bind(quoteId),
+  ]);
+  return json({ ok: true });
+}
+
+export async function addQuoteItem(request, env, quoteId) {
+  const body = await request.json().catch(() => null);
+  if (!body || (!body.service_id && !body.package_id)) return badRequest("service_id or package_id is required");
+  let label, price;
+  if (body.package_id) {
+    const pkg = await env.DB.prepare(`SELECT name, base_price FROM packages WHERE id = ?`).bind(body.package_id).first();
+    if (!pkg) return notFound("package not found");
+    label = pkg.name; price = pkg.base_price;
+  } else {
+    const svc = await env.DB.prepare(`SELECT name, base_price FROM services WHERE id = ?`).bind(body.service_id).first();
+    if (!svc) return notFound("service not found");
+    label = svc.name; price = svc.base_price;
+  }
+  await env.DB.prepare(
+    `INSERT INTO quote_items (quote_id, service_id, package_id, label, price, is_addon, selected) VALUES (?, ?, ?, ?, ?, ?, 1)`
+  ).bind(quoteId, body.service_id || null, body.package_id || null, label, price, body.is_addon ? 1 : 0).run();
+  return json({ ok: true }, { status: 201 });
+}
+
+export async function removeQuoteItem(request, env, itemId) {
+  await env.DB.prepare(`DELETE FROM quote_items WHERE id = ?`).bind(itemId).run();
+  return json({ ok: true });
 }
 
 // ── Accounts / Customer 360 ─────────────────────────────────────────
@@ -368,11 +539,15 @@ export async function createEvent(request, env) {
   const eventId = result.meta.last_row_id;
 
   // Snapshot the shared checklist template onto this event — later template
-  // edits shouldn't retroactively change events already in progress.
-  const { results: template } = await env.DB.prepare(`SELECT item FROM checklist_templates ORDER BY sort_order`).all();
+  // edits shouldn't retroactively change events already in progress. Phase
+  // (Pre-wedding/Wedding day/Post-wedding) comes along so the event's own
+  // checklist is grouped the same way from the moment it's created.
+  const { results: template } = await env.DB.prepare(`SELECT item, phase FROM checklist_templates ORDER BY sort_order`).all();
   if (template.length) {
     await env.DB.batch(
-      template.map((t) => env.DB.prepare(`INSERT INTO event_checklist (event_id, item) VALUES (?, ?)`).bind(eventId, t.item))
+      template.map((t) =>
+        env.DB.prepare(`INSERT INTO event_checklist (event_id, item, phase) VALUES (?, ?, ?)`).bind(eventId, t.item, t.phase)
+      )
     );
   }
   return json({ ok: true, id: eventId }, { status: 201 });
@@ -420,10 +595,12 @@ export async function deleteEvent(request, env, id) {
 
 export async function getEvent(request, env, id) {
   const event = await env.DB.prepare(
-    `SELECT e.*, pt.name AS tier_name, pt.multiplier FROM events e LEFT JOIN pricing_tiers pt ON pt.id = e.pricing_tier_id WHERE e.id = ?`
+    `SELECT e.*, pt.name AS tier_name, pt.multiplier, a.name AS account_name
+     FROM events e LEFT JOIN pricing_tiers pt ON pt.id = e.pricing_tier_id
+     JOIN accounts a ON a.id = e.account_id WHERE e.id = ?`
   ).bind(id).first();
   if (!event) return notFound("event not found");
-  const [services, payments, links, vendors, schedule, deliverables, checklist, tasks] = await Promise.all([
+  const [services, payments, links, vendors, schedule, deliverables, checklist, tasks, feedback, expenseRowsFull, equipment] = await Promise.all([
     env.DB.prepare(
       `SELECT es.*, COALESCE(s.name, p.name) AS name, COALESCE(s.category, 'Package') AS category,
               CASE WHEN es.package_id IS NOT NULL THEN 1 ELSE 0 END AS is_package
@@ -443,13 +620,18 @@ export async function getEvent(request, env, id) {
     env.DB.prepare(
       `SELECT et.*, esl.staff_name FROM event_tasks et LEFT JOIN event_staff_links esl ON esl.id = et.link_id WHERE et.event_id = ? ORDER BY et.created_at DESC`
     ).bind(id).all(),
+    env.DB.prepare(`SELECT * FROM feedback WHERE event_id = ? ORDER BY created_at DESC`).bind(id).all(),
+    env.DB.prepare(`SELECT * FROM expenses WHERE event_id = ? ORDER BY submitted_at DESC`).bind(id).all(),
+    env.DB.prepare(
+      `SELECT ee.*, eq.name AS equipment_name, eq.category, eq.owned
+       FROM event_equipment ee LEFT JOIN equipment eq ON eq.id = ee.equipment_id WHERE ee.event_id = ?`
+    ).bind(id).all(),
   ]);
   // Real cost of running this event — internal staff cost + external vendor
   // cost + ad-hoc reimbursed expenses — set against the quote to show profit.
   const staffCost = links.results.reduce((s, l) => s + (l.cost || 0), 0);
   const vendorCost = vendors.results.reduce((s, v) => s + (v.cost || 0), 0);
-  const { results: expenseRows } = await env.DB.prepare(`SELECT COALESCE(SUM(amount),0) AS total FROM expenses WHERE event_id = ?`).bind(id).all();
-  const expenseCost = expenseRows[0]?.total || 0;
+  const expenseCost = expenseRowsFull.results.reduce((s, e) => s + (e.amount || 0), 0);
   const total_cost = staffCost + vendorCost + expenseCost;
 
   return json({
@@ -462,6 +644,9 @@ export async function getEvent(request, env, id) {
     deliverables: deliverables.results,
     checklist: checklist.results,
     tasks: tasks.results,
+    feedback: feedback.results,
+    expenses: expenseRowsFull.results,
+    equipment: equipment.results,
     cost_breakdown: { staff: staffCost, vendors: vendorCost, expenses: expenseCost, total: total_cost },
     profit: event.quote_total - total_cost,
   });
@@ -811,6 +996,25 @@ export async function deleteDeliverable(request, env, deliverableId) {
 }
 
 // ── Pre-event checklist ────────────────────────────────────────────
+const CHECKLIST_PHASE_LIST = ["Pre-wedding", "Wedding day", "Post-wedding"];
+
+// One-off item on THIS event only — doesn't touch the shared template, for
+// the case where a specific booking needs something the general checklist
+// doesn't (a custom permit, a family request, an unusual venue requirement).
+export async function addEventChecklistItem(request, env, id) {
+  const body = await request.json().catch(() => null);
+  if (!body || !body.item) return badRequest("item is required");
+  const phase = CHECKLIST_PHASE_LIST.includes(body.phase) ? body.phase : "Pre-wedding";
+  await env.DB.prepare(`INSERT INTO event_checklist (event_id, item, phase) VALUES (?, ?, ?)`)
+    .bind(id, body.item, phase).run();
+  return json({ ok: true }, { status: 201 });
+}
+
+export async function removeEventChecklistItem(request, env, itemId) {
+  await env.DB.prepare(`DELETE FROM event_checklist WHERE id = ?`).bind(itemId).run();
+  return json({ ok: true });
+}
+
 export async function toggleChecklistItem(request, env, itemId) {
   const item = await env.DB.prepare(`SELECT done FROM event_checklist WHERE id = ?`).bind(itemId).first();
   if (!item) return notFound("checklist item not found");
@@ -826,12 +1030,15 @@ export async function listChecklistTemplates(request, env) {
   return json(results);
 }
 
+const CHECKLIST_PHASES = ["Pre-wedding", "Wedding day", "Post-wedding"];
+
 export async function addChecklistTemplateItem(request, env) {
   const body = await request.json().catch(() => null);
   if (!body || !body.item) return badRequest("item is required");
+  const phase = CHECKLIST_PHASES.includes(body.phase) ? body.phase : "Pre-wedding";
   const { results } = await env.DB.prepare(`SELECT COALESCE(MAX(sort_order),0) AS m FROM checklist_templates`).all();
-  await env.DB.prepare(`INSERT INTO checklist_templates (item, sort_order) VALUES (?, ?)`)
-    .bind(body.item, (results[0]?.m || 0) + 1).run();
+  await env.DB.prepare(`INSERT INTO checklist_templates (item, sort_order, phase) VALUES (?, ?, ?)`)
+    .bind(body.item, (results[0]?.m || 0) + 1, phase).run();
   return json({ ok: true }, { status: 201 });
 }
 
@@ -864,6 +1071,122 @@ export async function updateEventTask(request, env, taskId) {
 
 export async function deleteEventTask(request, env, taskId) {
   await env.DB.prepare(`DELETE FROM event_tasks WHERE id = ?`).bind(taskId).run();
+  return json({ ok: true });
+}
+
+// ── Equipment — studio-owned gear catalog, plus per-event resourcing so
+// "are we ready" covers gear, not just people. See migration 0005: this is
+// a readiness checklist, not a cost ledger — a rented item's actual cost
+// still goes through Outside vendors, same as before.
+export async function listEquipment(request, env) {
+  const { results } = await env.DB.prepare(`SELECT * FROM equipment ORDER BY category, name`).all();
+  return json(results);
+}
+
+export async function createEquipment(request, env) {
+  const body = await request.json().catch(() => null);
+  if (!body || !body.name) return badRequest("name is required");
+  const result = await env.DB.prepare(`INSERT INTO equipment (name, category, owned, notes) VALUES (?, ?, ?, ?)`)
+    .bind(body.name, body.category || null, body.owned === false ? 0 : 1, body.notes || null).run();
+  return json({ ok: true, id: result.meta.last_row_id }, { status: 201 });
+}
+
+export async function updateEquipment(request, env, equipId) {
+  const body = await request.json().catch(() => null);
+  if (!body) return badRequest("no fields given");
+  const eq = await env.DB.prepare(`SELECT * FROM equipment WHERE id = ?`).bind(equipId).first();
+  if (!eq) return notFound("equipment not found");
+  const name = body.name ?? eq.name;
+  const category = body.category !== undefined ? body.category || null : eq.category;
+  const owned = body.owned !== undefined ? (body.owned ? 1 : 0) : eq.owned;
+  await env.DB.prepare(`UPDATE equipment SET name = ?, category = ?, owned = ? WHERE id = ?`)
+    .bind(name, category, owned, equipId).run();
+  return json({ ok: true });
+}
+
+// Blocks the delete if it's assigned to any event, same "don't orphan real
+// data" guard used for vendors/packages.
+export async function deleteEquipment(request, env, equipId) {
+  const used = await env.DB.prepare(`SELECT COUNT(*) AS n FROM event_equipment WHERE equipment_id = ?`).bind(equipId).first();
+  if (used.n > 0) return badRequest(`Can't delete — this is assigned to ${used.n} event(s). Remove it from those events first.`);
+  await env.DB.prepare(`DELETE FROM equipment WHERE id = ?`).bind(equipId).run();
+  return json({ ok: true });
+}
+
+export async function addEventEquipment(request, env, id) {
+  const body = await request.json().catch(() => null);
+  if (!body || (!body.equipment_id && !body.custom_label)) return badRequest("equipment_id or custom_label is required");
+  await env.DB.prepare(
+    `INSERT INTO event_equipment (event_id, equipment_id, custom_label, needs_rental) VALUES (?, ?, ?, ?)`
+  ).bind(id, body.equipment_id || null, body.custom_label || null, body.needs_rental ? 1 : 0).run();
+  return json({ ok: true }, { status: 201 });
+}
+
+export async function toggleEventEquipmentReady(request, env, eventEquipId) {
+  const row = await env.DB.prepare(`SELECT ready FROM event_equipment WHERE id = ?`).bind(eventEquipId).first();
+  if (!row) return notFound("event equipment row not found");
+  const ready = row.ready ? 0 : 1;
+  await env.DB.prepare(`UPDATE event_equipment SET ready = ? WHERE id = ?`).bind(ready, eventEquipId).run();
+  return json({ ok: true, ready: !!ready });
+}
+
+export async function removeEventEquipment(request, env, eventEquipId) {
+  await env.DB.prepare(`DELETE FROM event_equipment WHERE id = ?`).bind(eventEquipId).run();
+  return json({ ok: true });
+}
+
+// ── Expenses — one ledger for everything spent: event-tied (shows up on
+// that event's cost breakdown, as before) and general/office spend
+// (event_id left blank — rent, software, misc supplies). Previously the
+// only way to log an expense was through the staff portal on a specific
+// event; this adds admin-side create/edit/delete and makes event_id
+// optional so non-event spend has a home too, rather than needing
+// monthly_costs (fixed recurring totals) to cover something it wasn't
+// built for (itemized, dated, individually-editable entries).
+export async function listExpenses(request, env) {
+  const params = new URL(request.url).searchParams;
+  const eventId = params.get("event_id");
+  const category = params.get("category");
+  const clauses = [];
+  const binds = [];
+  if (eventId) { clauses.push("ex.event_id = ?"); binds.push(eventId); }
+  if (category) { clauses.push("ex.category = ?"); binds.push(category); }
+  const where = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
+  const { results } = await env.DB.prepare(
+    `SELECT ex.*, e.type AS event_type, a.name AS account_name
+     FROM expenses ex
+     LEFT JOIN events e ON e.id = ex.event_id
+     LEFT JOIN accounts a ON a.id = e.account_id
+     ${where} ORDER BY ex.submitted_at DESC`
+  ).bind(...binds).all();
+  return json(results);
+}
+
+export async function createExpense(request, env) {
+  const body = await request.json().catch(() => null);
+  if (!body || !body.category || !body.amount) return badRequest("category and amount are required");
+  const result = await env.DB.prepare(
+    `INSERT INTO expenses (event_id, category, amount, note, submitted_at) VALUES (?, ?, ?, ?, datetime('now'))`
+  ).bind(body.event_id || null, body.category, Number(body.amount), body.note || null).run();
+  return json({ ok: true, id: result.meta.last_row_id }, { status: 201 });
+}
+
+export async function updateExpense(request, env, expenseId) {
+  const body = await request.json().catch(() => null);
+  if (!body) return badRequest("no fields given");
+  const ex = await env.DB.prepare(`SELECT * FROM expenses WHERE id = ?`).bind(expenseId).first();
+  if (!ex) return notFound("expense not found");
+  const event_id = body.event_id !== undefined ? body.event_id || null : ex.event_id;
+  const category = body.category ?? ex.category;
+  const amount = body.amount !== undefined ? Number(body.amount) : ex.amount;
+  const note = body.note !== undefined ? body.note || null : ex.note;
+  await env.DB.prepare(`UPDATE expenses SET event_id = ?, category = ?, amount = ?, note = ? WHERE id = ?`)
+    .bind(event_id, category, amount, note, expenseId).run();
+  return json({ ok: true });
+}
+
+export async function deleteExpense(request, env, expenseId) {
+  await env.DB.prepare(`DELETE FROM expenses WHERE id = ?`).bind(expenseId).run();
   return json({ ok: true });
 }
 
@@ -915,20 +1238,208 @@ export async function reportProfitability(request, env) {
   return json({ events: rows, totals });
 }
 
-// Trailing 6-month revenue/cost/profit rollup — "3-month sale", "turnover",
-// "running profit" all read off this one report.
+// Trailing 12-month rollup — "turnover", "running profit", and now a real
+// P&L: event-level numbers (revenue/cost, unchanged meaning) plus actual
+// cash collected that month and the month's running business overhead
+// (rent/salaries/ad spend/etc. from monthly_costs), so net_profit reflects
+// money in vs. money out, not just booked value vs. per-event cost.
 export async function reportMonthly(request, env) {
+  const [{ results: eventRows }, { results: paymentRows }, { results: overheadRows }] = await Promise.all([
+    env.DB.prepare(
+      `SELECT
+         strftime('%Y-%m', e.event_date) AS month,
+         COUNT(*) AS events,
+         SUM(e.quote_total) AS revenue,
+         SUM(COALESCE((SELECT SUM(cost) FROM event_staff_links WHERE event_id = e.id), 0)
+           + COALESCE((SELECT SUM(cost) FROM event_vendors WHERE event_id = e.id), 0)
+           + COALESCE((SELECT SUM(amount) FROM expenses WHERE event_id = e.id), 0)) AS cost
+       FROM events e
+       WHERE e.event_date >= date('now', '-12 months')
+       GROUP BY month ORDER BY month ASC`
+    ).all(),
+    env.DB.prepare(
+      `SELECT strftime('%Y-%m', date) AS month, SUM(amount) AS cash_collected
+       FROM payments WHERE date >= date('now', '-12 months') GROUP BY month`
+    ).all(),
+    env.DB.prepare(`SELECT month, SUM(amount) AS overhead_cost FROM monthly_costs GROUP BY month`).all(),
+  ]);
+  const cashByMonth = Object.fromEntries(paymentRows.map((r) => [r.month, r.cash_collected]));
+  const overheadByMonth = Object.fromEntries(overheadRows.map((r) => [r.month, r.overhead_cost]));
+  return json(
+    eventRows.map((r) => {
+      const cash_collected = cashByMonth[r.month] || 0;
+      const overhead_cost = overheadByMonth[r.month] || 0;
+      return {
+        ...r,
+        profit: r.revenue - r.cost, // per-event booked value vs. per-event cost, as before
+        cash_collected,
+        overhead_cost,
+        net_profit: cash_collected - r.cost - overhead_cost, // cash actually in vs. everything actually out
+      };
+    })
+  );
+}
+
+// Quarter-over-quarter view of the same event-level numbers — "how is the
+// business progressing" at a coarser grain than month-to-month noise.
+export async function reportQuarterly(request, env) {
   const { results } = await env.DB.prepare(
     `SELECT
-       strftime('%Y-%m', e.event_date) AS month,
+       strftime('%Y', e.event_date) || '-Q' || ((CAST(strftime('%m', e.event_date) AS INTEGER) + 2) / 3) AS quarter,
        COUNT(*) AS events,
        SUM(e.quote_total) AS revenue,
        SUM(COALESCE((SELECT SUM(cost) FROM event_staff_links WHERE event_id = e.id), 0)
          + COALESCE((SELECT SUM(cost) FROM event_vendors WHERE event_id = e.id), 0)
          + COALESCE((SELECT SUM(amount) FROM expenses WHERE event_id = e.id), 0)) AS cost
      FROM events e
-     WHERE e.event_date >= date('now', '-6 months')
-     GROUP BY month ORDER BY month ASC`
+     WHERE e.event_date >= date('now', '-24 months')
+     GROUP BY quarter ORDER BY quarter ASC`
   ).all();
   return json(results.map((r) => ({ ...r, profit: r.revenue - r.cost })));
+}
+
+// Calendar-month seasonality, collapsed across all years of history — which
+// months of the year (not which specific month) tend to be slow. This is
+// the "when should we run a promotion" view; the promotions log (below)
+// is where you record what you actually ran and what it produced.
+export async function reportSeasonality(request, env) {
+  const { results } = await env.DB.prepare(
+    `SELECT strftime('%m', event_date) AS month_num, COUNT(*) AS events, COALESCE(SUM(quote_total),0) AS revenue
+     FROM events WHERE event_date IS NOT NULL GROUP BY month_num ORDER BY month_num ASC`
+  ).all();
+  return json(results);
+}
+
+// ── Financials: monthly running cost, broken out by category ─────────
+export async function listMonthlyCosts(request, env) {
+  const params = new URL(request.url).searchParams;
+  const month = params.get("month"); // optional 'YYYY-MM' filter
+  const clauses = [];
+  const binds = [];
+  if (month) { clauses.push("month = ?"); binds.push(month); }
+  const where = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
+  const { results } = await env.DB.prepare(`SELECT * FROM monthly_costs ${where} ORDER BY month DESC, category ASC`)
+    .bind(...binds).all();
+  return json(results);
+}
+
+// One row per (month, category) — re-saving the same month+category updates
+// the existing figure instead of creating a duplicate, so correcting last
+// month's rent entry doesn't double it in the P&L.
+export async function setMonthlyCost(request, env) {
+  const body = await request.json().catch(() => null);
+  if (!body || !body.month || !body.category || body.amount === undefined) {
+    return badRequest("month (YYYY-MM), category, and amount are required");
+  }
+  await env.DB.prepare(
+    `INSERT INTO monthly_costs (month, category, amount, note) VALUES (?, ?, ?, ?)
+     ON CONFLICT(month, category) DO UPDATE SET amount = excluded.amount, note = excluded.note`
+  ).bind(body.month, body.category, Number(body.amount), body.note || null).run();
+  return json({ ok: true }, { status: 201 });
+}
+
+export async function deleteMonthlyCost(request, env, costId) {
+  await env.DB.prepare(`DELETE FROM monthly_costs WHERE id = ?`).bind(costId).run();
+  return json({ ok: true });
+}
+
+// ── Promotions log — a plain record of what ran and what it produced, not
+// an ad-attribution engine. reportSeasonality tells you WHEN to run one;
+// this is where you record that you did and whether it worked.
+export async function listPromotions(request, env) {
+  const { results } = await env.DB.prepare(`SELECT * FROM promotions ORDER BY start_date DESC, id DESC`).all();
+  return json(results);
+}
+
+export async function createPromotion(request, env) {
+  const body = await request.json().catch(() => null);
+  if (!body || !body.name) return badRequest("name is required");
+  const result = await env.DB.prepare(
+    `INSERT INTO promotions (name, channel, start_date, end_date, cost) VALUES (?, ?, ?, ?, ?)`
+  ).bind(body.name, body.channel || null, body.start_date || null, body.end_date || null, body.cost ? Number(body.cost) : 0).run();
+  return json({ ok: true, id: result.meta.last_row_id }, { status: 201 });
+}
+
+// Covers both editing the setup fields and recording the outcome later —
+// the outcome is only known after the promotion has run.
+export async function updatePromotion(request, env, promoId) {
+  const body = await request.json().catch(() => null);
+  if (!body) return badRequest("no fields given");
+  const p = await env.DB.prepare(`SELECT * FROM promotions WHERE id = ?`).bind(promoId).first();
+  if (!p) return notFound("promotion not found");
+  const name = body.name ?? p.name;
+  const channel = body.channel !== undefined ? body.channel || null : p.channel;
+  const start_date = body.start_date !== undefined ? body.start_date || null : p.start_date;
+  const end_date = body.end_date !== undefined ? body.end_date || null : p.end_date;
+  const cost = body.cost !== undefined ? Number(body.cost) : p.cost;
+  const leads_generated = body.leads_generated !== undefined ? Number(body.leads_generated) : p.leads_generated;
+  const bookings_generated = body.bookings_generated !== undefined ? Number(body.bookings_generated) : p.bookings_generated;
+  const outcome_notes = body.outcome_notes !== undefined ? body.outcome_notes || null : p.outcome_notes;
+  await env.DB.prepare(
+    `UPDATE promotions SET name=?, channel=?, start_date=?, end_date=?, cost=?, leads_generated=?, bookings_generated=?, outcome_notes=? WHERE id=?`
+  ).bind(name, channel, start_date, end_date, cost, leads_generated, bookings_generated, outcome_notes, promoId).run();
+  return json({ ok: true });
+}
+
+export async function deletePromotion(request, env, promoId) {
+  await env.DB.prepare(`DELETE FROM promotions WHERE id = ?`).bind(promoId).run();
+  return json({ ok: true });
+}
+
+// ── Settings — the handful of business-level values staff edit from the
+// admin UI (currently just the Google review link). Not deploy config —
+// see wrangler.jsonc/README for why that's a different, secret-managed path.
+export async function getSettings(request, env) {
+  const { results } = await env.DB.prepare(`SELECT key, value FROM settings`).all();
+  return json(Object.fromEntries(results.map((r) => [r.key, r.value])));
+}
+
+export async function updateSetting(request, env) {
+  const body = await request.json().catch(() => null);
+  if (!body || !body.key) return badRequest("key is required");
+  await env.DB.prepare(
+    `INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`
+  ).bind(body.key, body.value ?? "").run();
+  return json({ ok: true });
+}
+
+// ── Feedback — sentiment-gated: positive responses route to your Google
+// review link client-side and are never stored (see the public feedback
+// route); only negative feedback needs an internal record to act on.
+export async function getFeedbackLink(request, env, id) {
+  const event = await env.DB.prepare(`SELECT id, feedback_token FROM events WHERE id = ?`).bind(id).first();
+  if (!event) return notFound("event not found");
+  let token = event.feedback_token;
+  if (!token) {
+    token = makeToken();
+    await env.DB.prepare(`UPDATE events SET feedback_token = ? WHERE id = ?`).bind(token, id).run();
+  }
+  const url = new URL(request.url);
+  return json({ ok: true, token, url: `${url.origin}/feedback/${token}` });
+}
+
+export async function listFeedback(request, env) {
+  const params = new URL(request.url).searchParams;
+  const status = params.get("status"); // optional filter, e.g. "Open"
+  const clauses = ["f.sentiment = 'Negative'"]; // the action queue is inherently negative-only
+  const binds = [];
+  if (status) { clauses.push("f.status = ?"); binds.push(status); }
+  const { results } = await env.DB.prepare(
+    `SELECT f.*, e.type AS event_type, e.event_date, a.name AS account_name
+     FROM feedback f JOIN events e ON e.id = f.event_id JOIN accounts a ON a.id = f.account_id
+     WHERE ${clauses.join(" AND ")} ORDER BY f.created_at DESC`
+  ).bind(...binds).all();
+  return json(results);
+}
+
+export async function updateFeedback(request, env, feedbackId) {
+  const body = await request.json().catch(() => null);
+  if (!body) return badRequest("no fields given");
+  const f = await env.DB.prepare(`SELECT * FROM feedback WHERE id = ?`).bind(feedbackId).first();
+  if (!f) return notFound("feedback not found");
+  const status = body.status ?? f.status;
+  const action_taken = body.action_taken !== undefined ? body.action_taken || null : f.action_taken;
+  await env.DB.prepare(`UPDATE feedback SET status = ?, action_taken = ? WHERE id = ?`)
+    .bind(status, action_taken, feedbackId).run();
+  return json({ ok: true });
 }

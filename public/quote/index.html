@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Paperclip Studios — Your Quote</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --ink:#211A12; --ink-soft:#7A6C58; --ink-faint:#A79A85;
+    --paper:#FAF6EF; --card:#FFFFFF; --line:#E6DCC7;
+    --accent:#9C6B2E; --accent-deep:#6E4A1E; --accent-soft:#F3E7D2;
+    --success:#3F7D5C; --success-soft:#E6F1EA;
+    --warning:#B4791E; --warning-soft:#FBF0DE;
+    --critical:#B5432E;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--paper);color:var(--ink);font-family:'Inter',-apple-system,'Segoe UI',sans-serif;line-height:1.5;-webkit-font-smoothing:antialiased;}
+  .wrap{max-width:560px;margin:0 auto;padding:36px 18px 70px;}
+  .brandmark{font-family:'Fraunces',serif;font-weight:600;font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--accent-deep);margin:0 0 14px;}
+  h1{font-family:'Fraunces',serif;font-weight:600;font-size:24px;margin:0 0 3px;letter-spacing:-.01em;}
+  .sub{color:var(--ink-soft);font-size:13.5px;margin-bottom:22px;}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:20px;margin-bottom:16px;box-shadow:0 1px 2px rgba(33,26,18,0.04);}
+  .card h2{font-size:12.5px;text-transform:uppercase;letter-spacing:.04em;color:var(--ink-soft);margin:0 0 12px;}
+  .item-row{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:10px 0;border-bottom:1px dashed var(--line);font-size:14px;}
+  .item-row:last-child{border-bottom:none;}
+  .item-row.addon{cursor:pointer;}
+  .item-price{font-variant-numeric:tabular-nums;font-weight:600;white-space:nowrap;}
+  .toggle{width:38px;height:22px;border-radius:99px;background:var(--line);position:relative;flex:0 0 auto;transition:background .15s;}
+  .toggle.on{background:var(--success);}
+  .toggle::after{content:'';position:absolute;top:2px;left:2px;width:18px;height:18px;border-radius:50%;background:#fff;transition:transform .15s;box-shadow:0 1px 2px rgba(0,0,0,.2);}
+  .toggle.on::after{transform:translateX(16px);}
+  .included-tag{font-size:10.5px;font-weight:700;color:var(--ink-faint);text-transform:uppercase;letter-spacing:.03em;}
+  .summary-row{display:flex;justify-content:space-between;padding:6px 0;font-size:14px;}
+  .summary-row.total{font-size:17px;font-weight:700;color:var(--accent-deep);border-top:1px solid var(--line);margin-top:8px;padding-top:12px;}
+  .summary-row.concession{color:var(--success);}
+  .note{font-size:12.5px;color:var(--ink-soft);margin-top:4px;}
+  .error-screen{padding:60px 20px;text-align:center;color:var(--ink-soft);}
+  .valid-banner{background:var(--warning-soft);color:var(--warning);border-radius:9px;padding:9px 13px;font-size:12.5px;font-weight:600;margin-bottom:16px;}
+</style>
+</head>
+<body>
+<div class="wrap" id="app"><div class="brandmark">Paperclip Studios</div>Loading…</div>
+<script>
+  const token = location.pathname.split("/")[2];
+  let data = null;
+
+  function money(n) { return `₹${(n || 0).toLocaleString("en-IN")}`; }
+
+  async function load() {
+    const res = await fetch(`/api/quote/${token}`);
+    if (!res.ok) {
+      document.getElementById("app").innerHTML =
+        `<div class="error-screen"><div class="brandmark">Paperclip Studios</div><h1>Quote not found</h1><p>This link may have expired or been mistyped. Please check with the studio for a fresh link.</p></div>`;
+      return;
+    }
+    data = await res.json();
+    render();
+  }
+
+  function render() {
+    const base = data.items.filter(i => !i.is_addon);
+    const addons = data.items.filter(i => i.is_addon);
+    document.getElementById("app").innerHTML = `
+      <div class="brandmark">Paperclip Studios</div>
+      <h1>Your quote</h1>
+      <div class="sub">${data.lead_name || ""} — ${data.event_type || "your event"}${data.tier_name ? ` · ${data.tier_name}` : ""}</div>
+      ${data.valid_until ? `<div class="valid-banner">Valid until ${data.valid_until}</div>` : ""}
+
+      <div class="card">
+        <h2>What's included</h2>
+        ${base.map(i => `<div class="item-row"><span>${i.label}</span><span class="item-price">${money(i.price)}</span></div>`).join("") || `<div class="note">Nothing added yet.</div>`}
+      </div>
+
+      ${addons.length ? `<div class="card">
+        <h2>Optional add-ons — tap to include or remove</h2>
+        ${addons.map(i => `
+          <div class="item-row addon" data-item="${i.id}" data-selected="${i.selected ? 1 : 0}">
+            <span>${i.label}</span>
+            <span style="display:flex;align-items:center;gap:10px;">
+              <span class="item-price">${money(i.price)}</span>
+              <span class="toggle ${i.selected ? "on" : ""}"></span>
+            </span>
+          </div>
+        `).join("")}
+      </div>` : ""}
+
+      <div class="card">
+        <h2>Summary</h2>
+        <div class="summary-row"><span>Subtotal</span><span class="item-price">${money(data.subtotal)}</span></div>
+        ${data.concession_amount > 0 ? `<div class="summary-row concession"><span>Special discount${data.concession_note ? ` — ${data.concession_note}` : ""}</span><span class="item-price">−${money(data.concession_amount)}</span></div>` : ""}
+        <div class="summary-row total"><span>Total</span><span>${money(data.total)}</span></div>
+      </div>
+      <p class="note">Have questions or want to adjust something? Reply to the message this link came with — our team will take it from there.</p>
+    `;
+    document.querySelectorAll(".item-row.addon").forEach(el => {
+      el.addEventListener("click", async () => {
+        const itemId = el.dataset.item;
+        const nowSelected = el.dataset.selected !== "1";
+        el.style.opacity = "0.6";
+        try {
+          const res = await fetch(`/api/quote/${token}/toggle`, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ item_id: Number(itemId), selected: nowSelected }),
+          });
+          if (!res.ok) throw new Error();
+          const item = data.items.find(i => i.id === Number(itemId));
+          item.selected = nowSelected;
+          data.subtotal = data.items.filter(i => i.selected).reduce((s, i) => s + i.price, 0);
+          data.total = Math.max(0, Math.round(data.subtotal * (data.multiplier || 1)) - (data.concession_amount || 0));
+          render();
+        } catch {
+          el.style.opacity = "1";
+        }
+      });
+    });
+  }
+
+  load();
+</script>
+</body>
+</html>
