@@ -17,6 +17,8 @@ const ADMIN_ROUTES = [
   ["GET", /^\/api\/admin\/dashboard$/, (req, env) => admin.dashboard(req, env)],
   ["GET", /^\/api\/admin\/leads$/, (req, env) => admin.listLeads(req, env)],
   ["POST", /^\/api\/admin\/leads$/, (req, env, staff) => admin.createLeadManual(req, env, staff)],
+  ["GET", /^\/api\/admin\/leads\/export\.csv$/, (req, env) => admin.exportLeadsCsv(req, env)],
+  ["POST", /^\/api\/admin\/leads\/import$/, (req, env) => admin.importLeadsCsv(req, env)],
   ["GET", /^\/api\/admin\/leads\/(\d+)$/, (req, env, staff, [id]) => admin.getLead(req, env, id)],
   ["POST", /^\/api\/admin\/leads\/(\d+)\/details$/, (req, env, staff, [id]) => admin.updateLeadDetails(req, env, id)],
   ["POST", /^\/api\/admin\/leads\/(\d+)\/stage$/, (req, env, staff, [id]) => admin.updateLeadStage(req, env, id, staff)],
@@ -35,6 +37,8 @@ const ADMIN_ROUTES = [
   ["POST", /^\/api\/admin\/quote-items\/(\d+)\/delete$/, (req, env, staff, [id]) => admin.removeQuoteItem(req, env, id)],
 
   ["GET", /^\/api\/admin\/accounts$/, (req, env) => admin.listAccounts(req, env)],
+  ["GET", /^\/api\/admin\/accounts\/export\.csv$/, (req, env) => admin.exportAccountsCsv(req, env)],
+  ["POST", /^\/api\/admin\/accounts\/import$/, (req, env) => admin.importAccountsCsv(req, env)],
   ["GET", /^\/api\/admin\/accounts\/(\d+)$/, (req, env, staff, [id]) => admin.getAccount360(req, env, id)],
   ["POST", /^\/api\/admin\/accounts\/(\d+)\/details$/, (req, env, staff, [id]) => admin.updateAccountDetails(req, env, id)],
   ["POST", /^\/api\/admin\/accounts\/(\d+)\/contacts$/, (req, env, staff, [id]) => admin.addContact(req, env, id)],

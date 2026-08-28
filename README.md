@@ -475,6 +475,38 @@ passive view tracking. If you want the customer to be able to formally
 accept a quote (as opposed to you calling them once engagement looks high),
 that's a follow-up ask, not an oversight.
 
+## CSV import/export — Leads and Accounts (added after go-live)
+
+Both list views now have Export CSV / Import CSV in the page header.
+
+Export is a plain link (`GET /api/admin/leads/export.csv`,
+`GET /api/admin/accounts/export.csv`) — the browser just downloads it, same
+session cookie as everything else in `/admin`. Every column on the table
+comes out, in a format Excel and Google Sheets both open without an
+encoding prompt. This is also the intended path for archiving old data
+into Google Sheets once volume grows — see the note on D1 limits below;
+a live Sheets-sync integration was deliberately not built, because at this
+business's actual data volume it would be solving a problem that doesn't
+exist yet, and OAuth + API quota management for a once-a-year drag-and-drop
+isn't a good trade.
+
+Import (`POST /api/admin/leads/import`, `POST /api/admin/accounts/import`)
+reads the uploaded file client-side and posts the raw CSV text as JSON —
+no multipart handling needed. Header row required; recognized columns are
+matched case-insensitively (shown in the import dialog itself). Dedup rule,
+same on both: a row whose phone matches an existing record is **skipped**,
+never merged or overwritten — an importer adds what's missing, it does not
+silently clobber a lead or customer someone's already working. Re-running
+the same file is always safe. The response reports created count and,
+for anything skipped, the exact row number and reason — surfaced as a
+toast plus an alert listing the first 5 (with a "…and N more" tail) so a
+bad import is never a silent no-op.
+
+Known boundary: account import creates the account row only — it does not
+auto-create a contact (bride/groom/etc.). This is a bulk-migration tool for
+getting old records in, not a full onboarding flow; add contacts from the
+account page after import if the source data has them.
+
 ## Local development (optional)
 
 Not required — everything ships through GitHub Actions. If you want to run

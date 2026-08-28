@@ -66,8 +66,8 @@
   button, .btn{background:var(--accent);color:#fff;border:none;border-radius:var(--radius-sm);padding:9px 15px;font-size:13px;font-weight:700;cursor:pointer;transition:transform .08s, background .15s;font-family:inherit;}
   button:active{transform:scale(.97);}
   button:hover{background:var(--accent-deep);}
-  button.ghost{background:transparent;color:var(--ink);border:1px solid var(--line);}
-  button.ghost:hover{background:var(--paper-dim);}
+  button.ghost, .ghost{background:transparent;color:var(--ink);border:1px solid var(--line);}
+  button.ghost:hover, .ghost:hover{background:var(--paper-dim);}
   input,select,textarea{padding:9px 11px;border:1px solid var(--line);border-radius:var(--radius-sm);font-size:14px;background:#fff;color:var(--ink);font-family:inherit;}
   input:focus,select:focus,textarea:focus{outline:2px solid var(--accent);outline-offset:1px;}
   .field{margin-bottom:11px;}
@@ -248,13 +248,65 @@ function setFab(onClick) {
 // the mobile FAB and the desktop header button. Each render*() function
 // puts a `pageHeader(title, actionLabel)` in its markup, then calls
 // setPrimaryAction(handler) once — no per-view breakpoint logic needed.
-function pageHeader(titleHtml, actionLabel) {
-  return `<div class="page-head"><h1>${titleHtml}</h1>${actionLabel ? `<button type="button" class="btn primary-action" id="primaryActionBtn">${actionLabel}</button>` : ""}</div>`;
+function pageHeader(titleHtml, actionLabel, extraHtml) {
+  return `<div class="page-head"><h1>${titleHtml}</h1><div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">${extraHtml || ""}${actionLabel ? `<button type="button" class="btn primary-action" id="primaryActionBtn">${actionLabel}</button>` : ""}</div></div>`;
 }
 function setPrimaryAction(onClick) {
   setFab(onClick);
   const btn = document.getElementById("primaryActionBtn");
   if (btn) btn.onclick = onClick;
+}
+
+// ── CSV export/import toolbar — reused by Leads and Accounts. Export is a
+// plain same-origin link (the session cookie rides along automatically, and
+// the server sets Content-Disposition so the browser just downloads it — no
+// JS/blob dance needed). Import reads the file client-side with FileReader
+// and POSTs the raw text as JSON, since api() only ever sends JSON and a
+// hand-rolled multipart parser server-side isn't worth it for a CSV upload.
+function csvToolbar(exportHref, importPath) {
+  return `<a class="btn ghost" style="text-decoration:none;display:inline-flex;align-items:center;" href="${exportHref}">⬇ Export CSV</a>
+    <button type="button" class="btn ghost" id="csvImportBtn">⬆ Import CSV</button>`;
+}
+function wireCsvImport(importPath, exampleColumns, onDone) {
+  const btn = document.getElementById("csvImportBtn");
+  if (!btn) return;
+  btn.addEventListener("click", () => {
+    openModal("Import CSV", `
+      <form id="csvImportForm">
+        <p style="margin:0 0 12px;color:var(--ink-soft);font-size:13px;">
+          Header row required. Recognized columns: <code>${exampleColumns}</code>.
+          Rows matching an existing phone number are skipped, never overwritten — safe to re-run the same file.
+        </p>
+        <div class="field"><label>CSV file</label><input type="file" name="file" accept=".csv,text/csv" required></div>
+        <button type="submit" style="width:100%;">Import</button>
+      </form>
+    `);
+    document.getElementById("csvImportForm").addEventListener("submit", async e => {
+      e.preventDefault();
+      const fileInput = e.target.querySelector('input[type=file]');
+      const file = fileInput.files[0];
+      if (!file) return;
+      const submitBtn = e.target.querySelector('button[type=submit]');
+      submitBtn.disabled = true;
+      try {
+        const text = await file.text();
+        const result = await api(importPath, { method: "POST", body: JSON.stringify({ csv: text }) });
+        closeModal();
+        if (result.skipped_count > 0) {
+          const reasons = result.skipped.slice(0, 5).map(s => `Row ${s.row}: ${s.reason}`).join("\n");
+          const more = result.skipped_count > 5 ? `\n…and ${result.skipped_count - 5} more.` : "";
+          toast(`Imported ${result.created}, skipped ${result.skipped_count}`, result.created === 0);
+          if (result.skipped_count > 0) setTimeout(() => alert(`Skipped ${result.skipped_count} row(s):\n\n${reasons}${more}`), 300);
+        } else {
+          toast(`Imported ${result.created} row(s)`);
+        }
+        onDone();
+      } catch (err) {
+        toast(err.message, true);
+        submitBtn.disabled = false;
+      }
+    });
+  });
 }
 
 const main = document.getElementById("main");
@@ -384,13 +436,14 @@ async function renderLeads() {
   }).toString() : "";
   const leads = await api(`/leads${qs ? "?" + qs : ""}`);
   main.innerHTML = `
-    ${pageHeader("Leads", "+ New lead")}
+    ${pageHeader("Leads", "+ New lead", csvToolbar("/api/admin/leads/export.csv", "/leads/import"))}
     ${f ? `<div class="filter-chip">${f.label} <span data-clear>✕</span></div>` : ""}
     <div class="card"><h2>${f ? f.label : "All leads"} (${leads.length})</h2>
       <table><thead><tr><th>Name</th><th>Source</th><th>Stage</th><th>Follow-up</th><th>Budget</th><th></th></tr></thead>
       <tbody>${leads.map(l => `<tr class="clickable" data-lead="${l.id}"><td>${l.name}</td><td><span class="pill">${l.source}</span></td><td>${l.stage}</td><td>${followUpCell(l)}</td><td>${money(l.budget_est)}</td><td class="row-actions"><button type="button" class="icon-btn edit" data-edit-lead="${l.id}" title="Edit">✎</button><button type="button" class="icon-btn del" data-del-lead="${l.id}" title="Delete">✕</button></td></tr>`).join("") || `<tr><td colspan="6" class="empty">No leads match this filter.</td></tr>`}</tbody></table>
     </div>
   `;
+  wireCsvImport("/leads/import", "name*, phone*, email, source, event_type, event_date, budget_est, referred_by, message", () => renderLeads());
   main.querySelectorAll("[data-lead]").forEach(el => el.addEventListener("click", () => go("leadDetail", el.dataset.lead)));
   const clear = main.querySelector("[data-clear]");
   if (clear) clear.addEventListener("click", () => go("leads"));
@@ -670,10 +723,13 @@ async function renderQuoteDetail(id) {
 // ── Accounts ───────────────────────────────────────────────
 async function renderAccounts() {
   const accts = await api("/accounts");
-  main.innerHTML = `<h1>Customers / Accounts</h1><div class="card">
+  main.innerHTML = `
+    ${pageHeader("Customers / Accounts", null, csvToolbar("/api/admin/accounts/export.csv", "/accounts/import"))}
+    <div class="card">
     <table><thead><tr><th>Name</th><th>Phone</th><th>Client since</th><th></th></tr></thead>
     <tbody>${accts.map(a => `<tr class="clickable" data-acct="${a.id}"><td>${a.name}${a.is_signature ? ' <span class="pill" style="background:var(--warning-soft);color:var(--warning)">Signature</span>' : ""}</td><td>${a.phone||"—"}</td><td>${a.client_since}</td><td class="row-actions"><button type="button" class="icon-btn edit" data-edit-acct="${a.id}" title="Edit">✎</button><button type="button" class="icon-btn del" data-del-acct="${a.id}" title="Delete">✕</button></td></tr>`).join("") || `<tr><td colspan="4" class="empty">No customers yet — convert a lead first.</td></tr>`}</tbody></table>
   </div>`;
+  wireCsvImport("/accounts/import", "name*, phone, email, address, notes, is_signature", () => renderAccounts());
   main.querySelectorAll("[data-acct]").forEach(el => el.addEventListener("click", () => go("accountDetail", el.dataset.acct)));
   main.querySelectorAll("[data-edit-acct]").forEach(el => el.addEventListener("click", e => {
     e.stopPropagation();

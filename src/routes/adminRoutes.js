@@ -1,7 +1,7 @@
 // Everything behind Cloudflare Access. All of it assumes requireStaff()
 // already ran in index.js and returned non-null.
 
-import { json, badRequest, notFound, makeToken } from "../lib/util.js";
+import { json, badRequest, notFound, makeToken, normalizePhone, toCSV, parseCSV } from "../lib/util.js";
 
 // ── Dashboard ────────────────────────────────────────────────────────
 export async function dashboard(request, env) {
@@ -99,6 +99,91 @@ export async function createLeadManual(request, env, staff) {
   await env.DB.prepare(`INSERT INTO lead_status_history (lead_id, to_stage, changed_by) VALUES (?, 'New', ?)`)
     .bind(id, staff.email).run();
   return json({ ok: true, id }, { status: 201 });
+}
+
+const LEAD_CSV_COLUMNS = [
+  { key: "id", label: "ID" },
+  { key: "name", label: "Name" },
+  { key: "phone", label: "Phone" },
+  { key: "email", label: "Email" },
+  { key: "source", label: "Source" },
+  { key: "event_type", label: "Event Type" },
+  { key: "event_date", label: "Event Date" },
+  { key: "budget_est", label: "Budget Est" },
+  { key: "stage", label: "Stage" },
+  { key: "next_follow_up_date", label: "Follow-up Date" },
+  { key: "referred_by", label: "Referred By" },
+  { key: "message", label: "Message" },
+  { key: "lost_reason", label: "Lost/Cancelled Reason" },
+  { key: "created_at", label: "Created At" },
+  { key: "updated_at", label: "Updated At" },
+];
+
+export async function exportLeadsCsv(request, env) {
+  const { results } = await env.DB.prepare(`SELECT * FROM leads ORDER BY created_at DESC`).all();
+  const csv = toCSV(results, LEAD_CSV_COLUMNS);
+  return new Response(csv, {
+    headers: {
+      "content-type": "text/csv; charset=utf-8",
+      "content-disposition": `attachment; filename="leads-${new Date().toISOString().slice(0, 10)}.csv"`,
+    },
+  });
+}
+
+// Import format: a CSV with a header row, columns matched case-insensitively
+// (spaces or underscores both work — "Event Type" and "event_type" both hit
+// r.event_type below via the lookup chain). Only name and phone are
+// required; everything else is optional and defaults sensibly.
+//
+// Dedup rule: a row whose normalized phone matches a lead already in the
+// database is SKIPPED, never merged or overwritten. An importer's job is to
+// add what's missing, not to silently clobber a lead someone's mid-follow-up
+// on — that's what the "duplicate" skip reason in the response is for. Rows
+// are also deduped against each other within the same file. Re-running the
+// same file twice is safe: the second run skips everything as duplicates.
+export async function importLeadsCsv(request, env) {
+  const body = await request.json().catch(() => null);
+  if (!body || !body.csv) return badRequest("csv text is required");
+  const { rows } = parseCSV(body.csv);
+  if (!rows.length) return badRequest("no data rows found in the CSV");
+
+  const existing = await env.DB.prepare(`SELECT phone_normalized FROM leads`).all();
+  const seenPhones = new Set(existing.results.map((r) => r.phone_normalized));
+
+  const field = (r, ...names) => {
+    for (const n of names) { const v = r[n]; if (v) return v; }
+    return "";
+  };
+
+  let created = 0;
+  const skipped = [];
+  for (let i = 0; i < rows.length; i++) {
+    const r = rows[i];
+    const rowNum = i + 2; // header is row 1, so the first data row is row 2
+    const name = field(r, "name", "lead name", "full name");
+    const phone = field(r, "phone", "phone number", "mobile");
+    if (!name || !phone) { skipped.push({ row: rowNum, reason: "missing name or phone" }); continue; }
+    const phone_normalized = normalizePhone(phone);
+    if (!phone_normalized) { skipped.push({ row: rowNum, reason: "phone has no usable digits" }); continue; }
+    if (seenPhones.has(phone_normalized)) { skipped.push({ row: rowNum, reason: `duplicate — phone already on file (${name})` }); continue; }
+
+    const budgetRaw = field(r, "budget_est", "budget est", "budget");
+    await env.DB.prepare(
+      `INSERT INTO leads (name, phone, phone_normalized, email, source, event_type, event_date, budget_est, referred_by, message, stage)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'New')`
+    ).bind(
+      name, phone, phone_normalized, field(r, "email") || null,
+      field(r, "source") || "Manual",
+      field(r, "event_type", "event type") || null,
+      field(r, "event_date", "event date") || null,
+      budgetRaw ? Number(budgetRaw) : null,
+      field(r, "referred_by", "referred by") || null,
+      field(r, "message", "notes") || null
+    ).run();
+    seenPhones.add(phone_normalized);
+    created++;
+  }
+  return json({ ok: true, created, skipped_count: skipped.length, skipped });
 }
 
 // Edits the lead's own captured details (name/phone/etc.) — separate from
@@ -370,6 +455,72 @@ export async function removeQuoteItem(request, env, itemId) {
 export async function listAccounts(request, env) {
   const { results } = await env.DB.prepare(`SELECT * FROM accounts ORDER BY client_since DESC`).all();
   return json(results);
+}
+
+const ACCOUNT_CSV_COLUMNS = [
+  { key: "id", label: "ID" },
+  { key: "name", label: "Name" },
+  { key: "phone", label: "Phone" },
+  { key: "email", label: "Email" },
+  { key: "address", label: "Address" },
+  { key: "client_since", label: "Client Since" },
+  { key: "is_signature", label: "Signature Client" },
+  { key: "notes", label: "Notes" },
+];
+
+export async function exportAccountsCsv(request, env) {
+  const { results } = await env.DB.prepare(`SELECT * FROM accounts ORDER BY client_since DESC`).all();
+  const csv = toCSV(results, ACCOUNT_CSV_COLUMNS);
+  return new Response(csv, {
+    headers: {
+      "content-type": "text/csv; charset=utf-8",
+      "content-disposition": `attachment; filename="accounts-${new Date().toISOString().slice(0, 10)}.csv"`,
+    },
+  });
+}
+
+// Same shape and dedup philosophy as importLeadsCsv above — skip, never
+// overwrite. Only name is required (unlike leads, an account migrated from
+// an old spreadsheet may genuinely have no phone on file). This creates the
+// account row only — it does NOT auto-create a contact (bride/groom/etc.);
+// add those from the account page after import if the source data has them,
+// since a CSV import is a bulk-migration tool, not a full onboarding flow.
+export async function importAccountsCsv(request, env) {
+  const body = await request.json().catch(() => null);
+  if (!body || !body.csv) return badRequest("csv text is required");
+  const { rows } = parseCSV(body.csv);
+  if (!rows.length) return badRequest("no data rows found in the CSV");
+
+  const existing = await env.DB.prepare(`SELECT phone FROM accounts WHERE phone IS NOT NULL AND phone != ''`).all();
+  const seenPhones = new Set(existing.results.map((r) => normalizePhone(r.phone)).filter(Boolean));
+
+  const field = (r, ...names) => {
+    for (const n of names) { const v = r[n]; if (v) return v; }
+    return "";
+  };
+
+  let created = 0;
+  const skipped = [];
+  for (let i = 0; i < rows.length; i++) {
+    const r = rows[i];
+    const rowNum = i + 2;
+    const name = field(r, "name", "full name", "customer name");
+    if (!name) { skipped.push({ row: rowNum, reason: "missing name" }); continue; }
+    const phone = field(r, "phone", "phone number", "mobile");
+    const normalized = phone ? normalizePhone(phone) : "";
+    if (normalized && seenPhones.has(normalized)) { skipped.push({ row: rowNum, reason: `duplicate — phone already on file (${name})` }); continue; }
+
+    await env.DB.prepare(
+      `INSERT INTO accounts (name, phone, email, address, notes, is_signature) VALUES (?, ?, ?, ?, ?, ?)`
+    ).bind(
+      name, phone || null, field(r, "email") || null, field(r, "address") || null,
+      field(r, "notes") || null,
+      /^(1|true|yes)$/i.test(field(r, "is_signature", "signature")) ? 1 : 0
+    ).run();
+    if (normalized) seenPhones.add(normalized);
+    created++;
+  }
+  return json({ ok: true, created, skipped_count: skipped.length, skipped });
 }
 
 export async function getAccount360(request, env, id) {
