@@ -507,6 +507,44 @@ auto-create a contact (bride/groom/etc.). This is a bulk-migration tool for
 getting old records in, not a full onboarding flow; add contacts from the
 account page after import if the source data has them.
 
+## Two-way quote conversation, and a full visual re-skin (added after go-live)
+
+Migration `0006_quote_comments.sql`.
+
+**Quote conversation.** The public quote page's old closing line — "reply
+to the message this link came with" — assumed the customer had a WhatsApp
+or email thread to reply into, which wasn't always true and put the burden
+on them to find it. `quote_comments` replaces it with an actual thread on
+the quote itself: one flat table, both directions (`author` = `customer` |
+`studio`), not a support-ticket system — a customer can ask "can you add a
+second videographer?" straight from `/quote/<token>` and staff reply from
+the quote's new Conversation card in `/admin`. A customer message also logs
+a `lead_activities` row (`Quote comment`), so it surfaces on the lead's
+timeline without anyone having to remember to check every open quote for
+new messages; a staff reply does not log an activity (it would just be
+notifying yourself of your own reply). Message length capped at 2,000
+characters, no attachments — this is for "can you change X", not a document
+exchange. Because this is the first public/anonymous-authored free text
+rendered inside the authenticated `/admin` UI, added an `escapeHtml()` pass
+specifically for this surface — nothing else in the app takes untrusted
+input into a page only staff see.
+
+**Visual re-skin.** The Fraunces/Inter pairing across `/admin`, `/quote`,
+`/portal`, and `/feedback` is replaced with Instrument Serif (headings,
+brandmarks, KPI figures — Fraunces was dropped for being a visibly overused
+"AI dashboard" default) paired with IBM Plex Sans for body/data, with
+`font-variant-numeric: tabular-nums` wherever digits line up in a column.
+No new color palette — the existing warm ink/brass/terracotta/sage tokens
+were already doing the job; the change was extending them, not replacing
+them. The Dashboard's four KPI cards are now colored tiles keyed to the
+same semantic tokens used everywhere else (`--accent` new leads,
+`--warning` today's follow-ups, `--critical` overdue, `--success` balance
+due), each with a small icon, and a "New leads by source (7d)" donut chart
+(pure SVG, no charting library) replaces the old plain number for that
+stat. Every `/admin` nav item got a matching line icon. This pass touched
+CSS tokens and markup, not data or routes — no migration needed for the
+re-skin itself beyond the comments table above.
+
 ## Local development (optional)
 
 Not required — everything ships through GitHub Actions. If you want to run

@@ -387,8 +387,24 @@ export async function getQuote(request, env, quoteId) {
   if (!quote) return notFound("quote not found");
   const lead = await env.DB.prepare(`SELECT name, event_type FROM leads WHERE id = ?`).bind(quote.lead_id).first();
   const { results: views } = await env.DB.prepare(`SELECT viewed_at FROM quote_views WHERE quote_id = ? ORDER BY viewed_at DESC LIMIT 20`).bind(quoteId).all();
+  const { results: comments } = await env.DB.prepare(`SELECT author, author_name, message, created_at FROM quote_comments WHERE quote_id = ? ORDER BY created_at ASC`).bind(quoteId).all();
   const url = new URL(request.url);
-  return json({ ...quote, lead_name: lead?.name, event_type: lead?.event_type, items, subtotal, total, view_log: views, public_url: `${url.origin}/quote/${quote.token}` });
+  return json({ ...quote, lead_name: lead?.name, event_type: lead?.event_type, items, subtotal, total, view_log: views, comments, public_url: `${url.origin}/quote/${quote.token}` });
+}
+
+// Staff reply on the quote's comment thread — visible to the customer next
+// time they open the quote link. Not logged as a lead activity: the
+// customer's message already is, and the studio doesn't need to notify
+// itself of its own reply.
+export async function addStaffQuoteComment(request, env, quoteId, staff) {
+  const body = await request.json().catch(() => null);
+  const message = (body?.message || "").trim();
+  if (!message) return badRequest("message is required");
+  const quote = await env.DB.prepare(`SELECT id FROM lead_quotes WHERE id = ?`).bind(quoteId).first();
+  if (!quote) return notFound("quote not found");
+  await env.DB.prepare(`INSERT INTO quote_comments (quote_id, author, author_name, message) VALUES (?, 'studio', ?, ?)`)
+    .bind(quoteId, staff.email, message).run();
+  return json({ ok: true }, { status: 201 });
 }
 
 export async function updateQuote(request, env, quoteId) {

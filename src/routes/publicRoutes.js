@@ -130,6 +130,9 @@ export async function getQuoteContext(request, env, token) {
   const { results: items } = await env.DB.prepare(`SELECT id, label, price, is_addon, selected FROM quote_items WHERE quote_id = ?`).bind(quote.id).all();
   const subtotal = items.filter((i) => i.selected).reduce((s, i) => s + i.price, 0);
   const total = Math.max(0, Math.round(subtotal * (quote.multiplier || 1)) - (quote.concession_amount || 0));
+  const { results: comments } = await env.DB.prepare(
+    `SELECT author, message, created_at FROM quote_comments WHERE quote_id = ? ORDER BY created_at ASC`
+  ).bind(quote.id).all();
 
   return json({
     lead_name: quote.lead_name,
@@ -142,7 +145,29 @@ export async function getQuoteContext(request, env, token) {
     items,
     subtotal,
     total,
+    comments,
   });
+}
+
+// A customer message from the public quote page — "can you add a second
+// videographer?", "do you have a package with more hours?". Stored on the
+// thread AND logged as a lead activity, since a message sitting unread in a
+// quote nobody's looking at is worse than not having the feature at all.
+export async function addQuoteComment(request, env, token) {
+  const body = await request.json().catch(() => null);
+  const message = (body?.message || "").trim();
+  if (!message) return badRequest("message is required");
+  if (message.length > 2000) return badRequest("message is too long (2000 characters max)");
+  const quote = await env.DB.prepare(`SELECT id, lead_id FROM lead_quotes WHERE token = ?`).bind(token).first();
+  if (!quote) return notFound("invalid or expired quote link");
+
+  await env.DB.batch([
+    env.DB.prepare(`INSERT INTO quote_comments (quote_id, author, message) VALUES (?, 'customer', ?)`)
+      .bind(quote.id, message),
+    env.DB.prepare(`INSERT INTO lead_activities (lead_id, activity_type, description) VALUES (?, 'Quote comment', ?)`)
+      .bind(quote.lead_id, message),
+  ]);
+  return json({ ok: true }, { status: 201 });
 }
 
 // Customer toggling one optional add-on — the only write a customer can

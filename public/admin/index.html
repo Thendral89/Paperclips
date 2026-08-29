@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Paperclip Ops Console</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&display=swap">
 <style>
   /* ── Design tokens — warm, editorial, built for a photography studio ── */
   :root{
@@ -16,10 +17,12 @@
     --radius:12px; --radius-sm:8px;
     --shadow-card:0 1px 2px rgba(33,26,18,0.04), 0 1px 1px rgba(33,26,18,0.03);
     --shadow-sheet:0 -6px 24px rgba(33,26,18,0.14);
+    --font-display:'Instrument Serif',Georgia,serif;
   }
   *{box-sizing:border-box;}
   body{margin:0;background:var(--paper);color:var(--ink);font-family:-apple-system,'Segoe UI',sans-serif;font-size:14.5px;line-height:1.5;-webkit-font-smoothing:antialiased;}
   a{color:inherit;}
+  table{font-variant-numeric:tabular-nums;}
 
   /* ── App shell — left rail on desktop, sticky horizontal scroll on mobile ── */
   .shell{display:grid;grid-template-columns:196px 1fr;min-height:100vh;}
@@ -31,11 +34,18 @@
   .brand{font-weight:800;font-size:17px;margin-bottom:22px;padding:0 7px 12px;letter-spacing:-.01em;color:var(--accent-deep);
     border-bottom:1px solid var(--line);position:relative;z-index:1;}
   .navlink{position:relative;z-index:1;}
-  .navlink{display:block;padding:9px 11px;border-radius:var(--radius-sm);cursor:pointer;color:var(--ink-soft);font-size:13.5px;font-weight:600;margin-bottom:2px;}
+  .navlink{display:flex;align-items:center;gap:10px;padding:9px 11px;border-radius:var(--radius-sm);cursor:pointer;color:var(--ink-soft);font-size:13.5px;font-weight:600;margin-bottom:2px;transition:background .13s,color .13s;}
+  .navlink svg{flex-shrink:0;opacity:.85;}
   .navlink:hover{background:var(--accent-soft);color:var(--ink);}
   .navlink.active{background:var(--accent);color:#fff;}
+  .navlink.active svg{opacity:1;}
   .main{padding:26px 32px 100px;max-width:1040px;}
-  h1{font-size:22px;margin:0 0 16px;letter-spacing:-.01em;}
+  h1{font-family:var(--font-display);font-weight:400;font-size:32px;letter-spacing:.002em;margin:0 0 16px;}
+  .sub-date{color:var(--ink-soft);font-size:13px;margin:-12px 0 18px;}
+
+  @media (max-width:820px){
+    .navlink svg{display:none;}
+  }
 
   @media (max-width:820px){
     .shell{display:block;}
@@ -51,9 +61,17 @@
 
   /* ── Primitives ── */
   .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:20px;}
-  .kpi{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:14px 16px;box-shadow:var(--shadow-card);}
+  .kpi{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:14px 16px;box-shadow:var(--shadow-card);
+       transition:transform .15s cubic-bezier(.2,.8,.2,1),box-shadow .15s;}
   .kpi .l{font-size:11px;color:var(--ink-soft);text-transform:uppercase;letter-spacing:.03em;}
-  .kpi .v{font-size:22px;font-weight:700;margin-top:4px;color:var(--accent-deep);}
+  .kpi .v{font-family:var(--font-display);font-size:28px;font-weight:400;margin-top:2px;color:var(--accent-deep);}
+  .kpi.tile{border:none;padding:16px 18px;}
+  .kpi.tile:hover{transform:translateY(-3px);box-shadow:0 14px 26px -14px rgba(33,26,18,.32);}
+  .kpi.tile .icon{width:32px;height:32px;border-radius:9px;display:flex;align-items:center;justify-content:center;background:rgba(255,255,255,.4);margin-bottom:11px;}
+  .kpi.tile.t-accent{background:var(--accent-soft);} .kpi.tile.t-accent .v{color:var(--accent-deep);} .kpi.tile.t-accent .icon{background:var(--accent);}
+  .kpi.tile.t-warning{background:var(--warning-soft);} .kpi.tile.t-warning .v{color:var(--warning);} .kpi.tile.t-warning .icon{background:var(--warning);}
+  .kpi.tile.t-critical{background:var(--critical-soft);} .kpi.tile.t-critical .v{color:var(--critical);} .kpi.tile.t-critical .icon{background:var(--critical);}
+  .kpi.tile.t-success{background:var(--success-soft);} .kpi.tile.t-success .v{color:var(--success);} .kpi.tile.t-success .icon{background:var(--success);}
   .card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:17px 19px;margin-bottom:16px;box-shadow:var(--shadow-card);}
   .card h2{font-size:12px;text-transform:uppercase;letter-spacing:.04em;color:var(--ink-soft);margin:0 0 13px;display:flex;justify-content:space-between;align-items:center;gap:8px;}
   table{width:100%;border-collapse:collapse;font-size:13px;}
@@ -63,9 +81,9 @@
   tr.clickable{cursor:pointer;}
   tr.clickable:hover{background:var(--accent-soft);}
   .pill{display:inline-block;font-size:10.5px;font-weight:700;padding:2px 9px;border-radius:100px;background:var(--accent-soft);color:var(--accent-deep);}
-  button, .btn{background:var(--accent);color:#fff;border:none;border-radius:var(--radius-sm);padding:9px 15px;font-size:13px;font-weight:700;cursor:pointer;transition:transform .08s, background .15s;font-family:inherit;}
+  button, .btn{background:var(--accent);color:#fff;border:none;border-radius:var(--radius-sm);padding:9px 15px;font-size:13px;font-weight:700;cursor:pointer;transition:transform .1s, background .15s, box-shadow .15s;font-family:inherit;}
   button:active{transform:scale(.97);}
-  button:hover{background:var(--accent-deep);}
+  button:hover{background:var(--accent-deep);transform:translateY(-1px);box-shadow:0 6px 14px -8px rgba(33,26,18,.4);}
   button.ghost, .ghost{background:transparent;color:var(--ink);border:1px solid var(--line);}
   button.ghost:hover, .ghost:hover{background:var(--paper-dim);}
   input,select,textarea{padding:9px 11px;border:1px solid var(--line);border-radius:var(--radius-sm);font-size:14px;background:#fff;color:var(--ink);font-family:inherit;}
@@ -107,6 +125,14 @@
   .status-pill-Viewed,.status-pill-Open{background:var(--warning-soft);color:var(--warning);}
   .status-pill-Accepted,.status-pill-Resolved{background:var(--success-soft);color:var(--success);}
   .status-pill-Rejected,.status-pill-Expired{background:var(--critical-soft);color:var(--critical);}
+
+  /* ── Comment thread (quote detail) ── */
+  .thread{display:flex;flex-direction:column;gap:8px;margin-bottom:12px;max-height:260px;overflow-y:auto;}
+  .bubble{max-width:82%;padding:8px 12px;border-radius:12px;font-size:13px;line-height:1.4;}
+  .bubble.customer{background:var(--paper-dim);align-self:flex-start;border-bottom-left-radius:3px;}
+  .bubble.studio{background:var(--accent-soft);color:var(--accent-deep);align-self:flex-end;border-bottom-right-radius:3px;}
+  .bubble .meta{font-size:10px;color:var(--ink-faint);margin-top:3px;text-transform:none;letter-spacing:0;}
+  .bubble.studio .meta{color:var(--accent-deep);opacity:.7;}
 
   /* ── Progress bars ── */
   .bar{height:6px;background:var(--paper-dim);border-radius:99px;overflow:hidden;margin:5px 0;}
@@ -161,17 +187,17 @@
 <body>
 <div class="shell">
   <aside class="rail">
-    <div class="brand">Paperclip</div>
-    <div class="navlink" data-view="dashboard">Dashboard</div>
-    <div class="navlink" data-view="leads">Leads</div>
-    <div class="navlink" data-view="accounts">Customers / Accounts</div>
-    <div class="navlink" data-view="events">Events</div>
-    <div class="navlink" data-view="packages">Packages</div>
-    <div class="navlink" data-view="vendors">Vendors</div>
-    <div class="navlink" data-view="equipment">Equipment</div>
-    <div class="navlink" data-view="expenses">Expenses</div>
-    <div class="navlink" data-view="financials">Financials</div>
-    <div class="navlink" data-view="reports">Reports</div>
+    <div class="brand" style="font-family:var(--font-display);font-weight:400;font-size:22px;">Paperclip</div>
+    <div class="navlink" data-view="dashboard"><svg width="17" height="17" viewBox="0 0 20 20" fill="none"><rect x="2.5" y="2.5" width="6.5" height="6.5" rx="1.5" stroke="currentColor" stroke-width="1.6"/><rect x="11" y="2.5" width="6.5" height="6.5" rx="1.5" stroke="currentColor" stroke-width="1.6"/><rect x="2.5" y="11" width="6.5" height="6.5" rx="1.5" stroke="currentColor" stroke-width="1.6"/><rect x="11" y="11" width="6.5" height="6.5" rx="1.5" stroke="currentColor" stroke-width="1.6"/></svg>Dashboard</div>
+    <div class="navlink" data-view="leads"><svg width="17" height="17" viewBox="0 0 20 20" fill="none"><path d="M3 3.5h14l-5.2 6.4v5.6l-3.6 1.8v-7.4L3 3.5z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>Leads</div>
+    <div class="navlink" data-view="accounts"><svg width="17" height="17" viewBox="0 0 20 20" fill="none"><circle cx="7" cy="7" r="3" stroke="currentColor" stroke-width="1.6"/><circle cx="14" cy="8.5" r="2.4" stroke="currentColor" stroke-width="1.6"/><path d="M2.2 16.5c.6-3 2.5-4.6 4.8-4.6s4.2 1.6 4.8 4.6M12 16.5c.4-2.1 1.7-3.4 3.4-3.4 1.5 0 2.7.9 3.3 2.6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>Customers / Accounts</div>
+    <div class="navlink" data-view="events"><svg width="17" height="17" viewBox="0 0 20 20" fill="none"><rect x="2.5" y="4" width="15" height="13" rx="2" stroke="currentColor" stroke-width="1.6"/><path d="M2.5 8h15M6.5 2.5v3M13.5 2.5v3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>Events</div>
+    <div class="navlink" data-view="packages"><svg width="17" height="17" viewBox="0 0 20 20" fill="none"><path d="M10 2.5l7 3.8v7.4L10 17.5 3 13.7V6.3L10 2.5z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M3 6.3L10 10l7-3.7M10 10v7.5" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>Packages</div>
+    <div class="navlink" data-view="vendors"><svg width="17" height="17" viewBox="0 0 20 20" fill="none"><path d="M10.8 2.5H4a1.5 1.5 0 00-1.5 1.5v6.8c0 .4.16.78.44 1.06l7.9 7.9a1.5 1.5 0 002.12 0l6.8-6.8a1.5 1.5 0 000-2.12l-7.9-7.9a1.5 1.5 0 00-1.06-.44z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><circle cx="6.8" cy="6.8" r="1.3" stroke="currentColor" stroke-width="1.6"/></svg>Vendors</div>
+    <div class="navlink" data-view="equipment"><svg width="17" height="17" viewBox="0 0 20 20" fill="none"><path d="M2.5 7.2A1.5 1.5 0 014 5.7h2.1l.9-1.6h6l.9 1.6H16A1.5 1.5 0 0117.5 7.2v7.3A1.5 1.5 0 0116 16H4a1.5 1.5 0 01-1.5-1.5V7.2z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><circle cx="10" cy="10.8" r="3.1" stroke="currentColor" stroke-width="1.6"/></svg>Equipment</div>
+    <div class="navlink" data-view="expenses"><svg width="17" height="17" viewBox="0 0 20 20" fill="none"><path d="M5 2.5h10v15l-2-1.3-2 1.3-2-1.3-2 1.3-2-1.3v-15z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M7.2 6.5h5.6M7.2 9.5h5.6M7.2 12.5h3.4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>Expenses</div>
+    <div class="navlink" data-view="financials"><svg width="17" height="17" viewBox="0 0 20 20" fill="none"><path d="M2.5 14.5l5-5.5 3.2 3 6.3-7.5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/><path d="M13.5 4.5h3.5v3.5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>Financials</div>
+    <div class="navlink" data-view="reports"><svg width="17" height="17" viewBox="0 0 20 20" fill="none"><path d="M5 2.5h7l3.5 3.5v11.5H5v-15z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M12 2.5v3.5h3.5" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M7 11h6M7 14h6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>Reports</div>
   </aside>
   <main class="main" id="main">Loading…</main>
 </div>
@@ -357,6 +383,18 @@ async function render() {
   }
 }
 function money(n) { return `₹${(n || 0).toLocaleString("en-IN")}`; }
+// Comment threads (quotes) carry text typed by anonymous public visitors,
+// not just staff — escape before interpolating into innerHTML so a message
+// can't run script in a signed-in staff session.
+function escapeHtml(s) { return String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])); }
+function commentThread(comments) {
+  if (!comments || !comments.length) return '<div class="empty" style="margin-bottom:10px;">No messages yet.</div>';
+  return `<div class="thread">${comments.map(c => `
+    <div class="bubble ${c.author}">
+      ${escapeHtml(c.message)}
+      <div class="meta">${c.author === "studio" ? "You" : "Customer"} · ${c.created_at}</div>
+    </div>`).join("")}</div>`;
+}
 const CLOSED_LEAD_STAGES = ["Booked", "Lost", "Cancelled"];
 function followUpCell(l) {
   if (!l.next_follow_up_date) return '<span class="empty">—</span>';
@@ -388,21 +426,66 @@ function waButton(phone, message, label) {
 }
 
 // ── Dashboard ──────────────────────────────────────────────
+function sourceDonut(leads) {
+  if (!leads.length) return '<div class="empty">No new leads this week.</div>';
+  const palette = ['var(--accent)', 'var(--critical)', 'var(--success)', 'var(--warning)', 'var(--ink-faint)'];
+  const counts = {};
+  leads.forEach(l => { counts[l.source] = (counts[l.source] || 0) + 1; });
+  const entries = Object.entries(counts).sort((a, b) => b[1] - a[1]);
+  const total = leads.length;
+  let cumulative = 0;
+  const circles = entries.map(([source, count], i) => {
+    const pct = (count / total) * 100;
+    const offset = (25 - cumulative).toFixed(2);
+    cumulative += pct;
+    return `<circle cx="21" cy="21" r="15.9" fill="transparent" stroke="${palette[i % palette.length]}" stroke-width="6" stroke-dasharray="${pct.toFixed(2)} ${(100 - pct).toFixed(2)}" stroke-dashoffset="${offset}" transform="rotate(-90 21 21)"></circle>`;
+  }).join("");
+  const legend = entries.map(([source, count], i) => {
+    const pct = Math.round((count / total) * 100);
+    return `<div style="display:flex;align-items:center;gap:8px;font-size:12.5px;"><span style="width:9px;height:9px;border-radius:3px;background:${palette[i % palette.length]};flex-shrink:0;"></span>${source}<span style="color:var(--ink-faint);margin-left:auto;padding-left:14px;">${pct}%</span></div>`;
+  }).join("");
+  return `<div style="display:flex;align-items:center;gap:22px;flex-wrap:wrap;">
+    <svg width="104" height="104" viewBox="0 0 42 42" style="flex-shrink:0;">
+      <circle cx="21" cy="21" r="15.9" fill="transparent" stroke="var(--paper-dim)" stroke-width="6"></circle>
+      ${circles}
+      <text x="21" y="19.5" text-anchor="middle" font-family="Instrument Serif" font-size="8" fill="var(--ink)">${total}</text>
+      <text x="21" y="26" text-anchor="middle" font-size="3.2" fill="var(--ink-faint)">leads</text>
+    </svg>
+    <div style="display:flex;flex-direction:column;gap:7px;">${legend}</div>
+  </div>`;
+}
 async function renderDashboard() {
   const d = await api("/dashboard");
+  const todayStr = new Date().toLocaleDateString("en-IN", { weekday: "long", day: "numeric", month: "long" });
   main.innerHTML = `
     <h1>Dashboard</h1>
+    <div class="sub-date">${todayStr} — here's what needs your attention</div>
     <div class="kpis">
-      <div class="kpi clickable" data-kpi="7d"><div class="l">New leads (7d)</div><div class="v">${d.new_leads_7d.length}</div></div>
-      <div class="kpi clickable" data-kpi="today"><div class="l">Today's follow-ups</div><div class="v">${d.todays_followups.length}</div></div>
-      <div class="kpi clickable" data-kpi="overdue"><div class="l">Overdue</div><div class="v" style="color:var(--critical)">${d.overdue_followups.length}</div></div>
-      <div class="kpi"><div class="l">Customers w/ balance due</div><div class="v">${d.pending_payments.length}</div></div>
+      <div class="kpi tile t-accent clickable" data-kpi="7d">
+        <div class="icon"><svg width="17" height="17" viewBox="0 0 20 20" fill="none"><path d="M3 3.5h14l-5.2 6.4v5.6l-3.6 1.8v-7.4L3 3.5z" stroke="#fff" stroke-width="1.7" stroke-linejoin="round"/></svg></div>
+        <div class="v">${d.new_leads_7d.length}</div><div class="l">New leads (7d)</div>
+      </div>
+      <div class="kpi tile t-warning clickable" data-kpi="today">
+        <div class="icon"><svg width="17" height="17" viewBox="0 0 20 20" fill="none"><circle cx="10" cy="10" r="7.5" stroke="#fff" stroke-width="1.7"/><path d="M10 5.5V10l3.2 2" stroke="#fff" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+        <div class="v">${d.todays_followups.length}</div><div class="l">Today's follow-ups</div>
+      </div>
+      <div class="kpi tile t-critical clickable" data-kpi="overdue">
+        <div class="icon"><svg width="17" height="17" viewBox="0 0 20 20" fill="none"><path d="M10 2.5l8.5 15H1.5L10 2.5z" stroke="#fff" stroke-width="1.7" stroke-linejoin="round"/><path d="M10 8v4.2M10 15v.1" stroke="#fff" stroke-width="1.9" stroke-linecap="round"/></svg></div>
+        <div class="v">${d.overdue_followups.length}</div><div class="l">Overdue</div>
+      </div>
+      <div class="kpi tile t-success">
+        <div class="icon"><svg width="17" height="17" viewBox="0 0 20 20" fill="none"><rect x="2" y="5" width="16" height="11" rx="2.2" stroke="#fff" stroke-width="1.7"/><path d="M2 8.5h16" stroke="#fff" stroke-width="1.7"/><circle cx="14.3" cy="12" r="1.4" fill="#fff"/></svg></div>
+        <div class="v">${d.pending_payments.length}</div><div class="l">Customers w/ balance due</div>
+      </div>
+    </div>
+    <div class="row2">
+      <div class="card"><h2>New leads by source (7d)</h2>${sourceDonut(d.new_leads_7d)}</div>
+      <div class="card">
+        <h2>Today's follow-ups</h2>${leadRows(d.todays_followups) || '<div class="empty" style="margin-bottom:14px;">Nothing due today.</div>'}
+        <h2 style="margin-top:14px;">Overdue</h2>${leadRows(d.overdue_followups) || '<div class="empty">Nothing overdue.</div>'}
+      </div>
     </div>
     ${d.upcoming_events.some(e => e.incomplete_checklist_items > 0) ? `<div class="warn-banner">⚠ ${d.upcoming_events.filter(e=>e.incomplete_checklist_items>0).length} event(s) in the next 7 days still have unfinished checklist items — see below.</div>` : ""}
-    <div class="row2">
-      <div class="card"><h2>Today's follow-ups</h2>${leadRows(d.todays_followups) || '<div class="empty">Nothing due today.</div>'}</div>
-      <div class="card"><h2>Overdue</h2>${leadRows(d.overdue_followups) || '<div class="empty">Nothing overdue.</div>'}</div>
-    </div>
     <div class="row2">
       <div class="card"><h2>Events in the next 7 days</h2>
         ${d.upcoming_events.map(e => `<div class="svc"><span data-event="${e.id}" style="cursor:pointer;">${e.account_name} — ${e.type} <span style="color:var(--ink-soft);font-size:11.5px">${e.event_date}</span></span>${e.incomplete_checklist_items > 0 ? `<span class="pill" style="background:var(--critical-soft);color:var(--critical)">${e.incomplete_checklist_items} checklist item(s) left</span>` : `<span class="pill" style="background:var(--success-soft);color:var(--success)">Ready</span>`}</div>`).join("") || '<div class="empty">Nothing coming up in the next week.</div>'}
@@ -658,6 +741,14 @@ async function renderQuoteDetail(id) {
       ${addonItems.map(i => `<div class="svc">${i.label} — ${money(i.price)} ${i.selected ? '<span class="pill" style="background:var(--success-soft);color:var(--success)">selected</span>' : '<span class="pill">not selected</span>'} <button type="button" class="icon-btn del" data-del-qitem="${i.id}" title="Remove">✕</button></div>`).join("") || '<div class="empty">No optional add-ons offered on this quote.</div>'}
     </div>
 
+    <div class="card"><h2>Conversation <span class="meta">questions or requests the customer sent from the quote page</span></h2>
+      ${commentThread(q.comments)}
+      <form id="quoteReplyForm" style="display:flex;gap:8px;">
+        <input name="message" placeholder="Reply to the customer…" style="flex:1;" required>
+        <button type="submit">Send</button>
+      </form>
+    </div>
+
     <div class="card"><h2>Concession — admin only, read-only for the customer</h2>
       <form id="concessionForm">
         <div class="row2">
@@ -687,6 +778,13 @@ async function renderQuoteDetail(id) {
     e.preventDefault();
     await api(`/quotes/${id}`, { method: "POST", body: JSON.stringify(Object.fromEntries(new FormData(e.target).entries())) });
     toast("Concession saved");
+    renderQuoteDetail(id);
+  });
+  main.querySelector("#quoteReplyForm").addEventListener("submit", async e => {
+    e.preventDefault();
+    const data = Object.fromEntries(new FormData(e.target).entries());
+    await api(`/quotes/${id}/comments`, { method: "POST", body: JSON.stringify(data) });
+    toast("Reply sent");
     renderQuoteDetail(id);
   });
   const itemPicker = (isAddon) => `
