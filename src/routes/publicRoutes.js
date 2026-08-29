@@ -107,7 +107,7 @@ export async function submitFeedback(request, env, token) {
 // means something very different from "opened once and went quiet").
 export async function getQuoteContext(request, env, token) {
   const quote = await env.DB.prepare(
-    `SELECT q.*, pt.name AS tier_name, pt.multiplier, l.name AS lead_name, l.event_type
+    `SELECT q.*, pt.name AS tier_name, pt.multiplier, pt.perks AS tier_perks, l.name AS lead_name, l.event_type
      FROM lead_quotes q LEFT JOIN pricing_tiers pt ON pt.id = q.pricing_tier_id
      JOIN leads l ON l.id = q.lead_id WHERE q.token = ?`
   ).bind(token).first();
@@ -138,6 +138,7 @@ export async function getQuoteContext(request, env, token) {
     lead_name: quote.lead_name,
     event_type: quote.event_type,
     tier_name: quote.tier_name,
+    tier_perks: quote.tier_perks,
     multiplier: quote.multiplier || 1,
     valid_until: quote.valid_until,
     concession_amount: quote.concession_amount,

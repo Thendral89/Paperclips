@@ -40,6 +40,12 @@
   .summary-row{display:flex;justify-content:space-between;padding:6px 0;font-size:14px;font-variant-numeric:tabular-nums;}
   .summary-row.total{font-size:20px;font-weight:400;font-family:var(--font-display);color:var(--accent-deep);border-top:1px solid var(--line);margin-top:8px;padding-top:12px;}
   .summary-row.concession{color:var(--success);}
+  .summary-row .label-wrap{display:flex;align-items:center;gap:6px;}
+  .info-btn{width:16px;height:16px;flex:0 0 auto;border-radius:50%;border:1px solid var(--ink-faint);color:var(--ink-faint);background:none;font-size:10.5px;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0;font-family:inherit;}
+  .info-btn:hover,.info-btn.open{border-color:var(--accent);color:var(--accent);}
+  .tier-detail{display:none;background:var(--paper-dim);border-radius:9px;padding:11px 12px;margin:2px 0 8px;font-size:12.5px;color:var(--ink-soft);line-height:1.5;}
+  .tier-detail.open{display:block;}
+  .tier-detail b{color:var(--ink);}
   .note{font-size:12.5px;color:var(--ink-soft);margin-top:4px;}
   .error-screen{padding:60px 20px;text-align:center;color:var(--ink-soft);}
   .valid-banner{background:var(--warning-soft);color:var(--warning);border-radius:9px;padding:9px 13px;font-size:12.5px;font-weight:600;margin-bottom:16px;}
@@ -118,6 +124,16 @@
       <div class="card">
         <h2>Summary</h2>
         <div class="summary-row"><span>Subtotal</span><span class="item-price">${money(data.subtotal)}</span></div>
+        ${data.multiplier && data.multiplier !== 1 ? `
+        <div class="summary-row">
+          <span class="label-wrap">${escapeHtml(data.tier_name) || "Tier"} pricing (×${data.multiplier})<button type="button" class="info-btn" id="tierInfoBtn" aria-label="How this is calculated">i</button></span>
+          <span class="item-price">+${money(Math.round(data.subtotal * data.multiplier) - data.subtotal)}</span>
+        </div>
+        <div class="tier-detail" id="tierDetail">
+          <b>${escapeHtml(data.tier_name)} tier — ×${data.multiplier} on the itemized subtotal.</b>
+          ${data.tier_perks ? ` This tier includes: ${escapeHtml(data.tier_perks)}.` : ""}
+          Total = (Subtotal × ${data.multiplier})${data.concession_amount > 0 ? " − discount" : ""}.
+        </div>` : ""}
         ${data.concession_amount > 0 ? `<div class="summary-row concession"><span>Special discount${data.concession_note ? ` — ${data.concession_note}` : ""}</span><span class="item-price">−${money(data.concession_amount)}</span></div>` : ""}
         <div class="summary-row total"><span>Total</span><span>${money(data.total)}</span></div>
       </div>
@@ -132,6 +148,14 @@
         <div id="msgErr" class="msg-error" style="display:none;"></div>
       </div>
     `;
+    const tierInfoBtn = document.getElementById("tierInfoBtn");
+    if (tierInfoBtn) {
+      tierInfoBtn.addEventListener("click", () => {
+        document.getElementById("tierDetail").classList.toggle("open");
+        tierInfoBtn.classList.toggle("open");
+      });
+    }
+
     document.querySelectorAll(".item-row.addon").forEach(el => {
       el.addEventListener("click", async () => {
         const itemId = el.dataset.item;
