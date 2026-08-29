@@ -468,8 +468,24 @@ export async function removeQuoteItem(request, env, itemId) {
 }
 
 // ── Accounts / Customer 360 ─────────────────────────────────────────
+// Lifetime value, booking count, and outstanding balance per account —
+// computed here (not stored) so it's always live, never a stale cached
+// number that drifts from the underlying events/payments. lifetime_value
+// is booked value (sum of quote_total), not cash actually collected —
+// that distinction matters for "who's our biggest client" (booked) vs.
+// "who owes us money" (balance_due, cash-basis) being two different
+// questions the list needs to answer at once.
 export async function listAccounts(request, env) {
-  const { results } = await env.DB.prepare(`SELECT * FROM accounts ORDER BY client_since DESC`).all();
+  const { results } = await env.DB.prepare(
+    `SELECT a.*,
+            COUNT(e.id) AS event_count,
+            COALESCE(SUM(e.quote_total), 0) AS lifetime_value,
+            COALESCE(SUM(CASE WHEN (e.quote_total - e.advance_paid) > 0 THEN (e.quote_total - e.advance_paid) ELSE 0 END), 0) AS balance_due
+     FROM accounts a
+     LEFT JOIN events e ON e.account_id = a.id
+     GROUP BY a.id
+     ORDER BY lifetime_value DESC`
+  ).all();
   return json(results);
 }
 

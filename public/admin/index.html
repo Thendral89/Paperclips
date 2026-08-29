@@ -103,6 +103,7 @@
   .kpi.clickable{cursor:pointer;}
   .kpi.clickable:hover{border-color:var(--accent);}
   .warn-banner{background:var(--warning-soft);color:var(--warning);border-radius:var(--radius-sm);padding:9px 13px;font-size:12.5px;font-weight:600;margin-bottom:10px;}
+  .crit-banner{background:var(--critical-soft);color:var(--critical);border-radius:var(--radius-sm);padding:9px 13px;font-size:12.5px;font-weight:600;margin-bottom:16px;}
   .check-row{display:flex;align-items:center;gap:9px;padding:7px 0;border-bottom:1px dashed var(--line);font-size:13.5px;}
   .check-row input{width:auto;}
   .check-row.done{color:var(--ink-faint);text-decoration:line-through;}
@@ -337,13 +338,37 @@ function wireCsvImport(importPath, exampleColumns, onDone) {
 
 const main = document.getElementById("main");
 let state = { view: "dashboard", id: null, filter: null };
-// This SPA never pushes browser history — every navigation is an
-// innerHTML swap via go(). A "← Back" that called history.back() would
-// therefore leave the app entirely (there's nothing in real browser
-// history to go back TO) instead of returning to the previous screen.
-// prevState is the lightweight fix: one level of "where did I come from",
-// good enough since nothing here nests more than two views deep.
+// The URL hash is the single source of truth for what's on screen — go()
+// only ever writes to it, and a hashchange listener is the only thing that
+// reads it back into `state` and re-renders. Two things fall out of that
+// for free: a refresh re-reads the current hash instead of always
+// restarting at the dashboard, and the browser's own Back/Forward buttons
+// walk real history entries instead of doing nothing (there used to be
+// exactly one entry in the whole session, the initial /admin/ load, so
+// Back had nowhere to go but out of the app). prevState is kept alongside
+// as a lightweight "where did I come from" for the in-app "← Back" links,
+// same as before — that's a different, complementary use case (one
+// explicit level back) from the browser chrome's Back button (full
+// history), so both are worth having.
 let prevState = null;
+
+function encodeHash(view, id, filter) {
+  const p = new URLSearchParams();
+  p.set("view", view);
+  if (id != null) p.set("id", id);
+  if (filter) p.set("filter", JSON.stringify(filter));
+  return "#" + p.toString();
+}
+function decodeHash() {
+  const raw = location.hash.startsWith("#") ? location.hash.slice(1) : location.hash;
+  const p = new URLSearchParams(raw);
+  const view = p.get("view") || "dashboard";
+  const id = p.get("id") || null;
+  let filter = null;
+  const f = p.get("filter");
+  if (f) { try { filter = JSON.parse(f); } catch { filter = null; } }
+  return { view, id, filter };
+}
 
 document.querySelectorAll(".navlink").forEach(el => el.addEventListener("click", () => go(el.dataset.view)));
 
@@ -352,12 +377,22 @@ function goBack(fallbackView) {
   else go(fallbackView || "dashboard");
 }
 
+// go() only updates the URL — syncFromHash() (below) is what actually
+// changes `state` and re-renders, whether the hash changed via go(), a
+// nav-link click, or the user's own Back/Forward button. Setting the hash
+// to its current value is a no-op in every browser (no hashchange fires),
+// which is fine — there's nothing to re-render if nothing moved.
 function go(view, id, filter) {
+  location.hash = encodeHash(view, id, filter || null);
+}
+
+function syncFromHash() {
   prevState = state;
-  state = { view, id, filter: filter || null };
-  document.querySelectorAll(".navlink").forEach(el => el.classList.toggle("active", el.dataset.view === view));
+  state = decodeHash();
+  document.querySelectorAll(".navlink").forEach(el => el.classList.toggle("active", el.dataset.view === state.view));
   render();
 }
+window.addEventListener("hashchange", syncFromHash);
 
 async function render() {
   main.innerHTML = "Loading…";
@@ -473,7 +508,7 @@ async function renderDashboard() {
         <div class="icon"><svg width="17" height="17" viewBox="0 0 20 20" fill="none"><path d="M10 2.5l8.5 15H1.5L10 2.5z" stroke="#fff" stroke-width="1.7" stroke-linejoin="round"/><path d="M10 8v4.2M10 15v.1" stroke="#fff" stroke-width="1.9" stroke-linecap="round"/></svg></div>
         <div class="v">${d.overdue_followups.length}</div><div class="l">Overdue</div>
       </div>
-      <div class="kpi tile t-success">
+      <div class="kpi tile t-success clickable" data-kpi="balance">
         <div class="icon"><svg width="17" height="17" viewBox="0 0 20 20" fill="none"><rect x="2" y="5" width="16" height="11" rx="2.2" stroke="#fff" stroke-width="1.7"/><path d="M2 8.5h16" stroke="#fff" stroke-width="1.7"/><circle cx="14.3" cy="12" r="1.4" fill="#fff"/></svg></div>
         <div class="v">${d.pending_payments.length}</div><div class="l">Customers w/ balance due</div>
       </div>
@@ -502,6 +537,7 @@ async function renderDashboard() {
     if (kpi === "7d") go("leads", null, { since_days: 7, label: "New in the last 7 days" });
     if (kpi === "today") go("leads", null, { follow_up: "today", label: "Follow-up due today" });
     if (kpi === "overdue") go("leads", null, { follow_up: "overdue", label: "Overdue follow-ups" });
+    if (kpi === "balance") go("accounts", null, { balance_due: true });
   }));
 }
 function leadRows(rows) {
@@ -820,14 +856,27 @@ async function renderQuoteDetail(id) {
 
 // ── Accounts ───────────────────────────────────────────────
 async function renderAccounts() {
-  const accts = await api("/accounts");
+  const allAccts = await api("/accounts");
+  const balanceOnly = state.filter && state.filter.balance_due;
+  const accts = balanceOnly ? allAccts.filter(a => a.balance_due > 0) : allAccts;
+  const totalLtv = allAccts.reduce((s, a) => s + (a.lifetime_value || 0), 0);
+  const totalBalance = allAccts.reduce((s, a) => s + (a.balance_due || 0), 0);
+  const filterToggle = `<button type="button" class="btn ${balanceOnly ? "" : "ghost"}" id="balanceFilterBtn">${balanceOnly ? "✕ Clear filter" : "Balance due only"}</button>`;
   main.innerHTML = `
-    ${pageHeader("Customers / Accounts", null, csvToolbar("/api/admin/accounts/export.csv", "/accounts/import"))}
+    ${pageHeader("Customers / Accounts", null, filterToggle + csvToolbar("/api/admin/accounts/export.csv", "/accounts/import"))}
+    <div class="kpis" style="margin-bottom:16px;">
+      <div class="kpi"><div class="l">Customers</div><div class="v">${allAccts.length}</div></div>
+      <div class="kpi"><div class="l">Total lifetime value (booked)</div><div class="v">${money(totalLtv)}</div></div>
+      <div class="kpi"><div class="l">Total balance due</div><div class="v" style="color:${totalBalance > 0 ? "var(--critical)" : "inherit"}">${money(totalBalance)}</div></div>
+    </div>
+    ${balanceOnly ? `<div class="crit-banner">Showing ${accts.length} customer(s) with money still owed — cleared automatically once a payment covers the balance.</div>` : ""}
     <div class="card">
-    <table><thead><tr><th>Name</th><th>Phone</th><th>Client since</th><th></th></tr></thead>
-    <tbody>${accts.map(a => `<tr class="clickable" data-acct="${a.id}"><td>${a.name}${a.is_signature ? ' <span class="pill" style="background:var(--warning-soft);color:var(--warning)">Signature</span>' : ""}</td><td>${a.phone||"—"}</td><td>${a.client_since}</td><td class="row-actions"><button type="button" class="icon-btn edit" data-edit-acct="${a.id}" title="Edit">✎</button><button type="button" class="icon-btn del" data-del-acct="${a.id}" title="Delete">✕</button></td></tr>`).join("") || `<tr><td colspan="4" class="empty">No customers yet — convert a lead first.</td></tr>`}</tbody></table>
+    <table><thead><tr><th>Name</th><th>Phone</th><th>Bookings</th><th>Lifetime value</th><th>Balance due</th><th>Client since</th><th></th></tr></thead>
+    <tbody>${accts.map(a => `<tr class="clickable" data-acct="${a.id}"><td>${a.name}${a.is_signature ? ' <span class="pill" style="background:var(--warning-soft);color:var(--warning)">Signature</span>' : ""}${a.event_count >= 2 ? ' <span class="pill" style="background:var(--success-soft);color:var(--success)">Repeat client</span>' : ""}</td><td>${a.phone||"—"}</td><td>${a.event_count}</td><td>${money(a.lifetime_value)}</td><td${a.balance_due > 0 ? ' style="color:var(--critical);font-weight:600;"' : ""}>${a.balance_due > 0 ? money(a.balance_due) : "—"}</td><td>${a.client_since}</td><td class="row-actions"><button type="button" class="icon-btn edit" data-edit-acct="${a.id}" title="Edit">✎</button><button type="button" class="icon-btn del" data-del-acct="${a.id}" title="Delete">✕</button></td></tr>`).join("") || `<tr><td colspan="7" class="empty">${balanceOnly ? "No customers currently owe a balance." : "No customers yet — convert a lead first."}</td></tr>`}</tbody></table>
   </div>`;
   wireCsvImport("/accounts/import", "name*, phone, email, address, notes, is_signature", () => renderAccounts());
+  const balBtn = document.getElementById("balanceFilterBtn");
+  if (balBtn) balBtn.addEventListener("click", () => go("accounts", null, balanceOnly ? null : { balance_due: true }));
   main.querySelectorAll("[data-acct]").forEach(el => el.addEventListener("click", () => go("accountDetail", el.dataset.acct)));
   main.querySelectorAll("[data-edit-acct]").forEach(el => el.addEventListener("click", e => {
     e.stopPropagation();
@@ -1626,7 +1675,11 @@ async function renderReports() {
   main.querySelectorAll("[data-event]").forEach(el => el.addEventListener("click", () => go("eventDetail", el.dataset.event)));
 }
 
-go("dashboard");
+// Bootstrap: a reload keeps whatever view/id/filter is already in the URL
+// (that's the whole fix for "refresh always dumps me back on Dashboard")
+// — only a truly fresh load with no hash at all defaults to the dashboard.
+if (location.hash) syncFromHash();
+else go("dashboard");
 </script>
 </body>
 </html>
