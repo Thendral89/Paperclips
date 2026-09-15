@@ -16,7 +16,7 @@
     }
   ],
   "triggers": {
-    // runs every hour — flags leads untouched for 48h+ (blueprint §4)
+    //runs every hour — flags leads untouched for 48h+ (blueprint §4)
     "crons": ["0 * * * *"]
   },
   "vars": {
