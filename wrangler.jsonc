@@ -30,7 +30,7 @@
     // by hand in the Cloudflare dashboard instead of here, the next deploy
     // will silently overwrite it back to whatever is committed. Keep this
     // file's value in sync with what should actually be live.
-    "STAFF_EMAILS": "teampaperclipstudios@gmail.com,REPLACE_WITH_SECOND_ADMIN_EMAIL@gmail.com"
+    "STAFF_EMAILS": "teampaperclipstudios@gmail.com,mthendralarasu@gmail.com"
   }
   // GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, and SESSION_SECRET are all real
   // secrets — never put them in `vars` above. `vars` is fully overwritten on
