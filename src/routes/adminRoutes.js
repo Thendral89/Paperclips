@@ -242,15 +242,55 @@ export async function updateLeadStage(request, env, id, staff) {
   return json({ ok: true });
 }
 
-export async function setFollowUp(request, env, id) {
+export async function setFollowUp(request, env, id, ctx) {
   const body = await request.json().catch(() => null);
-  if (!body || !body.date) return badRequest("date is required, YYYY-MM-DD");
-  await env.DB.prepare(`UPDATE leads SET next_follow_up_date = ?, updated_at = datetime('now') WHERE id = ?`)
-    .bind(body.date, id).run();
-  // TODO calendar sync: once a Google service account + the existing "Paperclip
-  // Studios CRM Sync" calendar ID are configured as secrets, call the Calendar
-  // API here to create/update the matching event. Left as a stub so this ships
-  // without inventing credentials you haven't given me — see README.
+
+  if (!body || !Object.prototype.hasOwnProperty.call(body, "date")) {
+    return badRequest("date is required");
+  }
+
+  if (
+    body.date !== null &&
+    body.date !== "" &&
+    !/^\d{4}-\d{2}-\d{2}$/.test(body.date)
+  ) {
+    return badRequest("date must be YYYY-MM-DD or null");
+  }
+
+  const followUpDate =
+    body.date === "" ? null : body.date;
+
+  const lead = await env.DB.prepare(
+    `SELECT id, name, phone, event_type
+     FROM leads
+     WHERE id = ?`
+  )
+    .bind(id)
+    .first();
+
+  if (!lead) {
+    return notFound("lead not found");
+  }
+
+  await env.DB.prepare(
+    `UPDATE leads
+     SET next_follow_up_date = ?,
+         updated_at = datetime('now')
+     WHERE id = ?`
+  )
+    .bind(followUpDate, id)
+    .run();
+
+  // Calendar sync is deliberately non-critical to the CRM save.
+  // If the date was cleared, the sync layer removes the
+  // corresponding Google Calendar event.
+  ctx?.waitUntil(
+    syncLeadFollowUp(env, {
+      ...lead,
+      next_follow_up_date: followUpDate,
+    })
+  );
+
   return json({ ok: true });
 }
 
