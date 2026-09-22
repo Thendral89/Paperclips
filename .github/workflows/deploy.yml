@@ -8,18 +8,54 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+
     steps:
       - uses: actions/checkout@v6
 
       - name: Apply migrations, push secrets, deploy
         uses: cloudflare/wrangler-action@v3
+        env:
+          GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+          GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+          SESSION_SECRET: ${{ secrets.SESSION_SECRET }}
+          GOOGLE_CALENDAR_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_CALENDAR_SERVICE_ACCOUNT_JSON }}
+          GOOGLE_CALENDAR_ID: ${{ secrets.GOOGLE_CALENDAR_ID }}
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           wranglerVersion: "4"
+
           preCommands: |
             npx wrangler d1 migrations apply paperclip-crm --remote
-            [ -n "${{ secrets.GOOGLE_CLIENT_ID }}" ] && echo "${{ secrets.GOOGLE_CLIENT_ID }}" | npx wrangler secret put GOOGLE_CLIENT_ID || echo "::warning::GOOGLE_CLIENT_ID repo secret is not set — skipping, leaving whatever is already live untouched"
-            [ -n "${{ secrets.GOOGLE_CLIENT_SECRET }}" ] && echo "${{ secrets.GOOGLE_CLIENT_SECRET }}" | npx wrangler secret put GOOGLE_CLIENT_SECRET || echo "::warning::GOOGLE_CLIENT_SECRET repo secret is not set — skipping, leaving whatever is already live untouched"
-            [ -n "${{ secrets.SESSION_SECRET }}" ] && echo "${{ secrets.SESSION_SECRET }}" | npx wrangler secret put SESSION_SECRET || echo "::warning::SESSION_SECRET repo secret is not set — skipping, leaving whatever is already live untouched"
+
+            if [ -n "$GOOGLE_CLIENT_ID" ]; then
+              printf '%s' "$GOOGLE_CLIENT_ID" | npx wrangler secret put GOOGLE_CLIENT_ID
+            else
+              echo "::warning::GOOGLE_CLIENT_ID repository secret is not set — skipping"
+            fi
+
+            if [ -n "$GOOGLE_CLIENT_SECRET" ]; then
+              printf '%s' "$GOOGLE_CLIENT_SECRET" | npx wrangler secret put GOOGLE_CLIENT_SECRET
+            else
+              echo "::warning::GOOGLE_CLIENT_SECRET repository secret is not set — skipping"
+            fi
+
+            if [ -n "$SESSION_SECRET" ]; then
+              printf '%s' "$SESSION_SECRET" | npx wrangler secret put SESSION_SECRET
+            else
+              echo "::warning::SESSION_SECRET repository secret is not set — skipping"
+            fi
+
+            if [ -n "$GOOGLE_CALENDAR_SERVICE_ACCOUNT_JSON" ]; then
+              printf '%s' "$GOOGLE_CALENDAR_SERVICE_ACCOUNT_JSON" | npx wrangler secret put GOOGLE_CALENDAR_SERVICE_ACCOUNT_JSON
+            else
+              echo "::warning::GOOGLE_CALENDAR_SERVICE_ACCOUNT_JSON repository secret is not set — calendar sync remains disabled"
+            fi
+
+            if [ -n "$GOOGLE_CALENDAR_ID" ]; then
+              printf '%s' "$GOOGLE_CALENDAR_ID" | npx wrangler secret put GOOGLE_CALENDAR_ID
+            else
+              echo "::warning::GOOGLE_CALENDAR_ID repository secret is not set — calendar sync remains disabled"
+            fi
+
           command: deploy
