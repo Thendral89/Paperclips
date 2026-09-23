@@ -47,6 +47,7 @@ const ADMIN_ROUTES = [
   ["POST", /^\/api\/admin\/contacts\/(\d+)\/delete$/, (req, env, staff, [id]) => admin.deleteContact(req, env, id)],
   ["POST", /^\/api\/admin\/accounts\/(\d+)\/delete$/, (req, env, staff, [id]) => admin.deleteAccount(req, env, id)],
 
+  ["GET", /^\/api\/admin\/calendar$/, (req, env) => admin.listCalendar(req, env)],
   ["GET", /^\/api\/admin\/events$/, (req, env) => admin.listEvents(req, env)],
   ["POST", /^\/api\/admin\/events$/, (req, env, staff, _captures, ctx) => admin.createEvent(req, env, ctx)],
   ["GET", /^\/api\/admin\/events\/(\d+)$/, (req, env, staff, [id]) => admin.getEvent(req, env, id)],
@@ -168,10 +169,12 @@ export default {
         return getQuoteContext(request, env, quoteMatch[1]).catch((e) => json({ error: String(e) }, { status: 500 }));
       }
     }
+
     const quoteToggleMatch = pathname.match(/^\/api\/quote\/([a-f0-9]+)\/toggle$/);
     if (quoteToggleMatch && request.method === "POST") {
       return toggleQuoteItem(request, env, quoteToggleMatch[1]).catch((e) => json({ error: String(e) }, { status: 500 }));
     }
+
     const quoteCommentMatch = pathname.match(/^\/api\/quote\/([a-f0-9]+)\/comment$/);
     if (quoteCommentMatch && request.method === "POST") {
       return addQuoteComment(request, env, quoteCommentMatch[1]).catch((e) => json({ error: String(e) }, { status: 500 }));
@@ -197,12 +200,16 @@ export default {
     if (pathname.startsWith("/api/admin/")) {
       const staff = await requireStaff(request, env);
       if (!staff) return unauthorized("staff login required — visit /auth/login");
+
       for (const [method, regex, handler] of ADMIN_ROUTES) {
         if (request.method !== method) continue;
         const m = pathname.match(regex);
         if (!m) continue;
-        return handler(request, env, staff, m.slice(1), ctx).catch((e) => json({ error: String(e) }, { status: 500 }));
+
+        return handler(request, env, staff, m.slice(1), ctx)
+          .catch((e) => json({ error: String(e) }, { status: 500 }));
       }
+
       return notFound("no matching admin route");
     }
 
