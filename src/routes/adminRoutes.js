@@ -2,6 +2,7 @@
 // already ran in index.js and returned non-null.
 
 import { json, badRequest, notFound, makeToken, normalizePhone, toCSV, parseCSV } from "../lib/util.js";
+import { syncCrmEvent, syncLeadFollowUp } from "../lib/googleCalendar.js";
 
 // ── Dashboard ────────────────────────────────────────────────────────
 export async function dashboard(request, env) {
@@ -751,7 +752,7 @@ export async function listEvents(request, env) {
   return json({ range, from, to, events: results });
 }
 
-export async function createEvent(request, env) {
+export async function createEvent(request, env, ctx) {
   const body = await request.json().catch(() => null);
   if (!body || !body.account_id || !body.type) return badRequest("account_id and type are required");
   const result = await env.DB.prepare(
@@ -760,6 +761,13 @@ export async function createEvent(request, env) {
     .bind(body.account_id, body.type, body.event_date || null, body.venue || null, body.pricing_tier_id || 1)
     .run();
   const eventId = result.meta.last_row_id;
+
+  // Calendar sync is deliberately non-critical to the CRM save.
+  if (body.event_date) {
+    const account = await env.DB.prepare(`SELECT name FROM accounts WHERE id = ?`).bind(body.account_id).first();
+    const event = await env.DB.prepare(`SELECT * FROM events WHERE id = ?`).bind(eventId).first();
+    if (account && event) ctx?.waitUntil(syncCrmEvent(env, event, account));
+  }
 
   // Snapshot the shared checklist template onto this event — later template
   // edits shouldn't retroactively change events already in progress. Phase
@@ -778,7 +786,7 @@ export async function createEvent(request, env) {
 
 // Fixes a typo'd type/venue/date/status on the event itself — separate from
 // the pricing/resourcing sub-actions (services, tier, payments) below.
-export async function updateEvent(request, env, id) {
+export async function updateEvent(request, env, id, ctx) {
   const body = await request.json().catch(() => null);
   if (!body) return badRequest("no fields given");
   const event = await env.DB.prepare(`SELECT * FROM events WHERE id = ?`).bind(id).first();
@@ -789,6 +797,12 @@ export async function updateEvent(request, env, id) {
   const status = body.status ?? event.status;
   await env.DB.prepare(`UPDATE events SET type = ?, venue = ?, event_date = ?, status = ? WHERE id = ?`)
     .bind(type, venue, event_date, status, id).run();
+
+  // Calendar sync is deliberately non-critical to the CRM save.
+  const account = await env.DB.prepare(`SELECT name FROM accounts WHERE id = ?`).bind(event.account_id).first();
+  const updatedEvent = { ...event, type, venue, event_date, status };
+  if (account) ctx?.waitUntil(syncCrmEvent(env, updatedEvent, account));
+
   return json({ ok: true });
 }
 
