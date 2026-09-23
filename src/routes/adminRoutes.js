@@ -713,6 +713,30 @@ const RANGE_PRESETS = {
   next_month: () => monthBounds(1),
 };
 
+export async function listCalendar(request, env) {
+  const params = new URL(request.url).searchParams;
+  const from = params.get("from");
+  const to = params.get("to");
+  if (!from || !to) return badRequest("calendar requires from and to (YYYY-MM-DD)");
+
+  const { results: events } = await env.DB.prepare(
+    `SELECT e.id, e.type, e.event_date, e.start_time, e.end_time, e.reporting_time, e.venue, e.status,
+            a.id AS account_id, a.name AS account_name
+     FROM events e JOIN accounts a ON a.id = e.account_id
+     WHERE e.event_date BETWEEN ? AND ?
+     ORDER BY e.event_date ASC, e.start_time ASC, e.id ASC`
+  ).bind(from, to).all();
+
+  const { results: followups } = await env.DB.prepare(
+    `SELECT id, name, event_type, next_follow_up_date
+     FROM leads
+     WHERE next_follow_up_date BETWEEN ? AND ?
+     ORDER BY next_follow_up_date ASC, id ASC`
+  ).bind(from, to).all();
+
+  return json({ from, to, events, followups });
+}
+
 export async function listEvents(request, env) {
   const params = new URL(request.url).searchParams;
   const range = params.get("range") || "all";
@@ -737,7 +761,7 @@ export async function listEvents(request, env) {
   const where = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
 
   const { results } = await env.DB.prepare(
-    `SELECT e.id, e.type, e.event_date, e.venue, e.status,
+    `SELECT e.id, e.type, e.event_date, e.start_time, e.end_time, e.reporting_time, e.venue, e.status,
             e.quote_total, e.advance_paid, (e.quote_total - e.advance_paid) AS balance_due,
             a.id AS account_id, a.name AS account_name,
             EXISTS(
@@ -756,9 +780,9 @@ export async function createEvent(request, env, ctx) {
   const body = await request.json().catch(() => null);
   if (!body || !body.account_id || !body.type) return badRequest("account_id and type are required");
   const result = await env.DB.prepare(
-    `INSERT INTO events (account_id, type, event_date, venue, pricing_tier_id) VALUES (?, ?, ?, ?, ?)`
+    `INSERT INTO events (account_id, type, event_date, start_time, end_time, reporting_time, venue, pricing_tier_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
   )
-    .bind(body.account_id, body.type, body.event_date || null, body.venue || null, body.pricing_tier_id || 1)
+    .bind(body.account_id, body.type, body.event_date || null, body.start_time || null, body.end_time || null, body.reporting_time || null, body.venue || null, body.pricing_tier_id || 1)
     .run();
   const eventId = result.meta.last_row_id;
 
@@ -794,13 +818,16 @@ export async function updateEvent(request, env, id, ctx) {
   const type = body.type ?? event.type;
   const venue = body.venue !== undefined ? body.venue || null : event.venue;
   const event_date = body.event_date !== undefined ? body.event_date || null : event.event_date;
+  const start_time = body.start_time !== undefined ? body.start_time || null : event.start_time;
+  const end_time = body.end_time !== undefined ? body.end_time || null : event.end_time;
+  const reporting_time = body.reporting_time !== undefined ? body.reporting_time || null : event.reporting_time;
   const status = body.status ?? event.status;
-  await env.DB.prepare(`UPDATE events SET type = ?, venue = ?, event_date = ?, status = ? WHERE id = ?`)
-    .bind(type, venue, event_date, status, id).run();
+  await env.DB.prepare(`UPDATE events SET type = ?, venue = ?, event_date = ?, start_time = ?, end_time = ?, reporting_time = ?, status = ? WHERE id = ?`)
+    .bind(type, venue, event_date, start_time, end_time, reporting_time, status, id).run();
 
   // Calendar sync is deliberately non-critical to the CRM save.
   const account = await env.DB.prepare(`SELECT name FROM accounts WHERE id = ?`).bind(event.account_id).first();
-  const updatedEvent = { ...event, type, venue, event_date, status };
+  const updatedEvent = { ...event, type, venue, event_date, start_time, end_time, reporting_time, status };
   if (account) ctx?.waitUntil(syncCrmEvent(env, updatedEvent, account));
 
   return json({ ok: true });

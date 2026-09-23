@@ -330,9 +330,18 @@ export async function syncCrmEvent(
       return;
     }
 
-    const range = allDayRange(
-      event.event_date
-    );
+    const timeZone = env.GOOGLE_CALENDAR_TIME_ZONE || "Asia/Kolkata";
+    const hasTimedRange = Boolean(event.start_time && event.end_time);
+    const range = allDayRange(event.event_date);
+    const calendarWindow = hasTimedRange
+      ? {
+          start: { dateTime: `${event.event_date}T${event.start_time}:00`, timeZone },
+          end: { dateTime: `${event.event_date}T${event.end_time}:00`, timeZone },
+        }
+      : {
+          start: { date: range.start },
+          end: { date: range.end },
+        };
 
     const remote = await upsert(
       env,
@@ -342,21 +351,15 @@ export async function syncCrmEvent(
 
         description: [
           `PCS CRM event #${event.id}`,
-          event.venue
-            ? `Venue: ${event.venue}`
-            : null,
+          event.venue ? `Venue: ${event.venue}` : null,
+          event.reporting_time ? `Reporting time: ${event.reporting_time}` : null,
           `Status: ${event.status}`,
         ]
           .filter(Boolean)
           .join("\n"),
 
-        start: {
-          date: range.start,
-        },
-
-        end: {
-          date: range.end,
-        },
+        start: calendarWindow.start,
+        end: calendarWindow.end,
 
         reminders: {
           useDefault: false,
