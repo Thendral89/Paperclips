@@ -22,7 +22,7 @@ const ADMIN_ROUTES = [
   ["GET", /^\/api\/admin\/leads\/(\d+)$/, (req, env, staff, [id]) => admin.getLead(req, env, id)],
   ["POST", /^\/api\/admin\/leads\/(\d+)\/details$/, (req, env, staff, [id]) => admin.updateLeadDetails(req, env, id)],
   ["POST", /^\/api\/admin\/leads\/(\d+)\/stage$/, (req, env, staff, [id]) => admin.updateLeadStage(req, env, id, staff)],
-  ["POST", /^\/api\/admin\/leads\/(\d+)\/followup$/, (req, env, staff, [id]) => admin.setFollowUp(req, env, id, ctx)],
+  ["POST", /^\/api\/admin\/leads\/(\d+)\/followup$/, (req, env, staff, [id], ctx) => admin.setFollowUp(req, env, id, ctx)],
   ["POST", /^\/api\/admin\/leads\/(\d+)\/activities$/, (req, env, staff, [id]) => admin.addActivity(req, env, id, staff)],
   ["GET", /^\/api\/admin\/leads\/(\d+)\/convert-preview$/, (req, env, staff, [id]) => admin.getLeadConvertPreview(req, env, id)],
   ["POST", /^\/api\/admin\/leads\/(\d+)\/convert$/, (req, env, staff, [id]) => admin.convertLead(req, env, id)],
@@ -48,9 +48,9 @@ const ADMIN_ROUTES = [
   ["POST", /^\/api\/admin\/accounts\/(\d+)\/delete$/, (req, env, staff, [id]) => admin.deleteAccount(req, env, id)],
 
   ["GET", /^\/api\/admin\/events$/, (req, env) => admin.listEvents(req, env)],
-  ["POST", /^\/api\/admin\/events$/, (req, env) => admin.createEvent(req, env, ctx)],
+  ["POST", /^\/api\/admin\/events$/, (req, env, staff, _captures, ctx) => admin.createEvent(req, env, ctx)],
   ["GET", /^\/api\/admin\/events\/(\d+)$/, (req, env, staff, [id]) => admin.getEvent(req, env, id)],
-  ["POST", /^\/api\/admin\/events\/(\d+)\/details$/, (req, env, staff, [id]) => admin.updateEvent(req, env, id, ctx)],
+  ["POST", /^\/api\/admin\/events\/(\d+)\/details$/, (req, env, staff, [id], ctx) => admin.updateEvent(req, env, id, ctx)],
   ["POST", /^\/api\/admin\/events\/(\d+)\/delete$/, (req, env, staff, [id]) => admin.deleteEvent(req, env, id)],
   ["POST", /^\/api\/admin\/events\/(\d+)\/services$/, (req, env, staff, [id]) => admin.addEventService(req, env, id)],
   ["POST", /^\/api\/admin\/event-services\/(\d+)\/delete$/, (req, env, staff, [id]) => admin.removeEventService(req, env, id)],
@@ -201,7 +201,7 @@ export default {
         if (request.method !== method) continue;
         const m = pathname.match(regex);
         if (!m) continue;
-        return handler(request, env, staff, m.slice(1)).catch((e) => json({ error: String(e) }, { status: 500 }));
+        return handler(request, env, staff, m.slice(1), ctx).catch((e) => json({ error: String(e) }, { status: 500 }));
       }
       return notFound("no matching admin route");
     }
