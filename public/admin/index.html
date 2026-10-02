@@ -1505,25 +1505,117 @@ async function renderEventDetail(id) {
 
 
 async function renderSettings(){
-  const cfg=await loadUiConfig(true), labels=Object.entries(cfg.labels||{}), skills=cfg.skills||[], resourceTypes=cfg.resource_types||[];
+  const cfg=await loadUiConfig(true);
+  const labels=Object.entries(cfg.labels||{});
+  const skills=cfg.skills||[];
+  const picklists=await api('/picklists');
+  const editablePicklists=picklists.filter(g=>g.group_key!=='resource_type' && g.group_key!=='resource_skill');
+
   main.innerHTML=`${pageHeader(L('nav.settings','Settings'),null)}
-    <div class="card"><h2>Labels</h2><p class="empty">UI wording stored in D1. Change a value and save only when you need to rename a label.</p>
-      ${labels.map(([k,v])=>`<form class="list-row label-form" data-label-key="${escapeHtml(k)}"><span style="flex:1"><b>${escapeHtml(k)}</b><br><input name="label_value" value="${escapeHtml(v)}" style="width:100%;margin-top:5px"></span><button type="submit">Save</button></form>`).join('')}
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;">
+        <div><h2>Labels</h2><p class="empty">Business and interface wording. Edit the value without changing the internal key.</p></div>
+      </div>
+      ${labels.map(([k,v])=>`<form class="list-row label-form" data-label-key="${escapeHtml(k)}">
+        <span style="flex:1;min-width:220px"><b>${escapeHtml(k)}</b><br>
+          <input name="label_value" value="${escapeHtml(v)}" style="width:100%;margin-top:5px">
+        </span>
+        <button type="submit">Save</button>
+      </form>`).join('') || '<div class="empty">No labels configured.</div>'}
     </div>
-    <div class="row2">
-      <div class="card"><h2>Resource Types</h2>
-        <p class="empty">Categories used by the Resources module.</p>
-        ${resourceTypes.map(x=>`<span class="pill" style="margin:3px">${escapeHtml(x.value_label||x.label||x)}</span>`).join(' ') || '<div class="empty">No resource types configured.</div>'}
+
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:13px;">
+        <div><h2 style="margin:0">Picklists</h2><p class="empty" style="margin:3px 0 0">Business categories and dropdown values used throughout the CRM.</p></div>
+        <button type="button" id="addPicklistValue">+ Add value</button>
       </div>
-      <div class="card"><h2>Skills</h2>
-        <p class="empty">Skills available when creating or allocating a resource.</p>
-        ${skills.map(x=>`<span class="pill" style="margin:3px">${escapeHtml(x.label)}</span>`).join(' ') || '<div class="empty">No skills configured.</div>'}
+      ${editablePicklists.map(g=>`
+        <div style="border-top:1px solid var(--line);padding:13px 0 5px;">
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;">
+            <div><b>${escapeHtml(g.label)}</b><div class="meta">${escapeHtml(g.description||'')}</div></div>
+            <button type="button" class="ghost" data-add-picklist="${escapeHtml(g.group_key)}">+ Add</button>
+          </div>
+          ${g.values?.length ? g.values.map(v=>`
+            <div class="list-row">
+              <span style="flex:1"><b>${escapeHtml(v.value_label)}</b><span class="meta"> · ${escapeHtml(v.value_key)}</span></span>
+              <span class="row-actions">
+                <button type="button" class="icon-btn edit" data-edit-picklist="${v.id}">Edit</button>
+                <button type="button" class="icon-btn del" data-del-picklist="${v.id}">Remove</button>
+              </span>
+            </div>`).join('') : '<div class="empty" style="padding:8px 0">No values configured.</div>'}
+        </div>`).join('') || '<div class="empty">No editable picklists configured.</div>'}
+    </div>
+
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:13px;">
+        <div><h2 style="margin:0">Skills</h2><p class="empty" style="margin:3px 0 0">Skills available when creating and allocating resources.</p></div>
+        <button type="button" id="addSkill">+ Add skill</button>
       </div>
+      ${skills.map(x=>`
+        <div class="list-row">
+          <span style="flex:1"><b>${escapeHtml(x.label)}</b><span class="meta"> · ${escapeHtml(x.skill_key||'')}</span></span>
+          <span class="row-actions">
+            <button type="button" class="icon-btn edit" data-edit-skill="${x.id}">Edit</button>
+            <button type="button" class="icon-btn del" data-del-skill="${x.id}">Remove</button>
+          </span>
+        </div>`).join('') || '<div class="empty">No skills configured.</div>'}
     </div>`;
+
   main.querySelectorAll('.label-form').forEach(form=>form.addEventListener('submit',async e=>{
     e.preventDefault();
     await api('/labels',{method:'POST',body:JSON.stringify({label_key:form.dataset.labelKey,label_value:new FormData(form).get('label_value')})});
     await loadUiConfig(true); applyConfiguredLabels(); toast('Label saved'); renderSettings();
+  }));
+
+  const openPicklistForm=(groupKey, value=null)=>{
+    const group=editablePicklists.find(g=>g.group_key===groupKey) || editablePicklists.find(g=>g.values?.some(v=>String(v.id)===String(value?.id)));
+    if(!group) return;
+    openModal(value?'Edit picklist value':'Add picklist value',`<form>
+      <div class="field"><label>Category</label><input value="${escapeHtml(group.label)}" disabled></div>
+      <div class="field"><label>Value</label><input name="value_label" value="${escapeHtml(value?.value_label||'')}" required></div>
+      <div class="field"><label>Sort order</label><input name="sort_order" type="number" value="${Number(value?.sort_order||0)}"></div>
+      <button type="submit" style="width:100%">${value?'Save changes':'Add value'}</button>
+    </form>`,async(data)=>{
+      data.group_key=group.group_key;
+      data.id=value?.id;
+      await api('/picklists',{method:'POST',body:JSON.stringify(data)});
+      toast(value?'Picklist value updated':'Picklist value added'); renderSettings();
+    });
+  };
+
+  document.getElementById('addPicklistValue')?.addEventListener('click',()=>{
+    const first=editablePicklists[0]; if(first) openPicklistForm(first.group_key);
+  });
+  main.querySelectorAll('[data-add-picklist]').forEach(el=>el.addEventListener('click',()=>openPicklistForm(el.dataset.addPicklist)));
+  main.querySelectorAll('[data-edit-picklist]').forEach(el=>el.addEventListener('click',()=>{
+    const value=editablePicklists.flatMap(g=>g.values||[]).find(v=>String(v.id)===el.dataset.editPicklist);
+    if(value) openPicklistForm(null,value);
+  }));
+  main.querySelectorAll('[data-del-picklist]').forEach(el=>el.addEventListener('click',async()=>{
+    if(!confirm('Remove this picklist value?')) return;
+    await api(`/picklists/${el.dataset.delPicklist}/delete`,{method:'POST',body:'{}'});
+    toast('Picklist value removed'); renderSettings();
+  }));
+
+  const openSkillForm=(skill=null)=>{
+    openModal(skill?'Edit skill':'Add skill',`<form>
+      <div class="field"><label>Skill name</label><input name="label" value="${escapeHtml(skill?.label||'')}" required></div>
+      <button type="submit" style="width:100%">${skill?'Save changes':'Add skill'}</button>
+    </form>`,async(data)=>{
+      data.id=skill?.id;
+      await api('/skills',{method:'POST',body:JSON.stringify(data)});
+      toast(skill?'Skill updated':'Skill added'); renderSettings();
+    });
+  };
+
+  document.getElementById('addSkill')?.addEventListener('click',()=>openSkillForm());
+  main.querySelectorAll('[data-edit-skill]').forEach(el=>el.addEventListener('click',()=>{
+    const skill=skills.find(x=>String(x.id)===el.dataset.editSkill); if(skill) openSkillForm(skill);
+  }));
+  main.querySelectorAll('[data-del-skill]').forEach(el=>el.addEventListener('click',async()=>{
+    if(!confirm('Remove this skill?')) return;
+    await api(`/skills/${el.dataset.delSkill}/delete`,{method:'POST',body:'{}'});
+    toast('Skill removed'); renderSettings();
   }));
 }
 
