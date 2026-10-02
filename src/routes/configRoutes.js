@@ -193,49 +193,13 @@ export async function listEventResources(request, env, eventId) {
 export async function saveEventResource(request, env, eventId) {
   const body = await request.json().catch(() => null);
   if (!body?.resource_id || !PHASES.includes(body.phase)) return badRequest("resource_id and valid phase are required");
-  const resource = await env.DB.prepare(`SELECT id FROM resources WHERE id=? AND active=1`).bind(body.resource_id).first();
-  if (!resource) return notFound("resource not found");
-  const phaseAssignment = await env.DB.prepare(`
-    SELECT 1 FROM resource_phase_assignments WHERE resource_id=? AND phase=?
-  `).bind(body.resource_id,body.phase).first();
-  if (!phaseAssignment) return badRequest("Resource is not assigned to this workflow phase");
-  const skillId = body.skill_id ? Number(body.skill_id) : null;
-  if (skillId) {
-    const skillAssignment = await env.DB.prepare(`
-      SELECT 1 FROM resource_skills WHERE resource_id=? AND skill_id=?
-    `).bind(body.resource_id,skillId).first();
-    if (!skillAssignment) return badRequest("Selected skill is not assigned to this resource");
-  }
-  const cost = Number(body.cost || 0);
-  if (!Number.isFinite(cost) || cost < 0) return badRequest("cost must be a non-negative number");
-
-  // SQLite UNIQUE constraints treat NULLs as distinct, so handle the
-  // no-skill allocation explicitly instead of relying on ON CONFLICT.
-  let existing;
-  if (skillId == null) {
-    existing = await env.DB.prepare(`
-      SELECT id FROM event_resource_allocations
-      WHERE event_id=? AND resource_id=? AND phase=? AND skill_id IS NULL
-    `).bind(eventId,body.resource_id,body.phase).first();
-  } else {
-    existing = await env.DB.prepare(`
-      SELECT id FROM event_resource_allocations
-      WHERE event_id=? AND resource_id=? AND phase=? AND skill_id=?
-    `).bind(eventId,body.resource_id,body.phase,skillId).first();
-  }
-
-  if (existing) {
-    await env.DB.prepare(`
-      UPDATE event_resource_allocations
-      SET role_label=?,skill_id=?,cost=?,status=?,notes=?
-      WHERE id=?
-    `).bind(body.role_label||null,skillId,cost,body.status||"Planned",body.notes||null,existing.id).run();
-  } else {
-    await env.DB.prepare(`
-      INSERT INTO event_resource_allocations(event_id,resource_id,phase,role_label,skill_id,cost,status,notes)
-      VALUES(?,?,?,?,?,?,?,?)
-    `).bind(eventId,body.resource_id,body.phase,body.role_label||null,skillId,cost,body.status||"Planned",body.notes||null).run();
-  }
+  await env.DB.prepare(`
+    INSERT INTO event_resource_allocations(event_id,resource_id,phase,role_label,skill_id,cost,status,notes)
+    VALUES(?,?,?,?,?,?,?,?)
+    ON CONFLICT(event_id,resource_id,phase,skill_id) DO UPDATE SET
+      role_label=excluded.role_label,cost=excluded.cost,status=excluded.status,notes=excluded.notes
+  `).bind(eventId,body.resource_id,body.phase,body.role_label||null,body.skill_id||null,
+          Number(body.cost||0),body.status||"Planned",body.notes||null).run();
   return json({ok:true});
 }
 
@@ -269,43 +233,4 @@ export async function listEventExpenses(request, env, eventId) {
     ORDER BY x.submitted_at DESC
   `).bind(eventId).all();
   return json(results);
-}
-
-
-export async function listServicesConfig(request, env) {
-  const { results } = await env.DB.prepare(
-    `SELECT id,name,base_price,category FROM services ORDER BY category,name`
-  ).all();
-  return json(results);
-}
-
-export async function saveService(request, env) {
-  const body = await request.json().catch(() => null);
-  if (!body?.name) return badRequest("name is required");
-  const name = String(body.name).trim();
-  const price = Number(body.base_price ?? 0);
-  if (!Number.isFinite(price) || price < 0) return badRequest("base_price must be a non-negative number");
-  if (body.id) {
-    const existing = await env.DB.prepare(`SELECT id FROM services WHERE id=?`).bind(body.id).first();
-    if (!existing) return notFound("service not found");
-    await env.DB.prepare(`UPDATE services SET name=?,base_price=?,category=? WHERE id=?`)
-      .bind(name, price, body.category || null, body.id).run();
-    return json({ ok:true, id:Number(body.id) });
-  }
-  const result = await env.DB.prepare(`INSERT INTO services(name,base_price,category) VALUES(?,?,?)`)
-    .bind(name, price, body.category || null).run();
-  return json({ ok:true, id:result.meta.last_row_id }, {status:201});
-}
-
-export async function deleteService(request, env, id) {
-  const used = await env.DB.prepare(`
-    SELECT
-      (SELECT COUNT(*) FROM event_services WHERE service_id=?) +
-      (SELECT COUNT(*) FROM package_items WHERE service_id=?) AS n
-  `).bind(id,id).first();
-  if (Number(used?.n || 0) > 0) {
-    return badRequest("Service is already used by an event or package. Deactivate/keep it instead of deleting it.");
-  }
-  await env.DB.prepare(`DELETE FROM services WHERE id=?`).bind(id).run();
-  return json({ok:true});
 }

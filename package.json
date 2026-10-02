@@ -4,9 +4,9 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "wrangler dev",
-    "deploy": "wrangler deploy",
-    "migrate:local": "wrangler d1 migrations apply paperclip-crm --local",
-    "migrate:remote": "wrangler d1 migrations apply paperclip-crm --remote"
+    "dev": "npx wrangler dev",
+    "deploy": "npx wrangler deploy",
+    "migrate:local": "npx wrangler d1 migrations apply paperclip-crm --local",
+    "migrate:remote": "npx wrangler d1 migrations apply paperclip-crm --remote"
   }
 }

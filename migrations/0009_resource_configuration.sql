@@ -86,15 +86,6 @@ CREATE TABLE IF NOT EXISTS event_expense_meta (
   event_type      TEXT
 );
 
--- Backfill the identity tag for existing event-linked expenses.
-INSERT OR IGNORE INTO event_expense_meta(expense_id,event_code,client_name,event_date,event_type)
-SELECT x.id,
-       'EV-' || printf('%06d',e.id) || '-' || replace(COALESCE(a.name,''),' ','-') || '-' || COALESCE(e.event_date,'TBD'),
-       a.name,e.event_date,e.type
-FROM expenses x
-JOIN events e ON e.id=x.event_id
-JOIN accounts a ON a.id=e.account_id;
-
 CREATE TABLE IF NOT EXISTS service_deliverables (
   id            INTEGER PRIMARY KEY AUTOINCREMENT,
   service_id    INTEGER REFERENCES services(id) ON DELETE CASCADE,
@@ -233,7 +224,7 @@ INSERT OR IGNORE INTO resource_phase_assignments(resource_id,phase)
  SELECT id,'Pre-Production' FROM resources WHERE name IN ('Krithika','Aravind');
 INSERT OR IGNORE INTO resource_phase_assignments(resource_id,phase)
  SELECT id,'Production' FROM resources WHERE name IN
- ('Jaffer','Alwin','Saravanan','Majid','Shiva','Karthi','Sangeeth','Vignesh JD','Kanna Bhai','Kamalanna','Murugan','Vijay','Annamalai','Pradeep','Suresh','Nithin','Madan','Priyan JD','Basha Bhai');
+ ('Jaffer','Alwin','Saravanan','Majid','Shiva','Karthi','Sangeeth','Vignesh JD','Kanna Bhai','Kamalanna','Murugan','Vijay','Annamalai','Pradeep','Suresh','Nithin','Madan','Priyan JD','Basha Bhai','Aravind');
 INSERT OR IGNORE INTO resource_phase_assignments(resource_id,phase)
  SELECT id,'Post-Production' FROM resources WHERE name IN
  ('Jaffer','Shubha','Madan','Abhi','Sanjana','Krithika');
@@ -244,7 +235,12 @@ INSERT OR IGNORE INTO resource_skills(resource_id,skill_id)
 INSERT OR IGNORE INTO resource_skills(resource_id,skill_id)
  SELECT r.id,s.id FROM resources r JOIN skills s ON s.skill_key='marketing' WHERE r.name='Krithika';
 INSERT OR IGNORE INTO resource_skills(resource_id,skill_id)
- SELECT r.id,s.id FROM resources r JOIN skills s ON s.skill_key IN ('sales','marketing','candid-photographer','candid-videographer','drone-operator') WHERE r.name='Aravind';
+ SELECT r.id,s.id FROM resources r JOIN skills s ON s.skill_key='sales' WHERE r.name='Aravind';
+INSERT OR IGNORE INTO resource_skills(resource_id,skill_id)
+ SELECT r.id,s.id FROM resources r JOIN skills s ON s.skill_key IN ('marketing') WHERE r.name='Aravind';
+
+INSERT OR IGNORE INTO resource_skills(resource_id,skill_id)
+ SELECT r.id,s.id FROM resources r JOIN skills s ON s.skill_key IN ('sales','candid-photographer','candid-videographer','drone-operator') WHERE r.name='Aravind';
 
 INSERT OR IGNORE INTO resource_skills(resource_id,skill_id)
  SELECT r.id,s.id FROM resources r JOIN skills s ON s.skill_key IN ('candid-photographer','candid-videographer','traditional-photographer','traditional-videographer','candid-video-editor') WHERE r.name='Jaffer';
