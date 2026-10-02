@@ -121,6 +121,40 @@ export async function deletePicklistValue(request, env, id) {
   return json({ ok: true });
 }
 
+export async function listSkills(request, env) {
+  const { results } = await env.DB.prepare(
+    `SELECT id,skill_key,label,active,created_at,updated_at FROM skills WHERE active=1 ORDER BY label`
+  ).all();
+  return json(results);
+}
+
+export async function upsertSkill(request, env) {
+  const body = await request.json().catch(() => null);
+  const label = String(body?.label || '').trim();
+  if (!label) return badRequest('label is required');
+  const key = String(body?.skill_key || label)
+    .trim().toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'');
+  if (!key) return badRequest('invalid skill key');
+
+  if (body.id) {
+    await env.DB.prepare(`
+      UPDATE skills SET skill_key=?,label=?,active=1,updated_at=datetime('now') WHERE id=?
+    `).bind(key,label,body.id).run();
+  } else {
+    await env.DB.prepare(`
+      INSERT INTO skills(skill_key,label,active,created_at,updated_at)
+      VALUES(?,?,1,datetime('now'),datetime('now'))
+      ON CONFLICT(skill_key) DO UPDATE SET label=excluded.label,active=1,updated_at=datetime('now')
+    `).bind(key,label).run();
+  }
+  return json({ ok:true });
+}
+
+export async function deleteSkill(request, env, id) {
+  await env.DB.prepare(`UPDATE skills SET active=0,updated_at=datetime('now') WHERE id=?`).bind(id).run();
+  return json({ ok:true });
+}
+
 export async function listResources(request, env) {
   const { results } = await env.DB.prepare(`
     SELECT r.id,r.name,r.phone,r.email,r.notes,r.active,
