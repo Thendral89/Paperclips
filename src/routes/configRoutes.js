@@ -37,6 +37,7 @@ export async function getConfig(request, env) {
   return json({
     labels: Object.fromEntries(labels.map(x => [x.label_key, x.label_value])),
     picklist_groups: groups,
+	resource_types: resourceTypes,
     resources,
     skills,
     phases: PHASES
