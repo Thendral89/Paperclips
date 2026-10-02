@@ -3,6 +3,7 @@
 
 import { json, badRequest, notFound, makeToken, normalizePhone, toCSV, parseCSV } from "../lib/util.js";
 import { syncCrmEvent, syncLeadFollowUp } from "../lib/googleCalendar.js";
+import { buildWhatsAppQuoteLink } from "../lib/whatsapp.js";
 
 // ── Dashboard ────────────────────────────────────────────────────────
 export async function dashboard(request, env) {
@@ -469,10 +470,19 @@ export async function updateQuote(request, env, quoteId) {
 export async function sendQuote(request, env, quoteId, staff) {
   const quote = await env.DB.prepare(`SELECT * FROM lead_quotes WHERE id = ?`).bind(quoteId).first();
   if (!quote) return notFound("quote not found");
+  const lead = await env.DB.prepare(`SELECT name,phone FROM leads WHERE id=?`).bind(quote.lead_id).first();
   await env.DB.prepare(`UPDATE lead_quotes SET status = 'Sent', updated_at = datetime('now') WHERE id = ?`).bind(quoteId).run();
   await logActivity(env, quote.lead_id, "Quote sent", null, staff.email);
   const url = new URL(request.url);
-  return json({ ok: true, public_url: `${url.origin}/quote/${quote.token}` });
+  const publicUrl = `${url.origin}/quote/${quote.token}`;
+  const whatsappUrl = buildWhatsAppQuoteLink(lead?.phone, publicUrl, lead?.name || "");
+  if (whatsappUrl) {
+    await env.DB.prepare(`
+      INSERT INTO quote_delivery_log(quote_id,channel,destination,url)
+      VALUES(?,?,?,?)
+    `).bind(quoteId,"whatsapp",lead.phone,whatsappUrl).run();
+  }
+  return json({ ok: true, public_url: publicUrl, whatsapp_url: whatsappUrl });
 }
 
 export async function deleteQuote(request, env, quoteId) {
@@ -885,12 +895,29 @@ export async function getEvent(request, env, id) {
       `SELECT et.*, esl.staff_name FROM event_tasks et LEFT JOIN event_staff_links esl ON esl.id = et.link_id WHERE et.event_id = ? ORDER BY et.created_at DESC`
     ).bind(id).all(),
     env.DB.prepare(`SELECT * FROM feedback WHERE event_id = ? ORDER BY created_at DESC`).bind(id).all(),
-    env.DB.prepare(`SELECT * FROM expenses WHERE event_id = ? ORDER BY submitted_at DESC`).bind(id).all(),
+    env.DB.prepare(`
+      SELECT x.*,m.event_code,m.client_name,m.event_date AS expense_event_date,m.event_type
+      FROM expenses x
+      LEFT JOIN event_expense_meta m ON m.expense_id=x.id
+      WHERE x.event_id = ? ORDER BY x.submitted_at DESC
+    `).bind(id).all(),
     env.DB.prepare(
       `SELECT ee.*, eq.name AS equipment_name, eq.category, eq.owned
        FROM event_equipment ee LEFT JOIN equipment eq ON eq.id = ee.equipment_id WHERE ee.event_id = ?`
     ).bind(id).all(),
   ]);
+  const resourceAllocations = await env.DB.prepare(`
+    SELECT era.*, r.name AS resource_name, s.label AS skill_label
+    FROM event_resource_allocations era
+    JOIN resources r ON r.id=era.resource_id
+    LEFT JOIN skills s ON s.id=era.skill_id
+    WHERE era.event_id=?
+    ORDER BY CASE era.phase
+      WHEN 'Pre-Production' THEN 1
+      WHEN 'Production' THEN 2
+      WHEN 'Post-Production' THEN 3 ELSE 4 END,
+      r.name
+  `).bind(id).all();
   // Real cost of running this event — internal staff cost + external vendor
   // cost + ad-hoc reimbursed expenses — set against the quote to show profit.
   const staffCost = links.results.reduce((s, l) => s + (l.cost || 0), 0);
@@ -911,8 +938,9 @@ export async function getEvent(request, env, id) {
     feedback: feedback.results,
     expenses: expenseRowsFull.results,
     equipment: equipment.results,
-    cost_breakdown: { staff: staffCost, vendors: vendorCost, expenses: expenseCost, total: total_cost },
-    profit: event.quote_total - total_cost,
+    resource_allocations: resourceAllocations.results,
+    cost_breakdown: { staff: staffCost, vendors: vendorCost, expenses: expenseCost, resources: resourceAllocations.results.reduce((s,r) => s + (r.cost || 0), 0), total: total_cost + resourceAllocations.results.reduce((s,r) => s + (r.cost || 0), 0) },
+    profit: event.quote_total - total_cost - resourceAllocations.results.reduce((s,r) => s + (r.cost || 0), 0),
   });
 }
 
@@ -1417,10 +1445,12 @@ export async function listExpenses(request, env) {
   if (category) { clauses.push("ex.category = ?"); binds.push(category); }
   const where = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
   const { results } = await env.DB.prepare(
-    `SELECT ex.*, e.type AS event_type, a.name AS account_name
+    `SELECT ex.*, e.type AS event_type, a.name AS account_name,
+            m.event_code, m.client_name, m.event_date AS expense_event_date
      FROM expenses ex
      LEFT JOIN events e ON e.id = ex.event_id
      LEFT JOIN accounts a ON a.id = e.account_id
+     LEFT JOIN event_expense_meta m ON m.expense_id = ex.id
      ${where} ORDER BY ex.submitted_at DESC`
   ).bind(...binds).all();
   return json(results);
@@ -1432,7 +1462,23 @@ export async function createExpense(request, env) {
   const result = await env.DB.prepare(
     `INSERT INTO expenses (event_id, category, amount, note, submitted_at) VALUES (?, ?, ?, ?, datetime('now'))`
   ).bind(body.event_id || null, body.category, Number(body.amount), body.note || null).run();
-  return json({ ok: true, id: result.meta.last_row_id }, { status: 201 });
+  const expenseId = result.meta.last_row_id;
+  if (body.event_id) {
+    await env.DB.prepare(`
+      INSERT INTO event_expense_meta(expense_id,event_code,client_name,event_date,event_type)
+      SELECT x.id,
+             'EV-' || printf('%06d',e.id) || '-' || replace(COALESCE(a.name,''),' ','-') || '-' || COALESCE(e.event_date,'TBD'),
+             a.name,e.event_date,e.type
+      FROM expenses x
+      JOIN events e ON e.id=x.event_id
+      JOIN accounts a ON a.id=e.account_id
+      WHERE x.id=?
+      ON CONFLICT(expense_id) DO UPDATE SET
+        event_code=excluded.event_code,client_name=excluded.client_name,
+        event_date=excluded.event_date,event_type=excluded.event_type
+    `).bind(expenseId).run();
+  }
+  return json({ ok: true, id: expenseId }, { status: 201 });
 }
 
 export async function updateExpense(request, env, expenseId) {
@@ -1446,6 +1492,23 @@ export async function updateExpense(request, env, expenseId) {
   const note = body.note !== undefined ? body.note || null : ex.note;
   await env.DB.prepare(`UPDATE expenses SET event_id = ?, category = ?, amount = ?, note = ? WHERE id = ?`)
     .bind(event_id, category, amount, note, expenseId).run();
+  if (event_id) {
+    await env.DB.prepare(`
+      INSERT INTO event_expense_meta(expense_id,event_code,client_name,event_date,event_type)
+      SELECT x.id,
+             'EV-' || printf('%06d',e.id) || '-' || replace(COALESCE(a.name,''),' ','-') || '-' || COALESCE(e.event_date,'TBD'),
+             a.name,e.event_date,e.type
+      FROM expenses x
+      JOIN events e ON e.id=x.event_id
+      JOIN accounts a ON a.id=e.account_id
+      WHERE x.id=?
+      ON CONFLICT(expense_id) DO UPDATE SET
+        event_code=excluded.event_code,client_name=excluded.client_name,
+        event_date=excluded.event_date,event_type=excluded.event_type
+    `).bind(expenseId).run();
+  } else {
+    await env.DB.prepare(`DELETE FROM event_expense_meta WHERE expense_id=?`).bind(expenseId).run();
+  }
   return json({ ok: true });
 }
 
@@ -1486,12 +1549,13 @@ export async function reportProfitability(request, env) {
     `SELECT e.id, e.type, e.event_date, e.quote_total, a.name AS account_name,
             COALESCE((SELECT SUM(cost) FROM event_staff_links WHERE event_id = e.id), 0) AS staff_cost,
             COALESCE((SELECT SUM(cost) FROM event_vendors WHERE event_id = e.id), 0) AS vendor_cost,
+            COALESCE((SELECT SUM(cost) FROM event_resource_allocations WHERE event_id = e.id), 0) AS resource_cost,
             COALESCE((SELECT SUM(amount) FROM expenses WHERE event_id = e.id), 0) AS expense_cost
      FROM events e JOIN accounts a ON a.id = e.account_id
      ORDER BY e.event_date DESC`
   ).all();
   const rows = events.map((e) => {
-    const cost = e.staff_cost + e.vendor_cost + e.expense_cost;
+    const cost = e.staff_cost + e.vendor_cost + e.resource_cost + e.expense_cost;
     const profit = e.quote_total - cost;
     return { ...e, cost, profit, margin_pct: e.quote_total ? Math.round((profit / e.quote_total) * 1000) / 10 : 0 };
   });
@@ -1516,6 +1580,7 @@ export async function reportMonthly(request, env) {
          SUM(e.quote_total) AS revenue,
          SUM(COALESCE((SELECT SUM(cost) FROM event_staff_links WHERE event_id = e.id), 0)
            + COALESCE((SELECT SUM(cost) FROM event_vendors WHERE event_id = e.id), 0)
+           + COALESCE((SELECT SUM(cost) FROM event_resource_allocations WHERE event_id = e.id), 0)
            + COALESCE((SELECT SUM(amount) FROM expenses WHERE event_id = e.id), 0)) AS cost
        FROM events e
        WHERE e.event_date >= date('now', '-12 months')

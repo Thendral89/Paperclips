@@ -6,6 +6,7 @@ import { json, unauthorized, notFound } from "./lib/util.js";
 import { requireStaff, requireEventLink } from "./lib/auth.js";
 import { captureLead, getFeedbackContext, submitFeedback, getQuoteContext, toggleQuoteItem, addQuoteComment } from "./routes/publicRoutes.js";
 import * as admin from "./routes/adminRoutes.js";
+import * as config from "./routes/configRoutes.js";
 import * as portal from "./routes/portalRoutes.js";
 import { startLogin, handleCallback, logout } from "./routes/authRoutes.js";
 import { handleScheduled } from "./cron.js";
@@ -96,6 +97,22 @@ const ADMIN_ROUTES = [
 
   ["GET", /^\/api\/admin\/settings$/, (req, env) => admin.getSettings(req, env)],
   ["POST", /^\/api\/admin\/settings$/, (req, env) => admin.updateSetting(req, env)],
+  ["GET", /^\/api\/admin\/config$/, (req, env) => config.getConfig(req, env)],
+  ["GET", /^\/api\/admin\/config\/labels$/, (req, env) => config.listLabels(req, env)],
+  ["POST", /^\/api\/admin\/config\/labels$/, (req, env, staff) => config.updateLabel(req, env, staff)],
+  ["GET", /^\/api\/admin\/config\/picklists$/, (req, env) => config.listPicklists(req, env)],
+  ["POST", /^\/api\/admin\/config\/picklists$/, (req, env) => config.upsertPicklistValue(req, env)],
+  ["POST", /^\/api\/admin\/config\/picklists\/(\d+)\/delete$/, (req, env, staff, [id]) => config.deletePicklistValue(req, env, id)],
+  ["GET", /^\/api\/admin\/config\/resources$/, (req, env) => config.listResources(req, env)],
+  ["POST", /^\/api\/admin\/config\/resources$/, (req, env) => config.saveResource(req, env)],
+  ["POST", /^\/api\/admin\/config\/resources\/(\d+)\/delete$/, (req, env, staff, [id]) => config.deleteResource(req, env, id)],
+  ["GET", /^\/api\/admin\/config\/services$/, (req, env) => config.listServicesConfig(req, env)],
+  ["POST", /^\/api\/admin\/config\/services$/, (req, env) => config.saveService(req, env)],
+  ["POST", /^\/api\/admin\/config\/services\/(\d+)\/delete$/, (req, env, staff, [id]) => config.deleteService(req, env, id)],
+  ["GET", /^\/api\/admin\/events\/(\d+)\/resources$/, (req, env, staff, [id]) => config.listEventResources(req, env, id)],
+  ["POST", /^\/api\/admin\/events\/(\d+)\/resources$/, (req, env, staff, [id]) => config.saveEventResource(req, env, id)],
+  ["POST", /^\/api\/admin\/event-resources\/(\d+)\/delete$/, (req, env, staff, [id]) => config.deleteEventResource(req, env, id)],
+  ["GET", /^\/api\/admin\/events\/(\d+)\/expenses$/, (req, env, staff, [id]) => config.listEventExpenses(req, env, id)],
 
   ["GET", /^\/api\/admin\/services$/, (req, env) => admin.listServices(req, env)],
   ["GET", /^\/api\/admin\/tiers$/, (req, env) => admin.listTiers(req, env)],

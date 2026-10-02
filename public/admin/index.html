@@ -195,11 +195,12 @@
     <div class="navlink" data-view="calendar"><svg width="17" height="17" viewBox="0 0 20 20" fill="none"><rect x="3" y="4" width="14" height="13" rx="2" stroke="currentColor" stroke-width="1.6"/><path d="M3 8h14M6.5 2.5v3M13.5 2.5v3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>Calendar</div>
     <div class="navlink" data-view="events"><svg width="17" height="17" viewBox="0 0 20 20" fill="none"><rect x="2.5" y="4" width="15" height="13" rx="2" stroke="currentColor" stroke-width="1.6"/><path d="M2.5 8h15M6.5 2.5v3M13.5 2.5v3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>Events</div>
     <div class="navlink" data-view="packages"><svg width="17" height="17" viewBox="0 0 20 20" fill="none"><path d="M10 2.5l7 3.8v7.4L10 17.5 3 13.7V6.3L10 2.5z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M3 6.3L10 10l7-3.7M10 10v7.5" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>Packages</div>
-    <div class="navlink" data-view="vendors"><svg width="17" height="17" viewBox="0 0 20 20" fill="none"><path d="M10.8 2.5H4a1.5 1.5 0 00-1.5 1.5v6.8c0 .4.16.78.44 1.06l7.9 7.9a1.5 1.5 0 002.12 0l6.8-6.8a1.5 1.5 0 000-2.12l-7.9-7.9a1.5 1.5 0 00-1.06-.44z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><circle cx="6.8" cy="6.8" r="1.3" stroke="currentColor" stroke-width="1.6"/></svg>Vendors</div>
+    <div class="navlink" data-view="resources"><svg width="17" height="17" viewBox="0 0 20 20" fill="none"><path d="M10.8 2.5H4a1.5 1.5 0 00-1.5 1.5v6.8c0 .4.16.78.44 1.06l7.9 7.9a1.5 1.5 0 002.12 0l6.8-6.8a1.5 1.5 0 000-2.12l-7.9-7.9a1.5 1.5 0 00-1.06-.44z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><circle cx="6.8" cy="6.8" r="1.3" stroke="currentColor" stroke-width="1.6"/></svg>Resources</div>
     <div class="navlink" data-view="equipment"><svg width="17" height="17" viewBox="0 0 20 20" fill="none"><path d="M2.5 7.2A1.5 1.5 0 014 5.7h2.1l.9-1.6h6l.9 1.6H16A1.5 1.5 0 0117.5 7.2v7.3A1.5 1.5 0 0116 16H4a1.5 1.5 0 01-1.5-1.5V7.2z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><circle cx="10" cy="10.8" r="3.1" stroke="currentColor" stroke-width="1.6"/></svg>Equipment</div>
     <div class="navlink" data-view="expenses"><svg width="17" height="17" viewBox="0 0 20 20" fill="none"><path d="M5 2.5h10v15l-2-1.3-2 1.3-2-1.3-2 1.3-2-1.3v-15z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M7.2 6.5h5.6M7.2 9.5h5.6M7.2 12.5h3.4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>Expenses</div>
     <div class="navlink" data-view="financials"><svg width="17" height="17" viewBox="0 0 20 20" fill="none"><path d="M2.5 14.5l5-5.5 3.2 3 6.3-7.5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/><path d="M13.5 4.5h3.5v3.5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>Financials</div>
     <div class="navlink" data-view="reports"><svg width="17" height="17" viewBox="0 0 20 20" fill="none"><path d="M5 2.5h7l3.5 3.5v11.5H5v-15z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M12 2.5v3.5h3.5" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M7 11h6M7 14h6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>Reports</div>
+    <div class="navlink" data-view="settings"><svg width="17" height="17" viewBox="0 0 20 20" fill="none"><circle cx="10" cy="10" r="3" stroke="currentColor" stroke-width="1.6"/><path d="M10 2.5v2M10 15.5v2M17.5 10h-2M4.5 10h-2M15.3 4.7l-1.4 1.4M6.1 13.9l-1.4 1.4M15.3 15.3l-1.4-1.4M6.1 6.1L4.7 4.7" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>Settings</div>
   </aside>
   <main class="main" id="main">Loading…</main>
 </div>
@@ -411,6 +412,8 @@ async function render() {
     if (state.view === "eventDetail") return renderEventDetail(state.id);
     if (state.view === "packages") return renderPackages();
     if (state.view === "vendors") return renderVendors();
+    if (state.view === "resources") return renderResources();
+    if (state.view === "settings") return renderSettings();
     if (state.view === "equipment") return renderEquipment();
     if (state.view === "expenses") return renderExpenses();
     if (state.view === "financials") return renderFinancials();
@@ -850,7 +853,12 @@ async function renderQuoteDetail(id) {
     main.querySelector("h1").insertAdjacentHTML("beforeend", ` <button type="button" class="icon-btn" id="sendQuoteBtn">Send quote</button>`);
     main.querySelector("#sendQuoteBtn").addEventListener("click", async () => {
       const r = await api(`/quotes/${id}/send`, { method: "POST", body: "{}" });
-      toast("Quote sent");
+      if (r.whatsapp_url) {
+        window.open(r.whatsapp_url, "_blank", "noopener,noreferrer");
+        toast("Quote sent — WhatsApp opened");
+      } else {
+        toast("Quote sent — client phone not available");
+      }
       renderQuoteDetail(id);
     });
   }
@@ -1169,8 +1177,8 @@ async function renderPackages() {
 
 // ── Event detail (pricing, resourcing, cost/profit, payments, ops) ─
 async function renderEventDetail(id) {
-  const [ev, services, tiers, packages, vendors] = await Promise.all([
-    api(`/events/${id}`), api("/services"), api("/tiers"), api("/packages"), api("/vendors"),
+  const [ev, services, tiers, packages, vendors, resourceConfig] = await Promise.all([
+    api(`/events/${id}`), api("/services"), api("/tiers"), api("/packages"), api("/vendors"), api("/config"),
   ]);
   const bookedIds = new Set(ev.services.map(s => s.service_id));
   const checklistDone = ev.checklist.filter(c => c.done).length;
@@ -1199,6 +1207,16 @@ async function renderEventDetail(id) {
     <div class="card"><h2>Pricing tier</h2>
       <div style="display:flex;gap:8px;">${tiers.map(t => `<div class="tier ${t.id===ev.pricing_tier_id?"sel":""}" data-tier="${t.id}"><b>${t.name}</b><div style="font-size:11px;color:var(--ink-soft)">${t.perks}</div></div>`).join("")}</div>
     </div>
+    <div class="card"><h2>Resource allocation <button class="icon-btn" id="addResourceAllocationBtn">+ Add</button></h2>
+      ${["Pre-Production","Production","Post-Production"].map(phase => {
+        const rows = (ev.resource_allocations||[]).filter(r=>r.phase===phase);
+        return `<div style="margin:12px 0;"><b style="font-size:12px;color:var(--ink-soft);text-transform:uppercase;letter-spacing:.03em;">${phase}</b>
+          ${rows.map(r=>`<div class="list-row"><span><b>${esc(r.resource_name)}</b>${r.skill_label?` <span class="pill">${esc(r.skill_label)}</span>`:""}${r.role_label?` <span class="meta">${esc(r.role_label)}</span>`:""} ${money(r.cost)}</span>
+            <span class="row-actions">${statusPill(r.status)}<button class="icon-btn del" data-del-resource-allocation="${r.id}">✕</button></span></div>`).join("") || '<div class="empty" style="padding:6px 0;">No resources allocated.</div>'}
+        </div>`;
+      }).join("")}
+    </div>
+
     <div class="card"><h2>Line items — what this event is actually billed for</h2>
       ${ev.services.map(s => `<div class="svc">${s.name} ${s.is_package ? '<span class="pill" style="background:var(--warning-soft);color:var(--warning)">Package</span>' : ""} — ${money(s.price_at_booking)} <button type="button" class="icon-btn del" data-del-lineitem="${s.id}" title="Remove">✕</button></div>`).join("") || '<div class="empty">Nothing added yet — apply a package or add services below.</div>'}
     </div>
@@ -1244,7 +1262,7 @@ async function renderEventDetail(id) {
 
     <div class="row2">
       <div class="card"><h2>Expenses on this event — ${money(ev.cost_breakdown.expenses)} total <button class="icon-btn" id="addExpenseBtn">+ Add</button></h2>
-        ${ev.expenses.map(x => `<div class="list-row"><span>${x.category} — ${money(x.amount)} <span class="meta">${x.note || ""} · ${(x.submitted_at||"").slice(0,10)}</span></span><span class="row-actions"><button type="button" class="icon-btn edit" data-edit-expense="${x.id}" title="Edit">✎</button><button type="button" class="icon-btn del" data-del-expense="${x.id}" title="Delete">✕</button></span></div>`).join("") || '<div class="empty">No expenses logged on this event yet. Also shown in the Expenses tab alongside every other expense.</div>'}
+        ${ev.expenses.map(x => `<div class="list-row"><span>${x.category} — ${money(x.amount)} <span class="meta">${x.event_code ? `${esc(x.event_code)} · ` : ""}${x.note || ""} · ${(x.submitted_at||"").slice(0,10)}</span></span><span class="row-actions"><button type="button" class="icon-btn edit" data-edit-expense="${x.id}" title="Edit">✎</button><button type="button" class="icon-btn del" data-del-expense="${x.id}" title="Delete">✕</button></span></div>`).join("") || '<div class="empty">No expenses logged on this event yet. Also shown in the Expenses tab alongside every other expense.</div>'}
       </div>
       <div class="card"><h2>Feedback <button class="icon-btn" id="getFeedbackLinkBtn">Get feedback link</button></h2>
         <div id="feedbackLinkOut"></div>
@@ -1252,6 +1270,30 @@ async function renderEventDetail(id) {
       </div>
     </div>
   `;
+  main.querySelector("#addResourceAllocationBtn").addEventListener("click", () => {
+    const resources = (resourceConfig.resources||[]).filter(r=>Number(r.active));
+    const skills = resourceConfig.skills || [];
+    openModal("Allocate resource", `
+      <form>
+        <div class="field"><label>Resource</label><select name="resource_id" required>${resources.map(r=>`<option value="${r.id}">${esc(r.name)}${r.skills?` — ${esc(r.skills)}`:""}</option>`).join("")}</select></div>
+        <div class="row2">
+          <div class="field"><label>Phase</label><select name="phase">${["Pre-Production","Production","Post-Production"].map(p=>`<option>${p}</option>`).join("")}</select></div>
+          <div class="field"><label>Skill / activity</label><select name="skill_id"><option value="">General</option>${skills.map(s=>`<option value="${s.id}">${esc(s.label)}</option>`).join("")}</select></div>
+        </div>
+        <div class="row2"><div class="field"><label>Role label</label><input name="role_label" placeholder="e.g. Lead photographer"></div><div class="field"><label>Cost</label><input name="cost" type="number" min="0" value="0"></div></div>
+        <div class="field"><label>Status</label><select name="status"><option>Planned</option><option>Confirmed</option><option>Completed</option></select></div>
+        <div class="field"><label>Notes</label><textarea name="notes" rows="2"></textarea></div>
+        <button type="submit" style="width:100%;">Allocate</button>
+      </form>
+    `, async data => {
+      await api(`/events/${id}/resources`, {method:"POST",body:JSON.stringify({...data,resource_id:Number(data.resource_id),skill_id:data.skill_id?Number(data.skill_id):null,cost:Number(data.cost||0)})});
+      toast("Resource allocated"); renderEventDetail(id);
+    });
+  });
+  main.querySelectorAll("[data-del-resource-allocation]").forEach(b=>b.onclick=()=>confirmDelete(
+    "Remove this resource allocation?", `/event-resources/${b.dataset.delResourceAllocation}/delete`, () => renderEventDetail(id)
+  ));
+
   main.querySelector("[data-back]").addEventListener("click", () => goBack("events"));
   main.querySelector("#editEventBtn").addEventListener("click", () => openModal("Edit event", `
     <form>
@@ -1703,6 +1745,150 @@ async function renderFinancials() {
   main.querySelectorAll("[data-del-promo]").forEach(el => el.addEventListener("click", () =>
     confirmDelete("Delete this promotion record?", `/promotions/${el.dataset.delPromo}/delete`, renderFinancials)
   ));
+}
+
+
+// ── Resources / Settings ───────────────────────────────────
+function esc(v) {
+  return String(v ?? "").replace(/[&<>"']/g, ch => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[ch]));
+}
+async function renderResources() {
+  const [resources, config] = await Promise.all([api("/config/resources"), api("/config")]);
+  const skills = config.skills || [];
+  main.innerHTML = `
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;">
+      <div><h1>Resources</h1><div class="sub">Internal people available across Pre-Production, Production and Post-Production.</div></div>
+      <button id="addResourceBtn">+ Add resource</button>
+    </div>
+    <div class="card">
+      <h2>Resource pool</h2>
+      <table><thead><tr><th>Name</th><th>Phases</th><th>Skills</th><th>Status</th><th></th></tr></thead>
+      <tbody>${resources.map(r => `
+        <tr>
+          <td><b>${esc(r.name)}</b>${r.phone ? `<div class="meta">${esc(r.phone)}</div>` : ""}</td>
+          <td>${(r.phases||"").split(",").filter(Boolean).map(p=>`<span class="pill">${esc(p)}</span>`).join(" ") || "—"}</td>
+          <td>${(r.skills||"").split(",").filter(Boolean).map(s=>`<span class="pill">${esc(s)}</span>`).join(" ") || "—"}</td>
+          <td>${Number(r.active) ? '<span class="pill" style="background:var(--success-soft);color:var(--success)">Active</span>' : '<span class="pill">Inactive</span>'}</td>
+          <td class="row-actions"><button class="icon-btn edit" data-edit-resource="${r.id}">✎</button>${Number(r.active) ? `<button class="icon-btn del" data-del-resource="${r.id}">Deactivate</button>` : ""}</td>
+        </tr>`).join("") || `<tr><td colspan="5" class="empty">No resources configured.</td></tr>`}</tbody>
+      </table>
+    </div>
+  `;
+  const openResource = (r = {}) => {
+    const selectedSkills = new Set((r.skills||"").split(",").filter(Boolean));
+    const selectedPhases = new Set((r.phases||"").split(",").filter(Boolean));
+    openModal(r.id ? "Edit resource" : "Add resource", `
+      <form>
+        <div class="field"><label>Name</label><input name="name" value="${esc(r.name)}" required></div>
+        <div class="row2">
+          <div class="field"><label>Phone</label><input name="phone" value="${esc(r.phone)}"></div>
+          <div class="field"><label>Email</label><input name="email" type="email" value="${esc(r.email)}"></div>
+        </div>
+        <div class="field"><label>Workflow phases</label>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;">
+            ${["Pre-Production","Production","Post-Production"].map(p=>`<label class="pill" style="cursor:pointer"><input type="checkbox" name="phase" value="${p}" ${selectedPhases.has(p)?"checked":""}> ${p}</label>`).join("")}
+          </div>
+        </div>
+        <div class="field"><label>Skills</label>
+          <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px;max-height:260px;overflow:auto;padding:4px;">
+            ${skills.map(s=>`<label style="font-size:12px;"><input type="checkbox" name="skill_id" value="${s.id}" ${selectedSkills.has(s.label)?"checked":""}> ${esc(s.label)}</label>`).join("")}
+          </div>
+        </div>
+        <div class="field"><label>Notes</label><textarea name="notes" rows="2">${esc(r.notes)}</textarea></div>
+        <button type="submit" style="width:100%;">Save resource</button>
+      </form>
+    `, async (data, form) => {
+      const skill_ids = [...form.querySelectorAll('input[name="skill_id"]:checked')].map(x=>Number(x.value));
+      const phases = [...form.querySelectorAll('input[name="phase"]:checked')].map(x=>x.value);
+      await api("/config/resources", {method:"POST",body:JSON.stringify({...data,id:r.id ? Number(r.id) : undefined,skill_ids,phases,active:true})});
+      toast("Resource saved"); renderResources();
+    });
+  };
+  main.querySelector("#addResourceBtn").addEventListener("click", () => openResource());
+  main.querySelectorAll("[data-edit-resource]").forEach(b => b.addEventListener("click", () => {
+    const r = resources.find(x=>String(x.id)===b.dataset.editResource); openResource(r);
+  }));
+  main.querySelectorAll("[data-del-resource]").forEach(b => b.addEventListener("click", () =>
+    confirmDelete("Deactivate this resource?", `/config/resources/${b.dataset.delResource}/delete`, renderResources)
+  ));
+}
+
+async function renderSettings() {
+  const [config, picklists, resources, services] = await Promise.all([
+    api("/config"), api("/config/picklists"), api("/config/resources"), api("/config/services")
+  ]);
+  const tabs = [
+    ["resources","Resources"],["skills","Picklists"],["labels","Labels"],["catalog","Services & packages"],["workflow","Event workflow"],["whatsapp","WhatsApp"]
+  ];
+  main.innerHTML = `
+    <h1>Settings</h1>
+    <div class="sub">Configure the values used throughout the CRM without changing application code.</div>
+    <div class="card" style="padding:8px;display:flex;gap:6px;flex-wrap:wrap;">${tabs.map(([k,l],i)=>`<button class="ghost settings-tab ${i===0?"active":""}" data-settings-tab="${k}">${l}</button>`).join("")}</div>
+    <div id="settingsContent"></div>
+  `;
+  const content = main.querySelector("#settingsContent");
+  const renderTab = async key => {
+    main.querySelectorAll("[data-settings-tab]").forEach(b=>b.classList.toggle("active",b.dataset.settingsTab===key));
+    if (key==="resources") {
+      content.innerHTML = `<div class="card"><h2>Resources <button class="icon-btn" id="settingsAddResource">+ Add</button></h2>
+        <div class="meta">Use the Resources page for the full editor. This tab is the configuration home for the resource pool.</div>
+        <div style="margin-top:12px;"><button id="openResourcesPage">Open Resources</button></div></div>`;
+      content.querySelector("#settingsAddResource").onclick=()=>go("resources");
+      content.querySelector("#openResourcesPage").onclick=()=>go("resources");
+    } else if (key==="skills") {
+      content.innerHTML = picklists.map(g=>`<div class="card"><h2>${esc(g.label)}</h2>
+        <div class="meta">${esc(g.description||"")}</div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;margin:10px 0;">${g.values.map(v=>`<span class="pill">${esc(v.value_label)} <button class="icon-btn del" style="padding:0 3px;" data-del-pick="${v.id}">×</button></span>`).join("")}</div>
+        <form class="inline-pick-form" data-group="${esc(g.group_key)}" style="display:flex;gap:6px;">
+          <input name="value_label" placeholder="Add ${esc(g.label).toLowerCase()} value">
+          <button type="submit">Add</button>
+        </form>
+      </div>`).join("");
+      content.querySelectorAll(".inline-pick-form").forEach(f=>f.addEventListener("submit",async e=>{
+        e.preventDefault(); const label=f.value_label.value.trim(); if(!label)return;
+        await api("/config/picklists",{method:"POST",body:JSON.stringify({group_key:f.dataset.group,value_label:label})});
+        toast("Value added"); renderSettings();
+      }));
+      content.querySelectorAll("[data-del-pick]").forEach(b=>b.onclick=async()=>{
+        await api(`/config/picklists/${b.dataset.delPick}/delete`,{method:"POST",body:"{}"}); toast("Value hidden"); renderSettings();
+      });
+    } else if (key==="labels") {
+      const labels=Object.entries(config.labels||{});
+      content.innerHTML=`<div class="card"><h2>UI labels</h2>${labels.map(([k,v])=>`<form data-label-key="${esc(k)}" style="display:grid;grid-template-columns:220px 1fr auto;gap:8px;align-items:center;margin:7px 0;"><code>${esc(k)}</code><input name="label_value" value="${esc(v)}"><button type="submit">Save</button></form>`).join("")}</div>`;
+      content.querySelectorAll("form[data-label-key]").forEach(f=>f.onsubmit=async e=>{
+        e.preventDefault(); await api("/config/labels",{method:"POST",body:JSON.stringify({label_key:f.dataset.labelKey,label_value:f.label_value.value})}); toast("Label saved");
+      });
+    } else if (key==="catalog") {
+      content.innerHTML=`<div class="card"><h2>Service catalogue <button class="icon-btn" id="addServiceBtn">+ Add</button></h2>
+        <table><thead><tr><th>Service</th><th>Category</th><th>Price</th><th></th></tr></thead><tbody>${services.map(s=>`<tr><td>${esc(s.name)}</td><td>${esc(s.category||"—")}</td><td>${money(s.base_price)}</td><td><button class="icon-btn edit" data-edit-service="${s.id}">✎</button></td></tr>`).join("")}</tbody></table></div>`;
+      const editService=(s={})=>openModal(s.id?"Edit service":"Add service",`<form>
+        <div class="field"><label>Name</label><input name="name" value="${esc(s.name)}" required></div>
+        <div class="row2"><div class="field"><label>Base price</label><input name="base_price" type="number" min="0" value="${s.base_price??0}" required></div><div class="field"><label>Category</label><input name="category" value="${esc(s.category)}"></div></div>
+        <button type="submit" style="width:100%;">Save service</button></form>`,async data=>{await api("/config/services",{method:"POST",body:JSON.stringify({...data,id:s.id?Number(s.id):undefined,base_price:Number(data.base_price)})});toast("Service saved");renderSettings();});
+      content.querySelector("#addServiceBtn").onclick=()=>editService();
+      content.querySelectorAll("[data-edit-service]").forEach(b=>b.onclick=()=>editService(services.find(s=>String(s.id)===b.dataset.editService)));
+      content.insertAdjacentHTML("beforeend", `<div class="card"><h2>Packages</h2><div class="meta">Packages remain the reusable commercial bundles used by quotes and events.</div><button id="openPackagesPage" style="margin-top:10px;">Open Packages</button></div>`);
+      content.querySelector("#openPackagesPage").onclick=()=>go("packages");
+    } else if (key==="workflow") {
+      const timelineGroup = picklists.find(g=>g.group_key==="post_production_timeline");
+      content.innerHTML=`<div class="card"><h2>Event workflow</h2>
+        <div class="kpis"><div class="kpi"><div class="l">Phase 1</div><div class="v">Pre-Production</div></div><div class="kpi"><div class="l">Phase 2</div><div class="v">Production</div></div><div class="kpi"><div class="l">Phase 3</div><div class="v">Post-Production</div></div></div>
+        <h2 style="margin-top:18px;">Post-production timelines</h2>
+        <div>${(timelineGroup?.values||[]).map(v=>`<div class="list-row"><span>${esc(v.value_label)}</span><button class="icon-btn del" data-del-workflow="${v.id}">×</button></div>`).join("")}</div>
+        <form id="addTimelineForm" style="display:flex;gap:6px;margin-top:10px;"><input name="value_label" placeholder="Add workflow/timeline rule"><button>Add</button></form>
+      </div>`;
+      content.querySelector("#addTimelineForm").onsubmit=async e=>{e.preventDefault();const label=e.target.value_label.value.trim();if(!label)return;await api("/config/picklists",{method:"POST",body:JSON.stringify({group_key:"post_production_timeline",value_label:label})});toast("Workflow value added");renderSettings();};
+      content.querySelectorAll("[data-del-workflow]").forEach(b=>b.onclick=async()=>{await api(`/config/picklists/${b.dataset.delWorkflow}/delete`,{method:"POST",body:"{}"});toast("Workflow value hidden");renderSettings();});
+    } else {
+      content.innerHTML=`<div class="card"><h2>WhatsApp</h2>
+        <p class="meta">Current quote delivery uses a free click-to-WhatsApp link. Staff review the pre-filled message and press Send in WhatsApp.</p>
+        <div class="kpis"><div class="kpi"><div class="l">Business number</div><div class="v">7200457659</div></div><div class="kpi"><div class="l">Automation</div><div class="v">Manual send</div></div><div class="kpi"><div class="l">API cost</div><div class="v">Avoided</div></div></div>
+        <p style="margin-top:12px;">For automatic Cloud API sending, configure Meta WhatsApp Business separately; this build intentionally does not require a paid BSP.</p>
+      </div>`;
+    }
+  };
+  main.querySelectorAll("[data-settings-tab]").forEach(b=>b.onclick=()=>renderTab(b.dataset.settingsTab));
+  renderTab("resources");
 }
 
 // ── Reports ────────────────────────────────────────────────
