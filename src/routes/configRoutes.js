@@ -85,7 +85,7 @@ export async function listPicklists(request, env) {
     SELECT g.group_key,g.label AS group_label,g.description,g.sort_order AS group_sort,
            v.id,v.value_key,v.value_label,v.sort_order,v.active
     FROM picklist_groups g
-    LEFT JOIN picklist_values v ON v.group_id=g.id
+    LEFT JOIN picklist_values v ON v.group_id=g.id AND v.active=1
     WHERE g.active=1
     ORDER BY g.sort_order,g.label,v.sort_order,v.value_label
   `).all();
