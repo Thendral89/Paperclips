@@ -4,10 +4,10 @@
 
 import { json, badRequest, notFound } from "../lib/util.js";
 
-const PHASES = ["Pre-Production", "Production", "Post-Production"];
+const PHASES = ["Pre-Production", "Production", "Post-Production"];\nconst RESOURCE_TYPES = ["Person", "Vendor"];
 
 export async function getConfig(request, env) {
-  const [{ results: labels }, { results: groups }, { results: resources }, { results: skills }] =
+  const [{ results: labels }, { results: groups }, { results: resources }, { results: skills }, { results: resourceTypes }] =
     await Promise.all([
       env.DB.prepare(`SELECT label_key, label_value FROM app_labels ORDER BY label_key`).all(),
       env.DB.prepare(`
@@ -29,7 +29,7 @@ export async function getConfig(request, env) {
         GROUP BY r.id
         ORDER BY r.name
       `).all(),
-      env.DB.prepare(`SELECT * FROM skills WHERE active=1 ORDER BY label`).all(),
+      env.DB.prepare(`SELECT * FROM skills WHERE active=1 ORDER BY label`).all(),\n      env.DB.prepare(`SELECT value_key,value_label FROM picklist_values v JOIN picklist_groups g ON g.id=v.group_id WHERE g.group_key=? AND g.active=1 AND v.active=1 ORDER BY v.sort_order,v.value_label`).bind("resource_type").all(),
     ]);
 
   return json({
@@ -135,20 +135,20 @@ export async function listResources(request, env) {
 
 export async function saveResource(request, env) {
   const body = await request.json().catch(() => null);
-  if (!body?.name) return badRequest("name is required");
+  if (!body?.name) return badRequest("name is required");\n  const resourceType = RESOURCE_TYPES.includes(String(body.resource_type || "Person")) ? String(body.resource_type || "Person") : "Person";
 
   let id = body.id;
   if (id) {
     const old = await env.DB.prepare(`SELECT id FROM resources WHERE id=?`).bind(id).first();
     if (!old) return notFound("resource not found");
     await env.DB.prepare(`
-      UPDATE resources SET name=?,phone=?,email=?,notes=?,active=?,updated_at=datetime('now')
+      UPDATE resources SET name=?,resource_type=?,phone=?,email=?,notes=?,active=?,updated_at=datetime('now')
       WHERE id=?
-    `).bind(body.name,body.phone||null,body.email||null,body.notes||null,body.active===false?0:1,id).run();
+    `).bind(body.name,resourceType,body.phone||null,body.email||null,body.notes||null,body.active===false?0:1,id).run();
   } else {
     const result = await env.DB.prepare(`
-      INSERT INTO resources(name,phone,email,notes,active) VALUES(?,?,?,?,1)
-    `).bind(body.name,body.phone||null,body.email||null,body.notes||null).run();
+      INSERT INTO resources(name,resource_type,phone,email,notes,active) VALUES(?,?,?,?,?,1)
+    `).bind(body.name,resourceType,body.phone||null,body.email||null,body.notes||null).run();
     id = result.meta.last_row_id;
   }
 
@@ -176,7 +176,7 @@ export async function deleteResource(request, env, id) {
 
 export async function listEventResources(request, env, eventId) {
   const { results } = await env.DB.prepare(`
-    SELECT era.*,r.name AS resource_name,s.label AS skill_label
+    SELECT era.*,r.name AS resource_name,r.resource_type,s.label AS skill_label
     FROM event_resource_allocations era
     JOIN resources r ON r.id=era.resource_id
     LEFT JOIN skills s ON s.id=era.skill_id

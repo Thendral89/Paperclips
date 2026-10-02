@@ -203,7 +203,7 @@
     <div class="navlink" data-view="calendar"><svg width="17" height="17" viewBox="0 0 20 20" fill="none"><rect x="3" y="4" width="14" height="13" rx="2" stroke="currentColor" stroke-width="1.6"/><path d="M3 8h14M6.5 2.5v3M13.5 2.5v3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>Calendar</div>
     <div class="navlink" data-view="events"><svg width="17" height="17" viewBox="0 0 20 20" fill="none"><rect x="2.5" y="4" width="15" height="13" rx="2" stroke="currentColor" stroke-width="1.6"/><path d="M2.5 8h15M6.5 2.5v3M13.5 2.5v3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>Events</div>
     <div class="navlink" data-view="packages"><svg width="17" height="17" viewBox="0 0 20 20" fill="none"><path d="M10 2.5l7 3.8v7.4L10 17.5 3 13.7V6.3L10 2.5z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M3 6.3L10 10l7-3.7M10 10v7.5" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>Packages</div>
-    <div class="navlink" data-view="vendors"><svg width="17" height="17" viewBox="0 0 20 20" fill="none"><path d="M10.8 2.5H4a1.5 1.5 0 00-1.5 1.5v6.8c0 .4.16.78.44 1.06l7.9 7.9a1.5 1.5 0 002.12 0l6.8-6.8a1.5 1.5 0 000-2.12l-7.9-7.9a1.5 1.5 0 00-1.06-.44z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><circle cx="6.8" cy="6.8" r="1.3" stroke="currentColor" stroke-width="1.6"/></svg>Vendors</div>
+    <div class="navlink" data-view="resources"><svg width="17" height="17" viewBox="0 0 20 20" fill="none"><path d="M10.8 2.5H4a1.5 1.5 0 00-1.5 1.5v6.8c0 .4.16.78.44 1.06l7.9 7.9a1.5 1.5 0 002.12 0l6.8-6.8a1.5 1.5 0 000-2.12l-7.9-7.9a1.5 1.5 0 00-1.06-.44z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><circle cx="6.8" cy="6.8" r="1.3" stroke="currentColor" stroke-width="1.6"/></svg>Resources</div>
     <div class="navlink" data-view="equipment"><svg width="17" height="17" viewBox="0 0 20 20" fill="none"><path d="M2.5 7.2A1.5 1.5 0 014 5.7h2.1l.9-1.6h6l.9 1.6H16A1.5 1.5 0 0117.5 7.2v7.3A1.5 1.5 0 0116 16H4a1.5 1.5 0 01-1.5-1.5V7.2z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><circle cx="10" cy="10.8" r="3.1" stroke="currentColor" stroke-width="1.6"/></svg>Equipment</div>
     <div class="navlink" data-view="expenses"><svg width="17" height="17" viewBox="0 0 20 20" fill="none"><path d="M5 2.5h10v15l-2-1.3-2 1.3-2-1.3-2 1.3-2-1.3v-15z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M7.2 6.5h5.6M7.2 9.5h5.6M7.2 12.5h3.4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>Expenses</div>
     <div class="navlink" data-view="financials"><svg width="17" height="17" viewBox="0 0 20 20" fill="none"><path d="M2.5 14.5l5-5.5 3.2 3 6.3-7.5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/><path d="M13.5 4.5h3.5v3.5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>Financials</div>
@@ -232,7 +232,7 @@ let uiConfig = null;
 async function loadUiConfig(force=false) { if (uiConfig && !force) return uiConfig; uiConfig = await api("/config"); uiLabels = uiConfig.labels || {}; return uiConfig; }
 function L(key, fallback) { return escapeHtml(uiLabels[key] || fallback); }
 function applyConfiguredLabels() {
-  const navMap={"nav.dashboard":"dashboard","nav.leads":"leads","nav.accounts":"accounts","nav.calendar":"calendar","nav.events":"events","nav.packages":"packages","nav.vendors":"vendors","nav.equipment":"equipment","nav.expenses":"expenses","nav.financials":"financials","nav.reports":"reports","nav.settings":"settings"};
+  const navMap={"nav.dashboard":"dashboard","nav.leads":"leads","nav.accounts":"accounts","nav.calendar":"calendar","nav.events":"events","nav.packages":"packages","nav.resources":"resources","nav.equipment":"equipment","nav.expenses":"expenses","nav.financials":"financials","nav.reports":"reports","nav.settings":"settings"};
   for (const [key,view] of Object.entries(navMap)) { const el=document.querySelector(`.navlink[data-view="${view}"]`); if(!el||!uiLabels[key]) continue; const n=[...el.childNodes].find(x=>x.nodeType===Node.TEXT_NODE&&x.textContent.trim()); if(n) n.textContent=` ${uiLabels[key]}`; }
 }
 
@@ -428,7 +428,7 @@ async function render() {
     if (state.view === "calendar") return renderCalendar();
     if (state.view === "eventDetail") return renderEventDetail(state.id);
     if (state.view === "packages") return renderPackages();
-    if (state.view === "vendors") return renderVendors();
+    if (state.view === "resources") return renderResources();
     if (state.view === "equipment") return renderEquipment();
     if (state.view === "expenses") return renderExpenses();
     if (state.view === "financials") return renderFinancials();
@@ -1233,9 +1233,6 @@ async function renderEventDetail(id) {
         ${ev.staff_links.map(l => `<div class="list-row"><span>${l.staff_name}${l.role ? ` <span class="pill">${l.role}</span>` : ""} <span class="meta">${money(l.cost)}</span></span><span class="row-actions"><button type="button" class="icon-btn edit" data-edit-staff="${l.id}" title="Edit">✎</button><button type="button" class="icon-btn del" data-del-staff="${l.id}" title="Remove">✕</button></span></div>`).join("") || '<div class="empty">No staff assigned yet — use + Add.</div>'}
         <div id="linkOut"></div>
       </div>
-      <div class="card"><h2>Outside vendors / procurement <button class="icon-btn" id="addVendorBtn">+ Add</button></h2>
-        ${ev.vendors.map(v => `<div class="list-row"><span>${v.vendor_name}${v.role ? ` <span class="pill">${v.role}</span>` : ""} <span class="meta">${money(v.cost)}</span> ${statusPill(v.payment_status)}</span><span class="row-actions">${v.payment_status !== "Paid" ? `<button class="icon-btn" data-vendor-paid="${v.id}">Mark paid</button>` : ""}<button type="button" class="icon-btn edit" data-edit-evendor="${v.id}" title="Edit">✎</button><button type="button" class="icon-btn del" data-del-evendor="${v.id}" title="Remove">✕</button></span></div>`).join("") || '<div class="empty">No outside vendors on this event.</div>'}
-      </div>
     </div>
 
     <div class="card"><h2>Equipment — the other half of "event ready" besides people <button class="icon-btn" id="addEquipBtn">+ Add</button></h2>
@@ -1295,9 +1292,9 @@ async function renderEventDetail(id) {
   panels.postproduction.appendChild(ppCard);
   shell.querySelectorAll('[data-event-tab]').forEach(btn=>btn.addEventListener('click',()=>{shell.querySelectorAll('[data-event-tab]').forEach(b=>b.classList.toggle('active',b===btn));shell.querySelectorAll('[data-event-panel]').forEach(x=>x.classList.toggle('active',x.dataset.eventPanel===btn.dataset.eventTab));}));
   const rp=document.createElement('div'); rp.className='card'; rp.innerHTML=`<h2>${L('event.resources','Resources')} <button type="button" class="icon-btn" id="addResourceBtn">+ Add</button></h2><div id="eventResourcesList" class="resource-grid"><div class="empty">Loading…</div></div>`; panels.resources.prepend(rp);
-  const er=await api(`/events/${id}/resources`).catch(()=>[]); document.getElementById('eventResourcesList').innerHTML=er.length?er.map(r=>`<div class="resource-card"><b>${escapeHtml(r.resource_name)}</b><div class="meta">${escapeHtml(r.phase)}${r.skill_label?` · ${escapeHtml(r.skill_label)}`:''}</div>${r.role_label?`<div>${escapeHtml(r.role_label)}</div>`:''}<div class="meta">${money(r.cost)} · ${escapeHtml(r.status||'Planned')}</div><button type="button" class="icon-btn del" data-del-event-resource="${r.id}">✕ Remove</button></div>`).join(''):'<div class="empty">No resources allocated to this event.</div>';
+  const er=await api(`/events/${id}/resources`).catch(()=>[]); document.getElementById('eventResourcesList').innerHTML=er.length?er.map(r=>`<div class="resource-card"><b>${escapeHtml(r.resource_name)}</b><div class="meta"><span class="pill">${escapeHtml(r.resource_type||"Person")}</span> · ${escapeHtml(r.phase)}${r.skill_label?` · ${escapeHtml(r.skill_label)}`:''}</div>${r.role_label?`<div>${escapeHtml(r.role_label)}</div>`:''}<div class="meta">${money(r.cost)} · ${escapeHtml(r.status||'Planned')}</div><button type="button" class="icon-btn del" data-del-event-resource="${r.id}">✕ Remove</button></div>`).join(''):'<div class="empty">No resources allocated to this event.</div>';
   main.querySelectorAll('[data-del-event-resource]').forEach(el=>el.addEventListener('click',async()=>{await api(`/event-resources/${el.dataset.delEventResource}/delete`,{method:'POST',body:'{}'});toast('Resource removed');renderEventDetail(id);}));
-  main.querySelector('#addResourceBtn').addEventListener('click',async()=>{const cfg=await loadUiConfig(true), active=(cfg.resources||[]).filter(r=>r.active), skills=cfg.skills||[];openModal('Allocate resource',`<form><div class="field"><label>Resource</label><select name="resource_id" required>${active.map(r=>`<option value="${r.id}">${escapeHtml(r.name)}</option>`).join('')}</select></div><div class="field"><label>Phase</label><select name="phase">${(cfg.phases||[]).map(x=>`<option>${escapeHtml(x)}</option>`).join('')}</select></div><div class="field"><label>Skill</label><select name="skill_id"><option value="">— optional —</option>${skills.map(x=>`<option value="${x.id}">${escapeHtml(x.label)}</option>`).join('')}</select></div><div class="field"><label>Role</label><input name="role_label"></div><div class="field"><label>Cost (₹)</label><input name="cost" type="number" value="0"></div><div class="field"><label>Status</label><select name="status"><option>Planned</option><option>Confirmed</option><option>Completed</option><option>Cancelled</option></select></div><div class="field"><label>Notes</label><input name="notes"></div><button type="submit" style="width:100%">Allocate</button></form>`,async data=>{await api(`/events/${id}/resources`,{method:'POST',body:JSON.stringify(data)});toast('Resource allocated');renderEventDetail(id);});});
+  main.querySelector('#addResourceBtn').addEventListener('click',async()=>{const cfg=await loadUiConfig(true), active=(cfg.resources||[]).filter(r=>r.active), skills=cfg.skills||[];openModal('Allocate resource',`<form><div class="field"><label>Resource</label><select name="resource_id" required>${active.map(r=>`<option value="${r.id}">${escapeHtml(r.name)} (${escapeHtml(r.resource_type||"Person")})</option>`).join('')}</select></div><div class="field"><label>Phase</label><select name="phase">${(cfg.phases||[]).map(x=>`<option>${escapeHtml(x)}</option>`).join('')}</select></div><div class="field"><label>Skill</label><select name="skill_id"><option value="">— optional —</option>${skills.map(x=>`<option value="${x.id}">${escapeHtml(x.label)}</option>`).join('')}</select></div><div class="field"><label>Role</label><input name="role_label"></div><div class="field"><label>Cost (₹)</label><input name="cost" type="number" value="0"></div><div class="field"><label>Status</label><select name="status"><option>Planned</option><option>Confirmed</option><option>Completed</option><option>Cancelled</option></select></div><div class="field"><label>Notes</label><input name="notes"></div><button type="submit" style="width:100%">Allocate</button></form>`,async data=>{await api(`/events/${id}/resources`,{method:'POST',body:JSON.stringify(data)});toast('Resource allocated');renderEventDetail(id);});});
   main.querySelector("[data-back]").addEventListener("click", () => goBack("events"));
   main.querySelector("#editEventBtn").addEventListener("click", () => openModal("Edit event", `
     <form>
@@ -1350,18 +1347,6 @@ async function renderEventDetail(id) {
     const r = await api("/staff-links", { method: "POST", body: JSON.stringify(data) });
     document.getElementById("linkOut").innerHTML = `<div class="copybox">${r.url}</div>`;
     toast("Staff link generated");
-  }));
-  main.querySelector("#addVendorBtn").addEventListener("click", () => openModal("Add vendor to event", `
-    <form>
-      <div class="field"><label>Vendor</label><select name="vendor_id" required>${vendors.map(v => `<option value="${v.id}">${v.name} (${v.category||"—"})</option>`).join("") || `<option value="">No vendors yet — add one in the Vendors tab</option>`}</select></div>
-      <div class="field"><label>Role for this event</label><input name="role" placeholder="Drone operator"></div>
-      <div class="field"><label>Cost (₹)</label><input name="cost" type="number" value="0"></div>
-      <button type="submit" style="width:100%;">Add vendor to event</button>
-    </form>
-  `, async data => {
-    await api(`/events/${id}/vendors`, { method: "POST", body: JSON.stringify(data) });
-    toast("Vendor added to event");
-    renderEventDetail(id);
   }));
   main.querySelector("#addSchedBtn").addEventListener("click", () => openModal("Add installment", `
     <form>
@@ -1473,21 +1458,7 @@ async function renderEventDetail(id) {
   }));
   main.querySelectorAll("[data-del-staff]").forEach(el => el.addEventListener("click", () =>
     confirmDelete("Remove this staff assignment? Their portal link will stop working.", `/staff-links/${el.dataset.delStaff}/delete`, () => renderEventDetail(id))
-  ));
-  main.querySelectorAll("[data-edit-evendor]").forEach(el => el.addEventListener("click", () => {
-    const v = ev.vendors.find(x => String(x.id) === el.dataset.editEvendor);
-    openModal("Edit vendor on event", `
-      <form>
-        <div class="field"><label>Role for this event</label><input name="role" value="${v.role || ""}"></div>
-        <div class="field"><label>Cost (₹)</label><input name="cost" type="number" value="${v.cost}"></div>
-        <button type="submit" style="width:100%;">Save</button>
-      </form>
-    `, async data => { await api(`/event-vendors/${v.id}`, { method: "POST", body: JSON.stringify(data) }); toast("Updated"); renderEventDetail(id); });
-  }));
-  main.querySelectorAll("[data-del-evendor]").forEach(el => el.addEventListener("click", () =>
-    confirmDelete("Remove this vendor from the event?", `/event-vendors/${el.dataset.delEvendor}/delete`, () => renderEventDetail(id))
-  ));
-  main.querySelectorAll("[data-edit-sched]").forEach(el => el.addEventListener("click", () => {
+  ));  main.querySelectorAll("[data-edit-sched]").forEach(el => el.addEventListener("click", () => {
     const p = ev.payment_schedule.find(x => String(x.id) === el.dataset.editSched);
     openModal("Edit installment", `
       <form>
@@ -1534,51 +1505,120 @@ async function renderEventDetail(id) {
 
 
 async function renderSettings(){
-  const cfg=await loadUiConfig(true), labels=Object.entries(cfg.labels||{}), resources=cfg.resources||[], skills=cfg.skills||[];
-  main.innerHTML=`${pageHeader(L('nav.settings','Settings'),null)}<div class="card"><h2>Labels</h2><p class="empty">These values are stored in D1 and are read by the UI.</p>${labels.map(([k,v])=>`<form class="list-row label-form" data-label-key="${escapeHtml(k)}"><span style="flex:1"><b>${escapeHtml(k)}</b><br><input name="label_value" value="${escapeHtml(v)}" style="width:100%;margin-top:5px"></span><button type="submit">Save</button></form>`).join('')}</div><div class="card"><h2>Resources <button type="button" class="icon-btn" id="addSettingsResource">+ Add</button></h2>${resources.map(r=>`<div class="list-row"><span><b>${escapeHtml(r.name)}</b><br><span class="meta">${escapeHtml(r.skills||'No skills')} · ${escapeHtml(r.phases||'No phase')}</span></span><button type="button" class="icon-btn del" data-del-settings-resource="${r.id}">Deactivate</button></div>`).join('')||'<div class="empty">No resources.</div>'}</div><div class="card"><h2>Skills</h2>${skills.map(x=>`<span class="pill" style="margin:3px">${escapeHtml(x.label)}</span>`).join(' ')}</div>`;
-  main.querySelectorAll('.label-form').forEach(form=>form.addEventListener('submit',async e=>{e.preventDefault();await api('/labels',{method:'POST',body:JSON.stringify({label_key:form.dataset.labelKey,label_value:new FormData(form).get('label_value')})});await loadUiConfig(true);applyConfiguredLabels();toast('Label saved');renderSettings();}));
-  main.querySelectorAll('[data-del-settings-resource]').forEach(el=>el.addEventListener('click',async()=>{await api(`/resources/${el.dataset.delSettingsResource}/delete`,{method:'POST',body:'{}'});toast('Resource deactivated');renderSettings();}));
-  main.querySelector('#addSettingsResource').addEventListener('click',()=>openModal('Add resource',`<form><div class="field"><label>Name</label><input name="name" required></div><div class="field"><label>Phone</label><input name="phone"></div><div class="field"><label>Email</label><input name="email"></div><div class="field"><label>Skills</label><select name="skill_ids" multiple size="6">${skills.map(x=>`<option value="${x.id}">${escapeHtml(x.label)}</option>`).join('')}</select></div><div class="field"><label>Phases</label>${(cfg.phases||[]).map(x=>`<label style="display:block;text-transform:none"><input type="checkbox" name="phases" value="${escapeHtml(x)}" style="width:auto"> ${escapeHtml(x)}</label>`).join('')}</div><button type="submit" style="width:100%">Save resource</button></form>`,async(data,form)=>{data.skill_ids=[...form.querySelector('[name="skill_ids"]').selectedOptions].map(x=>Number(x.value));data.phases=[...form.querySelectorAll('[name="phases"]:checked')].map(x=>x.value);await api('/resources',{method:'POST',body:JSON.stringify(data)});toast('Resource added');renderSettings();}));
+  const cfg=await loadUiConfig(true), labels=Object.entries(cfg.labels||{}), skills=cfg.skills||[], resourceTypes=cfg.resource_types||[];
+  main.innerHTML=`${pageHeader(L('nav.settings','Settings'),null)}
+    <div class="card"><h2>Labels</h2><p class="empty">UI wording stored in D1. Change a value and save only when you need to rename a label.</p>
+      ${labels.map(([k,v])=>`<form class="list-row label-form" data-label-key="${escapeHtml(k)}"><span style="flex:1"><b>${escapeHtml(k)}</b><br><input name="label_value" value="${escapeHtml(v)}" style="width:100%;margin-top:5px"></span><button type="submit">Save</button></form>`).join('')}
+    </div>
+    <div class="row2">
+      <div class="card"><h2>Resource Types</h2>
+        <p class="empty">Categories used by the Resources module.</p>
+        ${resourceTypes.map(x=>`<span class="pill" style="margin:3px">${escapeHtml(x.value_label||x.label||x)}</span>`).join(' ') || '<div class="empty">No resource types configured.</div>'}
+      </div>
+      <div class="card"><h2>Skills</h2>
+        <p class="empty">Skills available when creating or allocating a resource.</p>
+        ${skills.map(x=>`<span class="pill" style="margin:3px">${escapeHtml(x.label)}</span>`).join(' ') || '<div class="empty">No skills configured.</div>'}
+      </div>
+    </div>`;
+  main.querySelectorAll('.label-form').forEach(form=>form.addEventListener('submit',async e=>{
+    e.preventDefault();
+    await api('/labels',{method:'POST',body:JSON.stringify({label_key:form.dataset.labelKey,label_value:new FormData(form).get('label_value')})});
+    await loadUiConfig(true); applyConfiguredLabels(); toast('Label saved'); renderSettings();
+  }));
 }
 
 // ── Vendors ────────────────────────────────────────────────
-async function renderVendors() {
-  const vendors = await api("/vendors");
-  main.innerHTML = `
-    ${pageHeader("Vendors", "+ New vendor")}
-    <p class="empty" style="margin-top:-10px;margin-bottom:16px;">People and businesses you procure for an event but don't employ — catering, decoration, drone/equipment, partner studios you collaborate with.</p>
-    <div class="card"><h2>All vendors</h2>
-      <table><thead><tr><th>Name</th><th>Category</th><th>Phone</th><th></th></tr></thead>
-      <tbody>${vendors.map(v => `<tr><td>${v.name}</td><td><span class="pill">${v.category||"—"}</span></td><td>${v.phone||"—"}</td><td class="row-actions"><button type="button" class="icon-btn edit" data-edit-vendor="${v.id}" title="Edit">✎</button><button type="button" class="icon-btn del" data-del-vendor="${v.id}" title="Delete">✕</button></td></tr>`).join("") || `<tr><td colspan="4" class="empty">No vendors yet — use the + button to add one.</td></tr>`}</tbody></table>
+async function renderResources(){
+  const cfg=await loadUiConfig(true);
+  const resources=await api("/resources");
+  const skills=cfg.skills||[];
+  const phases=cfg.phases||[];
+  const types=cfg.resource_types||[{value_key:"person",value_label:"Person"},{value_key:"vendor",value_label:"Vendor"}];
+  const typeLabel = r => r.resource_type || "Person";
+  let filter="all";
+
+  const renderTable=()=>{
+    const rows=resources.filter(r=>filter==="all" || (filter==="people" ? typeLabel(r)==="Person" : typeLabel(r)==="Vendor"));
+    const body=rows.map(r=>`<tr>
+      <td><b>${escapeHtml(r.name)}</b><div class="meta">${escapeHtml(r.phone||"")}${r.email?` · ${escapeHtml(r.email)}`:""}</div></td>
+      <td><span class="pill">${escapeHtml(typeLabel(r))}</span></td>
+      <td>${escapeHtml(r.skills||"—")}</td>
+      <td>${escapeHtml(r.phases||"—")}</td>
+      <td>${escapeHtml(r.phone||"—")}</td>
+      <td class="row-actions"><button type="button" class="icon-btn edit" data-edit-resource="${r.id}" title="Edit">✎</button>${r.active?`<button type="button" class="icon-btn del" data-del-resource="${r.id}" title="Deactivate">Deactivate</button>`:`<span class="meta">Inactive</span>`}</td>
+    </tr>`).join("");
+    return body || `<tr><td colspan="6" class="empty">No resources in this filter.</td></tr>`;
+  };
+
+  main.innerHTML=`${pageHeader(L("nav.resources","Resources"),"+ Add Resource")}
+    <p class="empty" style="margin-top:-10px;margin-bottom:16px;">People and vendors used to plan and deliver events. Vendors are resources, not a separate module.</p>
+    <div class="segmented" id="resourceFilters">
+      <button type="button" class="active" data-resource-filter="all">All</button>
+      <button type="button" data-resource-filter="people">People</button>
+      <button type="button" data-resource-filter="vendors">Vendors</button>
     </div>
-  `;
-  const categoryOptions = (selected) => ["Catering","Decoration","Drone/Equipment","Makeup","Venue","Partner studio","Other"].map(c => `<option ${c===selected?"selected":""}>${c}</option>`).join("");
-  setPrimaryAction(() => openModal("Add a vendor", `
-    <form>
-      <div class="field"><label>Name</label><input name="name" required></div>
-      <div class="field"><label>Category</label><select name="category">${categoryOptions()}</select></div>
-      <div class="field"><label>Phone</label><input name="phone"></div>
-      <button type="submit" style="width:100%;">Add vendor</button>
-    </form>
-  `, async data => {
-    await api("/vendors", { method: "POST", body: JSON.stringify(data) });
-    toast("Vendor added");
-    renderVendors();
+    <div class="card"><h2>Resource directory</h2>
+      <div style="overflow:auto"><table><thead><tr><th>Name</th><th>Category</th><th>Skills</th><th>Workflow</th><th>Phone</th><th></th></tr></thead>
+      <tbody id="resourcesBody">${renderTable()}</tbody></table></div>
+    </div>`;
+
+  const openResource=async(resource)=>{
+    const skillIds=String(resource?.skill_ids||"").split(",").filter(Boolean).map(Number);
+    const currentPhases=String(resource?.phases||"").split(",").filter(Boolean);
+    openModal(resource?"Edit resource":"Add resource",`<form>
+      <div class="field"><label>Name</label><input name="name" value="${escapeHtml(resource?.name||"")}" required></div>
+      <div class="field"><label>Category</label><select name="resource_type">${types.map(t=>`<option value="${escapeHtml(t.value_label||t)}" ${(resource?.resource_type||"Person")===(t.value_label||t)?"selected":""}>${escapeHtml(t.value_label||t)}</option>`).join("")}</select></div>
+      <div class="field"><label>Phone</label><input name="phone" value="${escapeHtml(resource?.phone||"")}"></div>
+      <div class="field"><label>Email</label><input name="email" value="${escapeHtml(resource?.email||"")}"></div>
+      <div class="field"><label>Skills</label><select name="skill_ids" multiple size="7">${skills.map(s=>`<option value="${s.id}" ${skillIds.includes(Number(s.id))?"selected":""}>${escapeHtml(s.label)}</option>`).join("")}</select></div>
+      <div class="field"><label>Workflow phases</label>${phases.map(p=>`<label style="display:block;text-transform:none"><input type="checkbox" name="phases" value="${escapeHtml(p)}" ${currentPhases.includes(p)?"checked":""} style="width:auto"> ${escapeHtml(p)}</label>`).join("")}</div>
+      <div class="field"><label>Notes</label><textarea name="notes" rows="3">${escapeHtml(resource?.notes||"")}</textarea></div>
+      <button type="submit" style="width:100%">${resource?"Save changes":"Add resource"}</button>
+    </form>`,async data=>{
+      data.skill_ids=[...arguments[1].querySelector('[name="skill_ids"]').selectedOptions].map(x=>Number(x.value));
+    });
+  };
+
+  // Rebind the modal submit separately so the form element is available in the callback.
+  const openResourceForm=(resource)=>{
+    const skillIds=String(resource?.skill_ids||"").split(",").filter(Boolean).map(Number);
+    const currentPhases=String(resource?.phases||"").split(",").filter(Boolean);
+    openModal(resource?"Edit resource":"Add resource",`<form>
+      <div class="field"><label>Name</label><input name="name" value="${escapeHtml(resource?.name||"")}" required></div>
+      <div class="field"><label>Category</label><select name="resource_type">${types.map(t=>`<option value="${escapeHtml(t.value_label||t)}" ${(resource?.resource_type||"Person")===(t.value_label||t)?"selected":""}>${escapeHtml(t.value_label||t)}</option>`).join("")}</select></div>
+      <div class="field"><label>Phone</label><input name="phone" value="${escapeHtml(resource?.phone||"")}"></div>
+      <div class="field"><label>Email</label><input name="email" value="${escapeHtml(resource?.email||"")}"></div>
+      <div class="field"><label>Skills</label><select name="skill_ids" multiple size="7">${skills.map(s=>`<option value="${s.id}" ${skillIds.includes(Number(s.id))?"selected":""}>${escapeHtml(s.label)}</option>`).join("")}</select></div>
+      <div class="field"><label>Workflow phases</label>${phases.map(p=>`<label style="display:block;text-transform:none"><input type="checkbox" name="phases" value="${escapeHtml(p)}" ${currentPhases.includes(p)?"checked":""} style="width:auto"> ${escapeHtml(p)}</label>`).join("")}</div>
+      <div class="field"><label>Notes</label><textarea name="notes" rows="3">${escapeHtml(resource?.notes||"")}</textarea></div>
+      <button type="submit" style="width:100%">${resource?"Save changes":"Add resource"}</button>
+    </form>`,async(data,form)=>{
+      data.id=resource?.id;
+      data.skill_ids=[...form.querySelector('[name="skill_ids"]').selectedOptions].map(x=>Number(x.value));
+      data.phases=[...form.querySelectorAll('[name="phases"]:checked')].map(x=>x.value);
+      await api("/resources",{method:"POST",body:JSON.stringify(data)});
+      toast(resource?"Resource updated":"Resource added");
+      renderResources();
+    });
+  };
+
+  setPrimaryAction(()=>openResourceForm(null));
+  main.querySelectorAll("[data-resource-filter]").forEach(btn=>btn.addEventListener("click",()=>{
+    filter=btn.dataset.resourceFilter;
+    main.querySelectorAll("[data-resource-filter]").forEach(x=>x.classList.toggle("active",x===btn));
+    document.getElementById("resourcesBody").innerHTML=renderTable();
+    bindRows();
   }));
-  main.querySelectorAll("[data-edit-vendor]").forEach(el => el.addEventListener("click", () => {
-    const v = vendors.find(x => String(x.id) === el.dataset.editVendor);
-    openModal("Edit vendor", `
-      <form>
-        <div class="field"><label>Name</label><input name="name" value="${v.name}" required></div>
-        <div class="field"><label>Category</label><select name="category">${categoryOptions(v.category)}</select></div>
-        <div class="field"><label>Phone</label><input name="phone" value="${v.phone || ""}"></div>
-        <button type="submit" style="width:100%;">Save</button>
-      </form>
-    `, async data => { await api(`/vendors/${v.id}`, { method: "POST", body: JSON.stringify(data) }); toast("Vendor updated"); renderVendors(); });
-  }));
-  main.querySelectorAll("[data-del-vendor]").forEach(el => el.addEventListener("click", () =>
-    confirmDelete("Remove this vendor?", `/vendors/${el.dataset.delVendor}/delete`, renderVendors)
-  ));
+  const bindRows=()=>{
+    main.querySelectorAll("[data-edit-resource]").forEach(el=>el.addEventListener("click",()=>{
+      const r=resources.find(x=>String(x.id)===el.dataset.editResource); if(r) openResourceForm(r);
+    }));
+    main.querySelectorAll("[data-del-resource]").forEach(el=>el.addEventListener("click",async()=>{
+      await api(`/resources/${el.dataset.delResource}/delete`,{method:"POST",body:"{}"});
+      toast("Resource deactivated"); renderResources();
+    }));
+  };
+  bindRows();
 }
 
 // ── Equipment catalog ────────────────────────────────────────

@@ -891,7 +891,7 @@ export async function getEvent(request, env, id) {
        FROM event_equipment ee LEFT JOIN equipment eq ON eq.id = ee.equipment_id WHERE ee.event_id = ?`
     ).bind(id).all(),
     env.DB.prepare(
-      `SELECT era.*, r.name AS resource_name, s.label AS skill_label
+      `SELECT era.*, r.name AS resource_name, r.resource_type, s.label AS skill_label
        FROM event_resource_allocations era
        JOIN resources r ON r.id = era.resource_id
        LEFT JOIN skills s ON s.id = era.skill_id
