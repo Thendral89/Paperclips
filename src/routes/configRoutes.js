@@ -7,6 +7,19 @@ import { json, badRequest, notFound } from "../lib/util.js";
 const PHASES = ["Pre-Production", "Production", "Post-Production"];
 const RESOURCE_TYPES = ["Person", "Vendor"];
 
+function picklistObject(groupKey) {
+  const key = String(groupKey || "").toLowerCase();
+  if (key.startsWith("resource_")) return "resources";
+  if (key.startsWith("event_") || key.startsWith("post_production_")) return "events";
+  if (key.startsWith("lead_")) return "leads";
+  if (key.startsWith("account_") || key.startsWith("client_")) return "accounts";
+  if (key.startsWith("package_") || key.startsWith("service_")) return "packages";
+  if (key.startsWith("equipment_")) return "equipment";
+  if (key.startsWith("expense_")) return "expenses";
+  if (key.startsWith("financial_") || key.startsWith("payment_")) return "financials";
+  return "general";
+}
+
 export async function getConfig(request, env) {
   const [{ results: labels }, { results: groups }, { results: resources }, { results: skills }, { results: resourceTypes }] =
     await Promise.all([
@@ -79,8 +92,8 @@ export async function listPicklists(request, env) {
   const groups = {};
   for (const row of results) {
     const g = groups[row.group_key] ||= {
-      group_key: row.group_key, label: row.group_label,
-      description: row.description, values: []
+      group_key: row.group_key, object_key: picklistObject(row.group_key),
+      label: row.group_label, description: row.description, values: []
     };
     if (row.id) g.values.push(row);
   }
