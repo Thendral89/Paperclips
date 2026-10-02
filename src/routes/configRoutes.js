@@ -4,7 +4,8 @@
 
 import { json, badRequest, notFound } from "../lib/util.js";
 
-const PHASES = ["Pre-Production", "Production", "Post-Production"];\nconst RESOURCE_TYPES = ["Person", "Vendor"];
+const PHASES = ["Pre-Production", "Production", "Post-Production"];
+const RESOURCE_TYPES = ["Person", "Vendor"];
 
 export async function getConfig(request, env) {
   const [{ results: labels }, { results: groups }, { results: resources }, { results: skills }, { results: resourceTypes }] =
@@ -29,7 +30,8 @@ export async function getConfig(request, env) {
         GROUP BY r.id
         ORDER BY r.name
       `).all(),
-      env.DB.prepare(`SELECT * FROM skills WHERE active=1 ORDER BY label`).all(),\n      env.DB.prepare(`SELECT value_key,value_label FROM picklist_values v JOIN picklist_groups g ON g.id=v.group_id WHERE g.group_key=? AND g.active=1 AND v.active=1 ORDER BY v.sort_order,v.value_label`).bind("resource_type").all(),
+      env.DB.prepare(`SELECT * FROM skills WHERE active=1 ORDER BY label`).all(),
+	  env.DB.prepare(`SELECT value_key,value_label FROM picklist_values v JOIN picklist_groups g ON g.id=v.group_id WHERE g.group_key=? AND g.active=1 AND v.active=1 ORDER BY v.sort_order,v.value_label`).bind("resource_type").all(),
     ]);
 
   return json({
@@ -135,7 +137,8 @@ export async function listResources(request, env) {
 
 export async function saveResource(request, env) {
   const body = await request.json().catch(() => null);
-  if (!body?.name) return badRequest("name is required");\n  const resourceType = RESOURCE_TYPES.includes(String(body.resource_type || "Person")) ? String(body.resource_type || "Person") : "Person";
+  if (!body?.name) return badRequest("name is required");
+  const resourceType = RESOURCE_TYPES.includes(String(body.resource_type || "Person")) ? String(body.resource_type || "Person") : "Person";
 
   let id = body.id;
   if (id) {
