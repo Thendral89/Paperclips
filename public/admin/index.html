@@ -1641,7 +1641,8 @@ async function renderSettings(){
   const openSkillForm=(skill=null)=>{
     openModal(skill?'Edit skill':'Add skill',`<form>
       <div class="field"><label>Skill name</label><input name="label" value="${escapeHtml(skill?.label||'')}" required></div>
-      </form>`,async(data)=>{
+      <button type="submit" style="width:100%">${skill?'Save changes':'Add skill'}</button>
+    </form>`,async(data)=>{
       data.id=skill?.id;
       data.skill_key=skill?.skill_key || '';
       await api('/skills',{method:'POST',body:JSON.stringify(data)});
