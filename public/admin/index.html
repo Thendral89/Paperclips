@@ -1509,7 +1509,22 @@ async function renderSettings(){
   const labels=Object.entries(cfg.labels||{});
   const skills=cfg.skills||[];
   const picklists=await api('/picklists');
-  const editablePicklists=picklists.filter(g=>g.group_key!=='resource_type' && g.group_key!=='resource_skill');
+
+  const objects=[
+    {key:'leads',label:L('nav.leads','Leads')},
+    {key:'accounts',label:'Clients'},
+    {key:'events',label:L('nav.events','Events')},
+    {key:'resources',label:L('nav.resources','Resources')},
+    {key:'packages',label:L('nav.packages','Packages')},
+    {key:'equipment',label:'Equipment'},
+    {key:'expenses',label:'Expenses'},
+    {key:'financials',label:'Financials'}
+  ];
+
+  // Skills are maintained in their own resource configuration card.
+  // resource_skill is therefore intentionally not duplicated as a generic picklist.
+  const editablePicklists=picklists.filter(g=>g.group_key!=='resource_skill');
+  let activeObject='leads';
 
   main.innerHTML=`${pageHeader(L('nav.settings','Settings'),null)}
     <div class="card">
@@ -1525,25 +1540,14 @@ async function renderSettings(){
     </div>
 
     <div class="card">
-      <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:13px;">
-        <div><h2 style="margin:0">Picklists</h2><p class="empty" style="margin:3px 0 0">Business categories and dropdown values used throughout the CRM.</p></div>
-        <button type="button" id="addPicklistValue">+ Add value</button>
+      <div style="margin-bottom:13px;">
+        <h2 style="margin:0">Picklists by tab</h2>
+        <p class="empty" style="margin:3px 0 12px">Choose the CRM object, then edit only the categories and values that belong to that tab.</p>
+        <div class="segbar" id="picklistObjectTabs" style="margin-bottom:0;">
+          ${objects.map(o=>`<button type="button" class="seg ${o.key===activeObject?'active':''}" data-picklist-object="${o.key}">${escapeHtml(o.label)}</button>`).join('')}
+        </div>
       </div>
-      ${editablePicklists.map(g=>`
-        <div style="border-top:1px solid var(--line);padding:13px 0 5px;">
-          <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;">
-            <div><b>${escapeHtml(g.label)}</b><div class="meta">${escapeHtml(g.description||'')}</div></div>
-            <button type="button" class="ghost" data-add-picklist="${escapeHtml(g.group_key)}">+ Add</button>
-          </div>
-          ${g.values?.length ? g.values.map(v=>`
-            <div class="list-row">
-              <span style="flex:1"><b>${escapeHtml(v.value_label)}</b><span class="meta"> · ${escapeHtml(v.value_key)}</span></span>
-              <span class="row-actions">
-                <button type="button" class="icon-btn edit" data-edit-picklist="${v.id}">Edit</button>
-                <button type="button" class="icon-btn del" data-del-picklist="${v.id}">Remove</button>
-              </span>
-            </div>`).join('') : '<div class="empty" style="padding:8px 0">No values configured.</div>'}
-        </div>`).join('') || '<div class="empty">No editable picklists configured.</div>'}
+      <div id="picklistObjectPanel"></div>
     </div>
 
     <div class="card">
@@ -1567,11 +1571,13 @@ async function renderSettings(){
     await loadUiConfig(true); applyConfiguredLabels(); toast('Label saved'); renderSettings();
   }));
 
-  const openPicklistForm=(groupKey, value=null)=>{
-    const group=editablePicklists.find(g=>g.group_key===groupKey) || editablePicklists.find(g=>g.values?.some(v=>String(v.id)===String(value?.id)));
+  const groupsForObject=objectKey=>editablePicklists.filter(g=>g.object_key===objectKey);
+
+  const openPicklistForm=(group,value=null)=>{
     if(!group) return;
     openModal(value?'Edit picklist value':'Add picklist value',`<form>
-      <div class="field"><label>Category</label><input value="${escapeHtml(group.label)}" disabled></div>
+      <div class="field"><label>Object</label><input value="${escapeHtml(objects.find(o=>o.key===activeObject)?.label||activeObject)}" disabled></div>
+      <div class="field"><label>Picklist</label><input value="${escapeHtml(group.label)}" disabled></div>
       <div class="field"><label>Value</label><input name="value_label" value="${escapeHtml(value?.value_label||'')}" required></div>
       <div class="field"><label>Sort order</label><input name="sort_order" type="number" value="${Number(value?.sort_order||0)}"></div>
       <button type="submit" style="width:100%">${value?'Save changes':'Add value'}</button>
@@ -1579,30 +1585,65 @@ async function renderSettings(){
       data.group_key=group.group_key;
       data.id=value?.id;
       await api('/picklists',{method:'POST',body:JSON.stringify(data)});
-      toast(value?'Picklist value updated':'Picklist value added'); renderSettings();
+      toast(value?'Picklist value updated':'Picklist value added');
+      renderSettings();
     });
   };
 
-  document.getElementById('addPicklistValue')?.addEventListener('click',()=>{
-    const first=editablePicklists[0]; if(first) openPicklistForm(first.group_key);
-  });
-  main.querySelectorAll('[data-add-picklist]').forEach(el=>el.addEventListener('click',()=>openPicklistForm(el.dataset.addPicklist)));
-  main.querySelectorAll('[data-edit-picklist]').forEach(el=>el.addEventListener('click',()=>{
-    const value=editablePicklists.flatMap(g=>g.values||[]).find(v=>String(v.id)===el.dataset.editPicklist);
-    if(value) openPicklistForm(null,value);
+  const paintPicklists=()=>{
+    const panel=document.getElementById('picklistObjectPanel');
+    if(!panel) return;
+    const groups=groupsForObject(activeObject);
+    panel.innerHTML=groups.length ? groups.map(g=>`
+      <div style="border-top:1px solid var(--line);padding:13px 0 5px;">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;">
+          <div><b>${escapeHtml(g.label)}</b><div class="meta">${escapeHtml(g.description||'')}</div></div>
+          <button type="button" class="ghost" data-add-picklist="${escapeHtml(g.group_key)}">+ Add value</button>
+        </div>
+        ${g.values?.length ? g.values.map(v=>`
+          <div class="list-row">
+            <span style="flex:1"><b>${escapeHtml(v.value_label)}</b><span class="meta"> · ${escapeHtml(v.value_key)}</span></span>
+            <span class="row-actions">
+              <button type="button" class="icon-btn edit" data-edit-picklist="${v.id}">Edit</button>
+              <button type="button" class="icon-btn del" data-del-picklist="${v.id}">Remove</button>
+            </span>
+          </div>`).join('') : '<div class="empty" style="padding:8px 0">No values configured.</div>'}
+      </div>`).join('') : `
+        <div style="padding:16px 0 8px;">
+          <div class="empty">No configurable picklists are currently assigned to this tab.</div>
+          <div class="meta" style="margin-top:5px;">This keeps the configuration scoped to the object instead of mixing unrelated dropdowns together.</div>
+        </div>`;
+
+    panel.querySelectorAll('[data-add-picklist]').forEach(el=>el.addEventListener('click',()=>{
+      const group=groups.find(g=>g.group_key===el.dataset.addPicklist);
+      openPicklistForm(group);
+    }));
+    panel.querySelectorAll('[data-edit-picklist]').forEach(el=>el.addEventListener('click',()=>{
+      const value=groups.flatMap(g=>g.values||[]).find(v=>String(v.id)===el.dataset.editPicklist);
+      const group=value ? groups.find(g=>(g.values||[]).some(v=>String(v.id)===String(value.id))) : null;
+      if(value) openPicklistForm(group,value);
+    }));
+    panel.querySelectorAll('[data-del-picklist]').forEach(el=>el.addEventListener('click',async()=>{
+      if(!confirm('Remove this picklist value?')) return;
+      await api(`/picklists/${el.dataset.delPicklist}/delete`,{method:'POST',body:'{}'});
+      toast('Picklist value removed');
+      renderSettings();
+    }));
+  };
+
+  main.querySelectorAll('[data-picklist-object]').forEach(el=>el.addEventListener('click',()=>{
+    activeObject=el.dataset.picklistObject;
+    main.querySelectorAll('[data-picklist-object]').forEach(x=>x.classList.toggle('active',x===el));
+    paintPicklists();
   }));
-  main.querySelectorAll('[data-del-picklist]').forEach(el=>el.addEventListener('click',async()=>{
-    if(!confirm('Remove this picklist value?')) return;
-    await api(`/picklists/${el.dataset.delPicklist}/delete`,{method:'POST',body:'{}'});
-    toast('Picklist value removed'); renderSettings();
-  }));
+  paintPicklists();
 
   const openSkillForm=(skill=null)=>{
     openModal(skill?'Edit skill':'Add skill',`<form>
       <div class="field"><label>Skill name</label><input name="label" value="${escapeHtml(skill?.label||'')}" required></div>
-      <button type="submit" style="width:100%">${skill?'Save changes':'Add skill'}</button>
-    </form>`,async(data)=>{
+      </form>`,async(data)=>{
       data.id=skill?.id;
+      data.skill_key=skill?.skill_key || '';
       await api('/skills',{method:'POST',body:JSON.stringify(data)});
       toast(skill?'Skill updated':'Skill added'); renderSettings();
     });
