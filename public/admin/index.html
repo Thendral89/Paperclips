@@ -1636,6 +1636,277 @@ async function renderSettings(){
   main.querySelectorAll("[data-settings-section]").forEach(btn=>btn.addEventListener("click",()=>{activeSection=btn.dataset.settingsSection;main.querySelectorAll("[data-settings-section]").forEach(x=>x.classList.toggle("active",x===btn));renderSection();}));
   renderSection();
 }
+async function renderResources(){
+  const cfg=await loadUiConfig(true);
+  const resources=await api("/resources");
+  const skills=cfg.skills||[];
+  const phases=cfg.phases||[];
+  const types=cfg.resource_types||[{value_key:"person",value_label:"Person"},{value_key:"vendor",value_label:"Vendor"}];
+  const typeLabel = r => r.resource_type || "Person";
+  let filter="all";
+
+  const renderTable=()=>{
+    const rows=resources.filter(r=>filter==="all" || (filter==="people" ? typeLabel(r)==="Person" : typeLabel(r)==="Vendor"));
+    const body=rows.map(r=>`<tr>
+      <td><b>${escapeHtml(r.name)}</b><div class="meta">${escapeHtml(r.phone||"")}${r.email?` · ${escapeHtml(r.email)}`:""}</div></td>
+      <td><span class="pill">${escapeHtml(typeLabel(r))}</span></td>
+      <td>${escapeHtml(r.skills||"—")}</td>
+      <td>${escapeHtml(r.phases||"—")}</td>
+      <td>${escapeHtml(r.phone||"—")}</td>
+      <td class="row-actions"><button type="button" class="icon-btn edit" data-edit-resource="${r.id}" title="Edit">✎</button>${r.active?`<button type="button" class="icon-btn del" data-del-resource="${r.id}" title="Deactivate">Deactivate</button>`:`<span class="meta">Inactive</span>`}</td>
+    </tr>`).join("");
+    return body || `<tr><td colspan="6" class="empty">No resources in this filter.</td></tr>`;
+  };
+
+  main.innerHTML=`${pageHeader(L("nav.resources","Resources"),"+ Add Resource")}
+    <p class="empty" style="margin-top:-10px;margin-bottom:16px;">People and vendors used to plan and deliver events. Vendors are resources, not a separate module.</p>
+    <div class="segmented" id="resourceFilters">
+      <button type="button" class="active" data-resource-filter="all">All</button>
+      <button type="button" data-resource-filter="people">People</button>
+      <button type="button" data-resource-filter="vendors">Vendors</button>
+    </div>
+    <div class="card"><h2>Resource directory</h2>
+      <div style="overflow:auto"><table><thead><tr><th>Name</th><th>Category</th><th>Skills</th><th>Workflow</th><th>Phone</th><th></th></tr></thead>
+      <tbody id="resourcesBody">${renderTable()}</tbody></table></div>
+    </div>`;
+
+  const openResource=async(resource)=>{
+    const skillIds=String(resource?.skill_ids||"").split(",").filter(Boolean).map(Number);
+    const currentPhases=String(resource?.phases||"").split(",").filter(Boolean);
+    openModal(resource?"Edit resource":"Add resource",`<form>
+      <div class="field"><label>Name</label><input name="name" value="${escapeHtml(resource?.name||"")}" required></div>
+      <div class="field"><label>Category</label><select name="resource_type">${types.map(t=>`<option value="${escapeHtml(t.value_label||t)}" ${(resource?.resource_type||"Person")===(t.value_label||t)?"selected":""}>${escapeHtml(t.value_label||t)}</option>`).join("")}</select></div>
+      <div class="field"><label>Phone</label><input name="phone" value="${escapeHtml(resource?.phone||"")}"></div>
+      <div class="field"><label>Email</label><input name="email" value="${escapeHtml(resource?.email||"")}"></div>
+      <div class="field"><label>Skills</label><select name="skill_ids" multiple size="7">${skills.map(s=>`<option value="${s.id}" ${skillIds.includes(Number(s.id))?"selected":""}>${escapeHtml(s.label)}</option>`).join("")}</select></div>
+      <div class="field"><label>Workflow phases</label>${phases.map(p=>`<label style="display:block;text-transform:none"><input type="checkbox" name="phases" value="${escapeHtml(p)}" ${currentPhases.includes(p)?"checked":""} style="width:auto"> ${escapeHtml(p)}</label>`).join("")}</div>
+      <div class="field"><label>Notes</label><textarea name="notes" rows="3">${escapeHtml(resource?.notes||"")}</textarea></div>
+      <button type="submit" style="width:100%">${resource?"Save changes":"Add resource"}</button>
+    </form>`,async data=>{
+      data.skill_ids=[...arguments[1].querySelector('[name="skill_ids"]').selectedOptions].map(x=>Number(x.value));
+    });
+  };
+
+  // Rebind the modal submit separately so the form element is available in the callback.
+  const openResourceForm=(resource)=>{
+    const skillIds=String(resource?.skill_ids||"").split(",").filter(Boolean).map(Number);
+    const currentPhases=String(resource?.phases||"").split(",").filter(Boolean);
+    openModal(resource?"Edit resource":"Add resource",`<form>
+      <div class="field"><label>Name</label><input name="name" value="${escapeHtml(resource?.name||"")}" required></div>
+      <div class="field"><label>Category</label><select name="resource_type">${types.map(t=>`<option value="${escapeHtml(t.value_label||t)}" ${(resource?.resource_type||"Person")===(t.value_label||t)?"selected":""}>${escapeHtml(t.value_label||t)}</option>`).join("")}</select></div>
+      <div class="field"><label>Phone</label><input name="phone" value="${escapeHtml(resource?.phone||"")}"></div>
+      <div class="field"><label>Email</label><input name="email" value="${escapeHtml(resource?.email||"")}"></div>
+      <div class="field"><label>Skills</label><select name="skill_ids" multiple size="7">${skills.map(s=>`<option value="${s.id}" ${skillIds.includes(Number(s.id))?"selected":""}>${escapeHtml(s.label)}</option>`).join("")}</select></div>
+      <div class="field"><label>Workflow phases</label>${phases.map(p=>`<label style="display:block;text-transform:none"><input type="checkbox" name="phases" value="${escapeHtml(p)}" ${currentPhases.includes(p)?"checked":""} style="width:auto"> ${escapeHtml(p)}</label>`).join("")}</div>
+      <div class="field"><label>Notes</label><textarea name="notes" rows="3">${escapeHtml(resource?.notes||"")}</textarea></div>
+      <button type="submit" style="width:100%">${resource?"Save changes":"Add resource"}</button>
+    </form>`,async(data,form)=>{
+      data.id=resource?.id;
+      data.skill_ids=[...form.querySelector('[name="skill_ids"]').selectedOptions].map(x=>Number(x.value));
+      data.phases=[...form.querySelectorAll('[name="phases"]:checked')].map(x=>x.value);
+      await api("/resources",{method:"POST",body:JSON.stringify(data)});
+      toast(resource?"Resource updated":"Resource added");
+      renderResources();
+    });
+  };
+
+  setPrimaryAction(()=>openResourceForm(null));
+  main.querySelectorAll("[data-resource-filter]").forEach(btn=>btn.addEventListener("click",()=>{
+    filter=btn.dataset.resourceFilter;
+    main.querySelectorAll("[data-resource-filter]").forEach(x=>x.classList.toggle("active",x===btn));
+    document.getElementById("resourcesBody").innerHTML=renderTable();
+    bindRows();
+  }));
+  const bindRows=()=>{
+    main.querySelectorAll("[data-edit-resource]").forEach(el=>el.addEventListener("click",()=>{
+      const r=resources.find(x=>String(x.id)===el.dataset.editResource); if(r) openResourceForm(r);
+    }));
+    main.querySelectorAll("[data-del-resource]").forEach(el=>el.addEventListener("click",async()=>{
+      await api(`/resources/${el.dataset.delResource}/delete`,{method:"POST",body:"{}"});
+      toast("Resource deactivated"); renderResources();
+    }));
+  };
+  bindRows();
+}
+
+
+async function renderEquipment() {
+  const equipment = await api("/equipment");
+  main.innerHTML = `
+    ${pageHeader("Equipment", "+ New equipment")}
+    <p class="empty" style="margin-top:-10px;margin-bottom:16px;">Studio-owned gear you assign to events to plan resourcing — cameras, lenses, drones, lighting. Rented items get their cost tracked as an Outside vendor on the event; this catalog is about what exists and what's owned vs. always-rented.</p>
+    <div class="card"><h2>All equipment</h2>
+      <table><thead><tr><th>Name</th><th>Category</th><th>Ownership</th><th></th></tr></thead>
+      <tbody>${equipment.map(e => `<tr><td>${e.name}</td><td><span class="pill">${e.category||"—"}</span></td><td>${e.owned ? '<span class="pill" style="background:var(--success-soft);color:var(--success)">Owned</span>' : '<span class="pill" style="background:var(--warning-soft);color:var(--warning)">Always rented</span>'}</td><td class="row-actions"><button type="button" class="icon-btn edit" data-edit-equip="${e.id}" title="Edit">✎</button><button type="button" class="icon-btn del" data-del-equip="${e.id}" title="Delete">✕</button></td></tr>`).join("") || `<tr><td colspan="4" class="empty">No equipment yet — use the + button to add one.</td></tr>`}</tbody></table>
+    </div>
+  `;
+  const catOptions = (sel) => ["Camera","Lens","Drone","Lighting","Audio","Stabilizer","Other"].map(c => `<option ${c===sel?"selected":""}>${c}</option>`).join("");
+  setPrimaryAction(() => openModal("Add equipment", `
+    <form>
+      <div class="field"><label>Name</label><input name="name" required></div>
+      <div class="field"><label>Category</label><select name="category">${catOptions()}</select></div>
+      <div class="field"><label><input type="checkbox" name="owned" checked style="width:auto;"> Studio-owned (uncheck if this is always rented)</label></div>
+      <button type="submit" style="width:100%;">Add</button>
+    </form>
+  `, async (data, form) => {
+    data.owned = form.querySelector('[name="owned"]').checked;
+    await api("/equipment", { method: "POST", body: JSON.stringify(data) });
+    toast("Equipment added");
+    renderEquipment();
+  }));
+  main.querySelectorAll("[data-edit-equip]").forEach(el => el.addEventListener("click", () => {
+    const e = equipment.find(x => String(x.id) === el.dataset.editEquip);
+    openModal("Edit equipment", `
+      <form>
+        <div class="field"><label>Name</label><input name="name" value="${e.name}" required></div>
+        <div class="field"><label>Category</label><select name="category">${catOptions(e.category)}</select></div>
+        <div class="field"><label><input type="checkbox" name="owned" ${e.owned?"checked":""} style="width:auto;"> Studio-owned</label></div>
+        <button type="submit" style="width:100%;">Save</button>
+      </form>
+    `, async (data, form) => {
+      data.owned = form.querySelector('[name="owned"]').checked;
+      await api(`/equipment/${e.id}`, { method: "POST", body: JSON.stringify(data) });
+      toast("Updated");
+      renderEquipment();
+    });
+  }));
+  main.querySelectorAll("[data-del-equip]").forEach(el => el.addEventListener("click", () =>
+    confirmDelete("Delete this equipment? Only possible if it's not assigned to any event.", `/equipment/${el.dataset.delEquip}/delete`, renderEquipment)
+  ));
+}
+
+
+async function renderExpenses() {
+  const [expenses, accounts] = await Promise.all([api("/expenses"), api("/accounts")]);
+  const total = expenses.reduce((s, x) => s + x.amount, 0);
+  main.innerHTML = `
+    ${pageHeader("Expenses", "+ Log expense")}
+    <div class="kpis"><div class="kpi"><div class="l">Total logged</div><div class="v">${money(total)}</div></div></div>
+    <div class="card"><h2>All expenses (${expenses.length})</h2>
+      <table><thead><tr><th>Date</th><th>Category</th><th>Tagged to</th><th>Amount</th><th></th></tr></thead>
+      <tbody>${expenses.map(x => `<tr><td>${(x.submitted_at||"").slice(0,10)}</td><td><span class="pill">${x.category}</span></td><td>${x.event_id ? `<span class="meta">${x.account_name} — ${x.event_type}</span>` : '<span class="meta">Office / general</span>'}</td><td>${money(x.amount)}</td><td class="row-actions"><button type="button" class="icon-btn edit" data-edit-exp="${x.id}" title="Edit">✎</button><button type="button" class="icon-btn del" data-del-exp="${x.id}" title="Delete">✕</button></td></tr>`).join("") || `<tr><td colspan="5" class="empty">No expenses logged yet.</td></tr>`}</tbody></table>
+    </div>
+  `;
+  const expForm = (x) => `
+    <form>
+      <div class="field"><label>Category</label><input name="category" value="${x ? x.category : ""}" list="expCats2" required></div>
+      <datalist id="expCats2"><option>Travel</option><option>Equipment rental</option><option>Food & catering</option><option>Props/Decor</option><option>Rent</option><option>Salaries</option><option>Software/Subscriptions</option><option>Marketing</option><option>Office supplies</option><option>Miscellaneous</option></datalist>
+      <div class="field"><label>Amount (₹)</label><input name="amount" type="number" value="${x ? x.amount : ""}" required></div>
+      <div class="field"><label>Tag to an event's account (optional — leave blank for office/general)</label>
+        <select name="_acct"><option value="">— none, general expense —</option>${accounts.map(a => `<option value="${a.id}" ${x && x.account_name===a.name?"selected":""}>${a.name}</option>`).join("")}</select>
+      </div>
+      <div class="field"><label>Note</label><input name="note" value="${x ? (x.note||"") : ""}"></div>
+      <button type="submit" style="width:100%;">Save</button>
+    </form>
+  `;
+  setPrimaryAction(() => openModal("Log an expense", expForm(), async (data) => {
+    delete data._acct; // event tagging for a brand-new general expense isn't offered here — use the event's own page to tag one to a specific event
+    await api("/expenses", { method: "POST", body: JSON.stringify(data) });
+    toast("Expense logged");
+    renderExpenses();
+  }));
+  main.querySelectorAll("[data-edit-exp]").forEach(el => el.addEventListener("click", () => {
+    const x = expenses.find(e => String(e.id) === el.dataset.editExp);
+    openModal("Edit expense", expForm(x), async data => {
+      delete data._acct;
+      await api(`/expenses/${x.id}`, { method: "POST", body: JSON.stringify(data) });
+      toast("Updated");
+      renderExpenses();
+    });
+  }));
+  main.querySelectorAll("[data-del-exp]").forEach(el => el.addEventListener("click", () =>
+    confirmDelete("Delete this expense?", `/expenses/${el.dataset.delExp}/delete`, renderExpenses)
+  ));
+}
+
+
+async function renderFinancials() {
+  const [costs, promotions, feedback, settings] = await Promise.all([
+    api("/monthly-costs"), api("/promotions"), api("/feedback"), api("/settings"),
+  ]);
+  const thisMonth = new Date().toISOString().slice(0, 7);
+  main.innerHTML = `
+    <h1>Financials</h1>
+    <div class="row2">
+      <div class="card"><h2>Monthly running cost <button class="icon-btn" id="addCostBtn">+ Add</button></h2>
+        <table><thead><tr><th>Month</th><th>Category</th><th>Amount</th><th></th></tr></thead>
+        <tbody>${costs.map(c => `<tr><td>${c.month}</td><td><span class="pill">${c.category}</span></td><td>${money(c.amount)}</td><td class="row-actions"><button type="button" class="icon-btn del" data-del-cost="${c.id}" title="Delete">✕</button></td></tr>`).join("") || `<tr><td colspan="4" class="empty">No overhead logged yet.</td></tr>`}</tbody></table>
+      </div>
+      <div class="card"><h2>Business settings</h2>
+        <form id="settingsForm">
+          <div class="field"><label>Google review link <span class="meta">shown to customers who leave positive feedback</span></label>
+            <input name="google_review_link" value="${settings.google_review_link || ""}" placeholder="https://g.page/r/...">
+          </div>
+          <button type="submit">Save</button>
+        </form>
+      </div>
+    </div>
+
+    <div class="card"><h2>Feedback needing action — ${feedback.filter(f=>f.status==='Open').length} open</h2>
+      ${feedback.map(f => `<div class="list-row"><span>${statusPill(f.status)} <b>${f.account_name}</b> — ${f.event_type} ${f.rating ? "★".repeat(f.rating) : ""} <span class="meta">${(f.created_at||"").slice(0,10)}</span><br><span class="meta">${f.comment||""}</span>${f.action_taken ? `<br><span class="meta">Action taken: ${f.action_taken}</span>` : ""}</span><span class="row-actions">${f.status==='Open' ? `<button class="icon-btn" data-resolve-fb="${f.id}">Mark resolved</button>` : ""}</span></div>`).join("") || '<div class="empty">No negative feedback on file.</div>'}
+    </div>
+
+    <div class="card"><h2>Promotions log — what you ran during a slow month, and what it produced <button class="icon-btn" id="addPromoBtn">+ Add</button></h2>
+      ${promotions.map(p => `<div class="list-row"><span><b>${p.name}</b>${p.channel ? ` <span class="pill">${p.channel}</span>` : ""} <span class="meta">${p.start_date||""}${p.end_date?` – ${p.end_date}`:""} · cost ${money(p.cost)}</span>${p.leads_generated != null || p.bookings_generated != null ? `<br><span class="meta">${p.leads_generated||0} leads, ${p.bookings_generated||0} bookings${p.outcome_notes ? ` — ${p.outcome_notes}` : ""}</span>` : ""}</span><span class="row-actions"><button type="button" class="icon-btn edit" data-edit-promo="${p.id}" title="Record outcome">✎</button><button type="button" class="icon-btn del" data-del-promo="${p.id}" title="Delete">✕</button></span></div>`).join("") || '<div class="empty">No promotions logged yet.</div>'}
+    </div>
+  `;
+  main.querySelector("#addCostBtn").addEventListener("click", () => openModal("Add monthly cost", `
+    <form>
+      <div class="row2">
+        <div class="field"><label>Month</label><input name="month" type="month" value="${thisMonth}" required></div>
+        <div class="field"><label>Category</label><select name="category">${["Rent","Salaries","Ad spend","Equipment","Software","Other"].map(c=>`<option>${c}</option>`).join("")}</select></div>
+      </div>
+      <div class="field"><label>Amount (₹)</label><input name="amount" type="number" required></div>
+      <div class="field"><label>Note</label><input name="note"></div>
+      <button type="submit" style="width:100%;">Save</button>
+    </form>
+  `, async data => { await api("/monthly-costs", { method: "POST", body: JSON.stringify(data) }); toast("Saved"); renderFinancials(); }));
+  main.querySelectorAll("[data-del-cost]").forEach(el => el.addEventListener("click", () =>
+    confirmDelete("Delete this monthly cost entry?", `/monthly-costs/${el.dataset.delCost}/delete`, renderFinancials)
+  ));
+  main.querySelector("#settingsForm").addEventListener("submit", async e => {
+    e.preventDefault();
+    await api("/settings", { method: "POST", body: JSON.stringify({ key: "google_review_link", value: new FormData(e.target).get("google_review_link") }) });
+    toast("Settings saved");
+  });
+  main.querySelectorAll("[data-resolve-fb]").forEach(el => el.addEventListener("click", () => {
+    const action_taken = prompt("What did you do about this? (shown on the feedback record)") || "";
+    api(`/feedback/${el.dataset.resolveFb}`, { method: "POST", body: JSON.stringify({ status: "Resolved", action_taken }) })
+      .then(() => { toast("Marked resolved"); renderFinancials(); });
+  }));
+  main.querySelector("#addPromoBtn").addEventListener("click", () => openModal("Log a promotion", `
+    <form>
+      <div class="field"><label>Name</label><input name="name" placeholder="e.g. Off-season Instagram push" required></div>
+      <div class="row2">
+        <div class="field"><label>Channel</label><select name="channel">${["Instagram","Google Ads","WhatsApp","Referral push","Other"].map(c=>`<option>${c}</option>`).join("")}</select></div>
+        <div class="field"><label>Cost (₹)</label><input name="cost" type="number" value="0"></div>
+      </div>
+      <div class="row2">
+        <div class="field"><label>Start date</label><input name="start_date" type="date"></div>
+        <div class="field"><label>End date</label><input name="end_date" type="date"></div>
+      </div>
+      <button type="submit" style="width:100%;">Log promotion</button>
+    </form>
+  `, async data => { await api("/promotions", { method: "POST", body: JSON.stringify(data) }); toast("Logged"); renderFinancials(); }));
+  main.querySelectorAll("[data-edit-promo]").forEach(el => el.addEventListener("click", () => {
+    const p = promotions.find(x => String(x.id) === el.dataset.editPromo);
+    openModal("Record promotion outcome", `
+      <form>
+        <div class="row2">
+          <div class="field"><label>Leads generated</label><input name="leads_generated" type="number" value="${p.leads_generated ?? ""}"></div>
+          <div class="field"><label>Bookings generated</label><input name="bookings_generated" type="number" value="${p.bookings_generated ?? ""}"></div>
+        </div>
+        <div class="field"><label>Outcome notes</label><textarea name="outcome_notes" rows="2">${p.outcome_notes||""}</textarea></div>
+        <button type="submit" style="width:100%;">Save</button>
+      </form>
+    `, async data => { await api(`/promotions/${p.id}`, { method: "POST", body: JSON.stringify(data) }); toast("Saved"); renderFinancials(); });
+  }));
+  main.querySelectorAll("[data-del-promo]").forEach(el => el.addEventListener("click", () =>
+    confirmDelete("Delete this promotion record?", `/promotions/${el.dataset.delPromo}/delete`, renderFinancials)
+  ));
+}
+
+
 // ── Reports ────────────────────────────────────────────────
 const MONTH_NAMES = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
 async function renderReports() {
