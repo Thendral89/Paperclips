@@ -67,6 +67,9 @@ export async function addBookingPayment(request, env, bookingId, staff) {
   if(!Number.isFinite(amount)||amount<=0) return badRequest("amount must be greater than zero");
   const booking=await env.DB.prepare("SELECT id,booked_value FROM bookings WHERE id=?").bind(bookingId).first();
   if(!booking) return notFound("booking not found");
+  const paidRow=await env.DB.prepare("SELECT COALESCE(SUM(amount),0) AS paid_amount FROM booking_payments WHERE booking_id=?").bind(bookingId).first();
+  const outstanding=Math.max(0,Number(booking.booked_value||0)-Number(paidRow?.paid_amount||0));
+  if(amount>outstanding) return badRequest(`payment exceeds outstanding balance of ${outstanding}`);
   const paymentDate=body.payment_date || new Date().toISOString().slice(0,10);
   const result=await env.DB.prepare(`INSERT INTO booking_payments(booking_id,amount,payment_date,method,reference,notes)
     VALUES(?,?,?,?,?,?)`).bind(bookingId,Math.round(amount),paymentDate,body.method||null,body.reference||null,body.notes||null).run();
