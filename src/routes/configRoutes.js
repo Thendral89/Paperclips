@@ -170,8 +170,9 @@ export async function deleteSkill(request, env, id) {
 
 export async function listResources(request, env) {
   const { results } = await env.DB.prepare(`
-    SELECT r.id,r.name,r.phone,r.email,r.notes,r.active,
+    SELECT r.id,r.name,r.resource_type,r.phone,r.email,r.notes,r.active,
       COALESCE(GROUP_CONCAT(DISTINCT s.label),'') AS skills,
+      COALESCE(GROUP_CONCAT(DISTINCT rs.skill_id),'') AS skill_ids,
       COALESCE(GROUP_CONCAT(DISTINCT rp.phase),'') AS phases
     FROM resources r
     LEFT JOIN resource_skills rs ON rs.resource_id=r.id
@@ -186,7 +187,9 @@ export async function listResources(request, env) {
 export async function saveResource(request, env) {
   const body = await request.json().catch(() => null);
   if (!body?.name) return badRequest("name is required");
-  const resourceType = RESOURCE_TYPES.includes(String(body.resource_type || "Person")) ? String(body.resource_type || "Person") : "Person";
+  const requestedType = String(body.resource_type || "Person");
+  const typeRow = await env.DB.prepare(`SELECT value_label FROM picklist_values v JOIN picklist_groups g ON g.id=v.group_id WHERE g.group_key=? AND g.active=1 AND v.active=1 AND (v.value_label=? OR v.value_key=?)`).bind("resource_type",requestedType,requestedType.toLowerCase()).first();
+  const resourceType = typeRow?.value_label || "Person";
 
   let id = body.id;
   if (id) {

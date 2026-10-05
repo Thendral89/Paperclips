@@ -199,6 +199,8 @@
     <div class="brand" style="font-family:var(--font-display);font-weight:400;font-size:22px;">Paperclip</div>
     <div class="navlink" data-view="dashboard"><svg width="17" height="17" viewBox="0 0 20 20" fill="none"><rect x="2.5" y="2.5" width="6.5" height="6.5" rx="1.5" stroke="currentColor" stroke-width="1.6"/><rect x="11" y="2.5" width="6.5" height="6.5" rx="1.5" stroke="currentColor" stroke-width="1.6"/><rect x="2.5" y="11" width="6.5" height="6.5" rx="1.5" stroke="currentColor" stroke-width="1.6"/><rect x="11" y="11" width="6.5" height="6.5" rx="1.5" stroke="currentColor" stroke-width="1.6"/></svg>Dashboard</div>
     <div class="navlink" data-view="leads"><svg width="17" height="17" viewBox="0 0 20 20" fill="none"><path d="M3 3.5h14l-5.2 6.4v5.6l-3.6 1.8v-7.4L3 3.5z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>Leads</div>
+    <div class="navlink" data-view="quotes">Quotes</div>
+    <div class="navlink" data-view="bookings">Bookings</div>
     <div class="navlink" data-view="accounts"><svg width="17" height="17" viewBox="0 0 20 20" fill="none"><circle cx="7" cy="7" r="3" stroke="currentColor" stroke-width="1.6"/><circle cx="14" cy="8.5" r="2.4" stroke="currentColor" stroke-width="1.6"/><path d="M2.2 16.5c.6-3 2.5-4.6 4.8-4.6s4.2 1.6 4.8 4.6M12 16.5c.4-2.1 1.7-3.4 3.4-3.4 1.5 0 2.7.9 3.3 2.6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>Customers / Accounts</div>
     <div class="navlink" data-view="calendar"><svg width="17" height="17" viewBox="0 0 20 20" fill="none"><rect x="3" y="4" width="14" height="13" rx="2" stroke="currentColor" stroke-width="1.6"/><path d="M3 8h14M6.5 2.5v3M13.5 2.5v3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>Calendar</div>
     <div class="navlink" data-view="events"><svg width="17" height="17" viewBox="0 0 20 20" fill="none"><rect x="2.5" y="4" width="15" height="13" rx="2" stroke="currentColor" stroke-width="1.6"/><path d="M2.5 8h15M6.5 2.5v3M13.5 2.5v3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>Events</div>
@@ -232,7 +234,7 @@ let uiConfig = null;
 async function loadUiConfig(force=false) { if (uiConfig && !force) return uiConfig; uiConfig = await api("/config"); uiLabels = uiConfig.labels || {}; return uiConfig; }
 function L(key, fallback) { return escapeHtml(uiLabels[key] || fallback); }
 function applyConfiguredLabels() {
-  const navMap={"nav.dashboard":"dashboard","nav.leads":"leads","nav.accounts":"accounts","nav.calendar":"calendar","nav.events":"events","nav.packages":"packages","nav.resources":"resources","nav.equipment":"equipment","nav.expenses":"expenses","nav.financials":"financials","nav.reports":"reports","nav.settings":"settings"};
+  const navMap={"nav.dashboard":"dashboard","nav.leads":"leads","nav.quotes":"quotes","nav.bookings":"bookings","nav.accounts":"accounts","nav.calendar":"calendar","nav.events":"events","nav.packages":"packages","nav.resources":"resources","nav.equipment":"equipment","nav.expenses":"expenses","nav.financials":"financials","nav.reports":"reports","nav.settings":"settings"};
   for (const [key,view] of Object.entries(navMap)) { const el=document.querySelector(`.navlink[data-view="${view}"]`); if(!el||!uiLabels[key]) continue; const n=[...el.childNodes].find(x=>x.nodeType===Node.TEXT_NODE&&x.textContent.trim()); if(n) n.textContent=` ${uiLabels[key]}`; }
 }
 
@@ -420,6 +422,8 @@ async function render() {
   try {
     if (state.view === "dashboard") return renderDashboard();
     if (state.view === "leads") return renderLeads();
+    if (state.view === "quotes") return renderQuotes();
+    if (state.view === "bookings") return renderBookings();
     if (state.view === "leadDetail") return renderLeadDetail(state.id);
     if (state.view === "quoteDetail") return renderQuoteDetail(state.id);
     if (state.view === "accounts") return renderAccounts();
@@ -777,7 +781,7 @@ async function renderQuoteDetail(id) {
   const addonItems = q.items.filter(i => i.is_addon);
   main.innerHTML = `
     <span class="back" data-lead-back="${q.lead_id}">← ${q.lead_name || "Lead"}</span>
-    <h1>Quote ${statusPill(q.status)} <button type="button" class="icon-btn del" id="deleteQuoteBtn" title="Delete quote">✕ Delete</button></h1>
+    <h1>Quote ${statusPill(q.status)} <button type="button" class="icon-btn del" id="deleteQuoteBtn" title="Delete quote">✕ Delete</button>${["Accepted","Won"].includes(q.status) ? ' <button type="button" class="icon-btn" id="convertQuoteBtn">Convert to Booking + Event</button>' : ""}</h1>
     <div class="kpis">
       <div class="kpi"><div class="l">Subtotal</div><div class="v">${money(q.subtotal)}</div></div>
       <div class="kpi"><div class="l">Concession</div><div class="v" style="color:var(--success)">${q.concession_amount ? "−" + money(q.concession_amount) : "—"}</div></div>
@@ -821,6 +825,12 @@ async function renderQuoteDetail(id) {
     </div>
   `;
   main.querySelector("[data-lead-back]").addEventListener("click", () => go("leadDetail", q.lead_id));
+  main.querySelector("#convertQuoteBtn")?.addEventListener("click", async () => {
+    if(!confirm("Convert this accepted quote into a booking and operational event?")) return;
+    const r=await api(`/quotes/${id}/convert`,{method:"POST",body:"{}"});
+    toast(r.already_exists?"Booking already exists":"Booking and Event created");
+    if(r.event_id) go("eventDetail",r.event_id); else renderQuoteDetail(id);
+  });
   main.querySelector("#deleteQuoteBtn").addEventListener("click", () =>
     confirmDelete("Delete this quote? This can't be undone.", `/quotes/${id}/delete`, () => go("leadDetail", q.lead_id))
   );
@@ -875,7 +885,66 @@ async function renderQuoteDetail(id) {
   }
 }
 
-// ── Accounts ───────────────────────────────────────────────
+// ── Quotes ──────────────────────────────────────────────────
+async function renderQuotes() {
+  const quotes = await api("/quotes");
+  main.innerHTML = `
+    ${pageHeader("Quotes")}
+    <div class="card"><h2>All quotes (${quotes.length})</h2>
+      <table><thead><tr><th>Quote</th><th>Lead</th><th>Status</th><th>Event</th><th>Date</th><th>Value</th></tr></thead>
+      <tbody>${quotes.map(q => `<tr class="clickable" data-quote="${q.id}">
+        <td><b>${escapeHtml(q.quote_number||("#"+q.id))}</b></td>
+        <td>${escapeHtml(q.lead_name||"—")}<div class="meta">${escapeHtml(q.lead_phone||"")}</div></td>
+        <td>${statusPill(q.status)}</td><td>${escapeHtml(q.event_type||"—")}</td>
+        <td>${escapeHtml(q.event_date||"TBD")}</td><td>${money(Math.max(0,Number(q.total||0)-Number(q.concession_amount||0)))}</td>
+      </tr>`).join("") || '<tr><td colspan="6" class="empty">No quotes yet.</td></tr>'}</tbody></table>
+    </div>`;
+  main.querySelectorAll("[data-quote]").forEach(el => el.addEventListener("click",()=>go("quoteDetail",el.dataset.quote)));
+}
+
+// ── Bookings ────────────────────────────────────────────────
+async function renderBookings() {
+  const bookings = await api("/bookings");
+  main.innerHTML = `
+    ${pageHeader("Bookings")}
+    <div class="card"><h2>All bookings (${bookings.length})</h2>
+      <table><thead><tr><th>Booking</th><th>Client</th><th>Status</th><th>Events</th><th>Booked value</th><th>Paid</th><th>Outstanding</th></tr></thead>
+      <tbody>${bookings.map(b => {
+        const value=Number(b.booked_value||0), paid=Number(b.paid_amount||0);
+        return `<tr class="clickable" data-booking="${b.id}">
+          <td><b>${escapeHtml(b.booking_number||("#"+b.id))}</b><div class="meta">${escapeHtml(b.quote_status||"")}</div></td>
+          <td>${escapeHtml(b.client_name||"—")}<div class="meta">${escapeHtml(b.client_phone||"")}</div></td>
+          <td>${statusPill(b.status)}</td><td>${Number(b.event_count||0)}</td><td>${money(value)}</td><td>${money(paid)}</td><td>${money(Math.max(0,value-paid))}</td>
+        </tr>`;
+      }).join("") || '<tr><td colspan="7" class="empty">No bookings yet. Convert an accepted quote to create one.</td></tr>'}</tbody></table>
+    </div>`;
+  main.querySelectorAll("[data-booking]").forEach(el=>el.addEventListener("click",()=>openBooking(el.dataset.booking)));
+}
+
+async function openBooking(id) {
+  const b=await api(`/bookings/${id}`);
+  const paid=(b.payments||[]).reduce((n,p)=>n+Number(p.amount||0),0);
+  openModal(`Booking ${escapeHtml(b.booking_number||("#"+b.id))}`,`
+    <div class="card" style="margin:0 0 12px"><b>${escapeHtml(b.client_name||"")}</b><div class="meta">${escapeHtml(b.client_email||"")} · ${escapeHtml(b.client_phone||"")}</div><div style="margin-top:8px">Booked: ${money(b.booked_value)} · Paid: ${money(paid)} · Outstanding: ${money(Math.max(0,Number(b.booked_value||0)-paid))}</div></div>
+    <div class="card" style="margin:0 0 12px"><h3>Payment schedule</h3>
+      ${(b.payment_schedule||[]).map(p=>`<div class="list-row"><span><b>${escapeHtml(p.label)}</b> · ${money(p.amount)} <span class="meta">${escapeHtml(p.due_date||"No due date")}</span></span>${statusPill(p.status)}</div>`).join("")||'<div class="empty">No payment schedule configured.</div>'}</div>
+    <div class="card" style="margin:0 0 12px"><h3>Events</h3>${(b.events||[]).map(e=>`<div class="list-row"><span><b>${escapeHtml(e.event_number||("#"+e.id))}</b> · ${escapeHtml(e.type||"")}</span><button type="button" class="icon-btn" data-open-event="${e.id}">Open</button></div>`).join("")||'<div class="empty">No events.</div>'}</div>
+    <div class="card" style="margin:0"><h3>Payments <button type="button" class="icon-btn" id="addBookingPayment">+ Add</button></h3>
+      ${(b.payments||[]).map(p=>`<div class="list-row"><span>${escapeHtml(p.payment_date)} · ${money(p.amount)} <span class="meta">${escapeHtml(p.method||"")} ${escapeHtml(p.reference||"")}</span></span></div>`).join("")||'<div class="empty">No payments recorded.</div>'}</div>
+  `,async()=>{});
+  document.querySelectorAll("[data-open-event]").forEach(el=>el.addEventListener("click",()=>{closeModal();go("eventDetail",el.dataset.openEvent);}));
+  document.querySelector("#addBookingPayment")?.addEventListener("click",()=>openModal("Add booking payment",`
+    <form>
+      <div class="field"><label>Amount (₹)</label><input name="amount" type="number" min="1" required></div>
+      <div class="field"><label>Payment date</label><input name="payment_date" type="date" value="${new Date().toISOString().slice(0,10)}" required></div>
+      <div class="field"><label>Method</label><input name="method" placeholder="UPI / Bank / Cash / Card"></div>
+      <div class="field"><label>Reference</label><input name="reference"></div>
+      <div class="field"><label>Notes</label><input name="notes"></div>
+      <button type="submit" style="width:100%">Record payment</button>
+    </form>`,async data=>{await api(`/bookings/${id}/payments`,{method:"POST",body:JSON.stringify(data)});toast("Payment recorded");closeModal();renderBookings();}));
+}
+
+// // ── Accounts ───────────────────────────────────────────────
 async function renderAccounts() {
   const allAccts = await api("/accounts");
   const balanceOnly = state.filter && state.filter.balance_due;
@@ -1292,6 +1361,28 @@ async function renderEventDetail(id) {
   panels.postproduction.appendChild(ppCard);
   shell.querySelectorAll('[data-event-tab]').forEach(btn=>btn.addEventListener('click',()=>{shell.querySelectorAll('[data-event-tab]').forEach(b=>b.classList.toggle('active',b===btn));shell.querySelectorAll('[data-event-panel]').forEach(x=>x.classList.toggle('active',x.dataset.eventPanel===btn.dataset.eventTab));}));
   const rp=document.createElement('div'); rp.className='card'; rp.innerHTML=`<h2>${L('event.resources','Resources')} <button type="button" class="icon-btn" id="addResourceBtn">+ Add</button></h2><div id="eventResourcesList" class="resource-grid"><div class="empty">Loading…</div></div>`; panels.resources.prepend(rp);
+  const taskList=Array.isArray(ev.tasks)?ev.tasks:[]; const taskDone=taskList.filter(t=>String(t.status||"").toLowerCase()==="done" || String(t.status||"").toLowerCase()==="completed").length;
+  const taskPending=Math.max(0,taskList.length-taskDone);
+  panels.overview.insertAdjacentHTML('afterbegin',`<div class="row2">
+    <div class="card"><h2>Operational overview</h2>
+      <div class="kpis" style="grid-template-columns:repeat(2,minmax(0,1fr));">
+        <div class="kpi"><div class="l">Event date</div><div class="v" style="font-size:18px">${escapeHtml(ev.event_date||"Not scheduled")}</div></div>
+        <div class="kpi"><div class="l">Stage</div><div class="v" style="font-size:18px">${statusPill(ev.status||"Planning")}</div></div>
+        <div class="kpi"><div class="l">Tasks complete</div><div class="v" style="font-size:18px">${taskDone}/${taskList.length}</div></div>
+        <div class="kpi"><div class="l">Tasks pending</div><div class="v" style="font-size:18px">${taskPending}</div></div>
+      </div>
+    </div>
+    <div class="card"><h2>Financial snapshot</h2>
+      <div class="list-row"><span>Revenue</span><b>${money(ev.quote_total)}</b></div>
+      <div class="list-row"><span>Received</span><b>${money(ev.advance_paid)}</b></div>
+      <div class="list-row"><span>Outstanding</span><b>${money(Math.max(0,(ev.quote_total||0)-(ev.advance_paid||0)))}</b></div>
+      <div class="list-row"><span>Event cost</span><b>${money(ev.cost_breakdown?.total||0)}</b></div>
+      <div class="list-row"><span>Contribution</span><b style="color:${(ev.profit||0)>=0?'var(--success)':'var(--critical)'}">${money(ev.profit||0)}</b></div>
+    </div>
+  </div>
+  <div class="card"><h2>Next actions</h2>
+    ${taskList.filter(t=>String(t.status||"").toLowerCase()!=="done" && String(t.status||"").toLowerCase()!=="completed").slice(0,6).map(t=>`<div class="list-row"><span><b>${escapeHtml(t.task||t.title||"Task")}</b><span class="meta"> · ${escapeHtml(t.phase||"")}</span></span><span class="pill">${escapeHtml(t.status||"Pending")}</span></div>`).join("") || '<div class="empty">No pending tasks — this event is operationally clear.</div>'}
+  </div>`);
   const er=await api(`/events/${id}/resources`).catch(()=>[]); document.getElementById('eventResourcesList').innerHTML=er.length?er.map(r=>`<div class="resource-card"><b>${escapeHtml(r.resource_name)}</b><div class="meta"><span class="pill">${escapeHtml(r.resource_type||"Person")}</span> · ${escapeHtml(r.phase)}${r.skill_label?` · ${escapeHtml(r.skill_label)}`:''}</div>${r.role_label?`<div>${escapeHtml(r.role_label)}</div>`:''}<div class="meta">${money(r.cost)} · ${escapeHtml(r.status||'Planned')}</div><button type="button" class="icon-btn del" data-del-event-resource="${r.id}">✕ Remove</button></div>`).join(''):'<div class="empty">No resources allocated to this event.</div>';
   main.querySelectorAll('[data-del-event-resource]').forEach(el=>el.addEventListener('click',async()=>{await api(`/event-resources/${el.dataset.delEventResource}/delete`,{method:'POST',body:'{}'});toast('Resource removed');renderEventDetail(id);}));
   main.querySelector('#addResourceBtn').addEventListener('click',async()=>{const cfg=await loadUiConfig(true), active=(cfg.resources||[]).filter(r=>r.active), skills=cfg.skills||[];openModal('Allocate resource',`<form><div class="field"><label>Resource</label><select name="resource_id" required>${active.map(r=>`<option value="${r.id}">${escapeHtml(r.name)} (${escapeHtml(r.resource_type||"Person")})</option>`).join('')}</select></div><div class="field"><label>Phase</label><select name="phase">${(cfg.phases||[]).map(x=>`<option>${escapeHtml(x)}</option>`).join('')}</select></div><div class="field"><label>Skill</label><select name="skill_id"><option value="">— optional —</option>${skills.map(x=>`<option value="${x.id}">${escapeHtml(x.label)}</option>`).join('')}</select></div><div class="field"><label>Role</label><input name="role_label"></div><div class="field"><label>Cost (₹)</label><input name="cost" type="number" value="0"></div><div class="field"><label>Status</label><select name="status"><option>Planned</option><option>Confirmed</option><option>Completed</option><option>Cancelled</option></select></div><div class="field"><label>Notes</label><input name="notes"></div><button type="submit" style="width:100%">Allocate</button></form>`,async data=>{await api(`/events/${id}/resources`,{method:'POST',body:JSON.stringify(data)});toast('Resource allocated');renderEventDetail(id);});});
@@ -1505,163 +1596,114 @@ async function renderEventDetail(id) {
 
 
 async function renderSettings(){
-  const cfg=await loadUiConfig(true);
-  const labels=Object.entries(cfg.labels||{});
-  const skills=cfg.skills||[];
-  const picklists=await api('/picklists');
-
-  const objects=[
-    {key:'leads',label:L('nav.leads','Leads')},
-    {key:'accounts',label:'Clients'},
-    {key:'events',label:L('nav.events','Events')},
-    {key:'resources',label:L('nav.resources','Resources')},
-    {key:'packages',label:L('nav.packages','Packages')},
-    {key:'equipment',label:'Equipment'},
-    {key:'expenses',label:'Expenses'},
-    {key:'financials',label:'Financials'}
+  const cfg=await api("/product-config");
+  const labels=await api("/labels");
+  const picklists=await api("/picklists");
+  let activeSection="company";
+  const sectionNames=[
+    ["company","Company"],["branding","Branding"],["crm","CRM Configuration"],
+    ["operations","Operations"],["finance","Finance"],["marketing","Marketing"],
+    ["ai","AI & MCP"],["audit","Audit Log"]
   ];
 
-  // Skills are maintained in their own resource configuration card.
-  // resource_skill is therefore intentionally not duplicated as a generic picklist.
-  const editablePicklists=picklists.filter(g=>g.group_key!=='resource_skill');
-  let activeObject='leads';
+  const esc=v=>escapeHtml(v==null?"":v);
+  const input=(name,label,value="",type="text",extra="")=>`<div class="field"><label>${label}</label><input name="${name}" type="${type}" value="${esc(value)}" ${extra}></div>`;
+  const save=async(path,data,message)=>{await api(path,{method:"POST",body:JSON.stringify(data)});toast(message||"Saved");await renderSettings();};
 
-  main.innerHTML=`${pageHeader(L('nav.settings','Settings'),null)}
-    <div class="card">
-      <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;">
-        <div><h2>Labels</h2><p class="empty">Business and interface wording. Edit the value without changing the internal key.</p></div>
-      </div>
-      ${labels.map(([k,v])=>`<form class="list-row label-form" data-label-key="${escapeHtml(k)}">
-        <span style="flex:1;min-width:220px"><b>${escapeHtml(k)}</b><br>
-          <input name="label_value" value="${escapeHtml(v)}" style="width:100%;margin-top:5px">
-        </span>
-        <button type="submit">Save</button>
-      </form>`).join('') || '<div class="empty">No labels configured.</div>'}
-    </div>
-
-    <div class="card">
-      <div style="margin-bottom:13px;">
-        <h2 style="margin:0">Picklists by tab</h2>
-        <p class="empty" style="margin:3px 0 12px">Choose the CRM object, then edit only the categories and values that belong to that tab.</p>
-        <div class="segbar" id="picklistObjectTabs" style="margin-bottom:0;">
-          ${objects.map(o=>`<button type="button" class="seg ${o.key===activeObject?'active':''}" data-picklist-object="${o.key}">${escapeHtml(o.label)}</button>`).join('')}
-        </div>
-      </div>
-      <div id="picklistObjectPanel"></div>
-    </div>
-
-    <div class="card">
-      <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:13px;">
-        <div><h2 style="margin:0">Skills</h2><p class="empty" style="margin:3px 0 0">Skills available when creating and allocating resources.</p></div>
-        <button type="button" id="addSkill">+ Add skill</button>
-      </div>
-      ${skills.map(x=>`
-        <div class="list-row">
-          <span style="flex:1"><b>${escapeHtml(x.label)}</b><span class="meta"> · ${escapeHtml(x.skill_key||'')}</span></span>
-          <span class="row-actions">
-            <button type="button" class="icon-btn edit" data-edit-skill="${x.id}">Edit</button>
-            <button type="button" class="icon-btn del" data-del-skill="${x.id}">Remove</button>
-          </span>
-        </div>`).join('') || '<div class="empty">No skills configured.</div>'}
-    </div>`;
-
-  main.querySelectorAll('.label-form').forEach(form=>form.addEventListener('submit',async e=>{
-    e.preventDefault();
-    await api('/labels',{method:'POST',body:JSON.stringify({label_key:form.dataset.labelKey,label_value:new FormData(form).get('label_value')})});
-    await loadUiConfig(true); applyConfiguredLabels(); toast('Label saved'); renderSettings();
-  }));
-
-  const groupsForObject=objectKey=>editablePicklists.filter(g=>g.object_key===objectKey);
-
-  const openPicklistForm=(group,value=null)=>{
-    if(!group) return;
-    openModal(value?'Edit picklist value':'Add picklist value',`<form>
-      <div class="field"><label>Object</label><input value="${escapeHtml(objects.find(o=>o.key===activeObject)?.label||activeObject)}" disabled></div>
-      <div class="field"><label>Picklist</label><input value="${escapeHtml(group.label)}" disabled></div>
-      <div class="field"><label>Value</label><input name="value_label" value="${escapeHtml(value?.value_label||'')}" required></div>
-      <div class="field"><label>Sort order</label><input name="sort_order" type="number" value="${Number(value?.sort_order||0)}"></div>
-      <button type="submit" style="width:100%">${value?'Save changes':'Add value'}</button>
-    </form>`,async(data)=>{
-      data.group_key=group.group_key;
-      data.id=value?.id;
-      await api('/picklists',{method:'POST',body:JSON.stringify(data)});
-      toast(value?'Picklist value updated':'Picklist value added');
-      renderSettings();
-    });
-  };
-
-  const paintPicklists=()=>{
-    const panel=document.getElementById('picklistObjectPanel');
+  const renderSection=async()=>{
+    const panel=document.getElementById("settingsPanel");
     if(!panel) return;
-    const groups=groupsForObject(activeObject);
-    panel.innerHTML=groups.length ? groups.map(g=>`
-      <div style="border-top:1px solid var(--line);padding:13px 0 5px;">
-        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;">
-          <div><b>${escapeHtml(g.label)}</b><div class="meta">${escapeHtml(g.description||'')}</div></div>
-          <button type="button" class="ghost" data-add-picklist="${escapeHtml(g.group_key)}">+ Add value</button>
-        </div>
-        ${g.values?.length ? g.values.map(v=>`
-          <div class="list-row">
-            <span style="flex:1"><b>${escapeHtml(v.value_label)}</b><span class="meta"> · ${escapeHtml(v.value_key)}</span></span>
-            <span class="row-actions">
-              <button type="button" class="icon-btn edit" data-edit-picklist="${v.id}">Edit</button>
-              <button type="button" class="icon-btn del" data-del-picklist="${v.id}">Remove</button>
-            </span>
-          </div>`).join('') : '<div class="empty" style="padding:8px 0">No values configured.</div>'}
-      </div>`).join('') : `
-        <div style="padding:16px 0 8px;">
-          <div class="empty">No configurable picklists are currently assigned to this tab.</div>
-          <div class="meta" style="margin-top:5px;">This keeps the configuration scoped to the object instead of mixing unrelated dropdowns together.</div>
-        </div>`;
+    if(activeSection==="company"){
+      const x=cfg.company||{};
+      panel.innerHTML=`<div class="card"><h2>Company profile</h2><p class="empty">Configure the business once. These values become the default identity for quotes, bookings, events and documents.</p>
+        <form id="companyForm" class="row2">
+          <div>${input("company_name","Company name",x.company_name,"text","required")}${input("legal_name","Legal name",x.legal_name)}${input("phone","Phone",x.phone)}${input("email","Email",x.email,"email")}${input("website","Website",x.website,"url")}</div>
+          <div>${input("address","Address",x.address)}${input("tax_id","GST / Tax ID",x.tax_id)}${input("currency","Currency",x.currency||"INR")}${input("timezone","Timezone",x.timezone||"Asia/Kolkata")}${input("business_type","Business type",x.business_type)}</div>
+          <button type="submit">Save company profile</button>
+        </form></div>`;
+      panel.querySelector("#companyForm").addEventListener("submit",async e=>{e.preventDefault();await save("/product-config/company",Object.fromEntries(new FormData(e.target)),"Company profile saved");});
+      return;
+    }
+    if(activeSection==="branding"){
+      const b=cfg.branding||{};
+      panel.innerHTML=`<div class="card"><h2>Branding & appearance</h2><p class="empty">Keep the CRM visually aligned with the company's identity. Small logo files can be stored directly; URL values are also supported.</p>
+        <form id="brandForm">
+          <div class="row2"><div>${input("primary_color","Primary color",b.primary_color,"color")}${input("secondary_color","Secondary color",b.secondary_color,"color")}${input("accent_color","Accent color",b.accent_color,"color")}${input("background_color","Background color",b.background_color,"color")}${input("surface_color","Surface color",b.surface_color,"color")}</div>
+          <div><div class="field"><label>Theme</label><select name="theme_mode"><option ${b.theme_mode==="system"?"selected":""}>system</option><option ${b.theme_mode==="light"?"selected":""}>light</option><option ${b.theme_mode==="dark"?"selected":""}>dark</option></select></div>
+          <div class="field"><label>UI density</label><select name="ui_density"><option ${b.ui_density==="comfortable"?"selected":""}>comfortable</option><option ${b.ui_density==="compact"?"selected":""}>compact</option><option ${b.ui_density==="spacious"?"selected":""}>spacious</option></select></div>
+          ${input("font_family","Font family",b.font_family||"Inter")}${input("logo_primary_url","Primary logo URL / data",b.logo_primary_url||"")}${input("logo_light_url","Light logo URL / data",b.logo_light_url||"")}${input("logo_dark_url","Dark logo URL / data",b.logo_dark_url||"")}</div></div>
+          <div class="field"><label>Logo file (optional, max ~300 KB)</label><input id="logoFile" type="file" accept="image/png,image/jpeg,image/webp"></div>
+          <button type="submit">Save branding</button>
+        </form></div>`;
+      panel.querySelector("#brandForm").addEventListener("submit",async e=>{
+        e.preventDefault(); const data=Object.fromEntries(new FormData(e.target)); const file=panel.querySelector("#logoFile").files[0];
+        if(file){if(file.size>300000){toast("Logo must be under 300 KB",true);return;} data.logo_primary_url=await new Promise((resolve,reject)=>{const r=new FileReader();r.onload=()=>resolve(r.result);r.onerror=reject;r.readAsDataURL(file);});}
+        await save("/product-config/branding",data,"Branding saved");
+      });
+      return;
+    }
+    if(activeSection==="crm"){
+      const grouped={}; (cfg.custom_fields||[]).forEach(f=>(grouped[f.object_key]??=[]).push(f));
+      panel.innerHTML=`<div class="card"><h2>Labels</h2><p class="empty">Change wording without changing internal database keys.</p>${labels.map(x=>`<form class="list-row label-form" data-key="${esc(x.label_key)}"><span style="flex:1"><b>${esc(x.label_key)}</b><br><input name="label_value" value="${esc(x.label_value)}" style="width:100%;margin-top:5px"></span><button type="submit">Save</button></form>`).join("")}</div>
+      <div class="card"><h2>Picklists by object</h2>${picklists.map(g=>`<div class="list-row" style="display:block"><b>${esc(g.object_key||"General")} — ${esc(g.label)}</b><div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:7px">${g.values.map(v=>`<button type="button" class="pill" data-pick="${v.id}" data-group="${esc(g.group_key)}" data-value="${esc(v.value_label)}">${esc(v.value_label)} ✎</button>`).join("")}<button type="button" class="icon-btn" data-add-pick="${esc(g.group_key)}">+ Add</button></div></div>`).join("")||'<div class="empty">No configurable picklists found.</div>'}</div>
+      <div class="card"><h2>Custom fields</h2><p class="empty">Add business-specific fields without changing the database schema.</p><button type="button" id="addCustomField">+ Add custom field</button>${Object.entries(grouped).map(([o,fs])=>`<div style="margin-top:12px"><b>${esc(o)}</b>${fs.map(f=>`<div class="list-row"><span>${esc(f.field_label)} <span class="meta">(${esc(f.field_type)})</span></span><button type="button" class="icon-btn edit" data-edit-field="${f.id}">Edit</button></div>`).join("")}</div>`).join("")}</div>`;
+      panel.querySelectorAll(".label-form").forEach(form=>form.addEventListener("submit",async e=>{e.preventDefault();await api("/labels",{method:"POST",body:JSON.stringify({label_key:form.dataset.key,label_value:new FormData(form).get("label_value")})});toast("Label saved");renderSettings();}));
+      panel.querySelectorAll("[data-add-pick]").forEach(el=>el.addEventListener("click",()=>openPick(el.dataset.addPick)));
+      panel.querySelectorAll("[data-pick]").forEach(el=>el.addEventListener("click",()=>openPick(el.dataset.group,{id:Number(el.dataset.pick),value_label:el.dataset.value})));
+      const openPick=(group,value)=>{ openModal(value?"Edit picklist value":"Add picklist value",`<form>${input("value_label","Value",value?.value_label||"","text","required")}${input("sort_order","Sort order",0,"number")}<button type="submit">Save</button></form>`,async d=>{await api("/picklists",{method:"POST",body:JSON.stringify({...d,group_key:group,id:value?.id})});toast("Picklist saved");renderSettings();}); };
+      const openField=(f)=>openModal(f?"Edit custom field":"Add custom field",`<form><div class="field"><label>Object</label><select name="object_key">${(cfg.objects||[]).map(o=>`<option ${f?.object_key===o? "selected":""}>${o}</option>`).join("")}</select></div>${input("field_key","Field key",f?.field_key||"","text","required")}${input("field_label","Display label",f?.field_label||"","text","required")}<div class="field"><label>Type</label><select name="field_type">${["text","long_text","number","date","boolean","select","multi_select","url"].map(t=>`<option ${f?.field_type===t?"selected":""}>${t}</option>`).join("")}</select></div>${input("options","Options (comma separated)",(f?.options||[]).join(","))}${input("sort_order","Sort order",f?.sort_order||0,"number")}<label><input name="required" type="checkbox" ${f?.required?"checked":""}> Required</label><label><input name="active" type="checkbox" ${f?.active!==false?"checked":""}> Active</label><button type="submit">Save</button></form>`,async d=>{d.id=f?.id;d.required=!!d.required;d.active=!!d.active;d.options=String(d.options||"").split(",").map(x=>x.trim()).filter(Boolean);await api("/product-config/custom-fields",{method:"POST",body:JSON.stringify(d)});toast("Custom field saved");renderSettings();});
+      panel.querySelector("#addCustomField").addEventListener("click",()=>openField(null)); panel.querySelectorAll("[data-edit-field]").forEach(el=>el.addEventListener("click",()=>openField((cfg.custom_fields||[]).find(f=>f.id===Number(el.dataset.editField)))));
+      panel.insertAdjacentHTML("beforeend",`<div class="card"><h2>Document templates</h2><p class="empty">Maintain reusable HTML templates for quotes, invoices and client-facing documents.</p>${(cfg.document_templates||[]).map(t=>`<div class="list-row"><span><b>${esc(t.name)}</b> <span class="pill">${esc(t.document_type)}</span><br><span class="meta">${esc(t.template_key)}</span></span><button type="button" class="icon-btn edit" data-edit-doc="${t.id}">Edit</button></div>`).join("")||'<div class="empty">No document templates configured.</div>'}<button type="button" id="addDocTemplate">+ Add template</button></div>`);
+      const openDoc=(t)=>openModal(t?"Edit document template":"Add document template",`<form>${input("template_key","Template key",t?.template_key||"","text","required")}${input("name","Name",t?.name||"","text","required")}${input("document_type","Document type",t?.document_type||"quote","text","required")}<div class="field"><label>HTML body</label><textarea name="body_html" rows="10">${esc(t?.body_html||"")}</textarea></div><label><input name="active" type="checkbox" ${t?.active!==false?"checked":""}> Active</label><button type="submit">Save</button></form>`,async d=>{d.id=t?.id;d.active=!!d.active;await api("/product-config/document-templates",{method:"POST",body:JSON.stringify(d)});toast("Document template saved");renderSettings();});
+      panel.querySelector("#addDocTemplate").addEventListener("click",()=>openDoc(null));
+      panel.querySelectorAll("[data-edit-doc]").forEach(el=>el.addEventListener("click",()=>openDoc((cfg.document_templates||[]).find(t=>t.id===Number(el.dataset.editDoc)))));
 
-    panel.querySelectorAll('[data-add-picklist]').forEach(el=>el.addEventListener('click',()=>{
-      const group=groups.find(g=>g.group_key===el.dataset.addPicklist);
-      openPicklistForm(group);
-    }));
-    panel.querySelectorAll('[data-edit-picklist]').forEach(el=>el.addEventListener('click',()=>{
-      const value=groups.flatMap(g=>g.values||[]).find(v=>String(v.id)===el.dataset.editPicklist);
-      const group=value ? groups.find(g=>(g.values||[]).some(v=>String(v.id)===String(value.id))) : null;
-      if(value) openPicklistForm(group,value);
-    }));
-    panel.querySelectorAll('[data-del-picklist]').forEach(el=>el.addEventListener('click',async()=>{
-      if(!confirm('Remove this picklist value?')) return;
-      await api(`/picklists/${el.dataset.delPicklist}/delete`,{method:'POST',body:'{}'});
-      toast('Picklist value removed');
-      renderSettings();
-    }));
+      return;
+    }
+    if(activeSection==="operations"){
+      panel.innerHTML=`<div class="card"><h2>Business rules</h2><p class="empty">These are operational decisions the company can change without code.</p>${(cfg.rules||[]).map(r=>`<div class="list-row"><span style="flex:1"><b>${esc(r.label)}</b><br><span class="meta">${esc(r.description||"")}</span></span><button type="button" class="icon-btn edit" data-rule="${r.id}">Edit</button></div>`).join("")}</div>
+      <div class="card"><h2>Task templates</h2><p class="empty">Templates generate Pre-Production, Production and Post-Production work automatically.</p>${(cfg.task_templates||[]).map(t=>`<div class="list-row"><span style="flex:1"><b>${esc(t.default_title)}</b> <span class="pill">${esc(t.phase)}</span><br><span class="meta">${esc(t.event_type_key||"All event types")} · ${t.required?"Required":"Optional"}</span></span><button type="button" class="icon-btn edit" data-template="${t.id}">Edit</button></div>`).join("")}</div>`;
+      const openRule=(r)=>{const value=typeof r?.value==="object"?JSON.stringify(r.value,null,2):"{}";openModal("Business rule",`<form>${input("label","Label",r?.label||"","text","required")}${input("category","Category",r?.category||"Operations")}${input("description","Description",r?.description||"")}<div class="field"><label>Value JSON</label><textarea name="value" rows="5">${esc(value)}</textarea></div><button type="submit">Save</button></form>`,async d=>{let value;try{value=JSON.parse(d.value||"{}")}catch{throw new Error("Value must be valid JSON")}await api("/product-config/rules",{method:"POST",body:JSON.stringify({...r,value,label:d.label,category:d.category,description:d.description})});toast("Rule saved");renderSettings();});};
+      panel.querySelectorAll("[data-rule]").forEach(el=>el.addEventListener("click",()=>openRule((cfg.rules||[]).find(r=>r.id===Number(el.dataset.rule)))));
+      const openTemplate=t=>openModal("Task template",`<form>${input("template_key","Template key",t?.template_key||"","text","required")}${input("name","Template name",t?.name||"Default")}${input("default_title","Task title",t?.default_title||"","text","required")}${input("default_description","Description",t?.default_description||"")}<div class="field"><label>Phase</label><select name="phase">${["Pre-Production","Production","Post-Production"].map(p=>`<option ${t?.phase===p?"selected":""}>${p}</option>`).join("")}</select></div><div class="field"><label>Task type</label><select name="task_type">${["Task","Resource"].map(p=>`<option ${t?.task_type===p?"selected":""}>${p}</option>`).join("")}</select></div>${input("event_type_key","Event type key",t?.event_type_key||"")}${input("sort_order","Sort order",t?.sort_order||0,"number")}<label><input name="required" type="checkbox" ${t?.required?"checked":""}> Required</label><label><input name="auto_create" type="checkbox" ${t?.auto_create!==false?"checked":""}> Auto-create</label><label><input name="active" type="checkbox" ${t?.active!==false?"checked":""}> Active</label><button type="submit">Save</button></form>`,async d=>{d.required=!!d.required;d.auto_create=!!d.auto_create;d.active=!!d.active;await api("/product-config/task-templates",{method:"POST",body:JSON.stringify({...t,...d})});toast("Task template saved");renderSettings();}); panel.querySelectorAll("[data-template]").forEach(el=>el.addEventListener("click",()=>openTemplate((cfg.task_templates||[]).find(t=>t.id===Number(el.dataset.template)))));
+      return;
+    }
+    if(activeSection==="finance"){
+      const nums=cfg.numbering||[];
+      panel.innerHTML=`<div class="card"><h2>Numbering</h2><p class="empty">Configure human-friendly numbers for the business documents and records.</p>${nums.map(n=>`<form class="list-row" data-num="${esc(n.object_key)}"><span style="width:180px"><b>${esc(n.object_key)}</b></span><input name="prefix" value="${esc(n.prefix)}" style="width:100px"><label style="display:flex;align-items:center;gap:5px"><input name="include_year" type="checkbox" ${n.include_year?"checked":""}> Year</label><input name="padding" type="number" min="1" max="8" value="${n.padding}" style="width:70px"><button type="submit">Save</button></form>`).join("")}</div>
+      <div class="card"><h2>Default payment rule</h2><p class="empty">Change the advance percentage used when new bookings are created.</p>${(cfg.rules||[]).filter(r=>r.rule_key==="booking.default_advance").map(r=>`<button type="button" class="icon-btn edit" id="editAdvance">Edit current: ${esc(r.value?.percent||30)}%</button>`).join("")}</div>`;
+      panel.querySelectorAll("[data-num]").forEach(form=>form.addEventListener("submit",async e=>{e.preventDefault();const d=Object.fromEntries(new FormData(form));await api("/product-config/numbering",{method:"POST",body:JSON.stringify({...d,object_key:form.dataset.num,include_year:form.querySelector('[name="include_year"]').checked})});toast("Numbering saved");renderSettings();}));
+      const adv=(cfg.rules||[]).find(r=>r.rule_key==="booking.default_advance"); panel.querySelector("#editAdvance")?.addEventListener("click",()=>openModal("Default advance",`<form>${input("percent","Advance percentage",adv?.value?.percent||30,"number","min=0 max=100")}<button type="submit">Save</button></form>`,async d=>{await api("/product-config/rules",{method:"POST",body:JSON.stringify({...adv,value:{percent:Number(d.percent)}})});toast("Advance rule saved");renderSettings();}));
+      return;
+    }
+    if(activeSection==="marketing"){
+      panel.innerHTML=`<div class="card"><h2>Client relationship automation</h2><p class="empty">Use the Client 360 timeline to create follow-up opportunities without automatically sending messages.</p>${(cfg.rules||[]).filter(r=>r.category==="Marketing").map(r=>`<div class="list-row"><span><b>${esc(r.label)}</b><br><span class="meta">${esc(r.description||"")}</span></span><button type="button" class="icon-btn edit" data-rule="${r.id}">Edit</button></div>`).join("")}</div>`;
+      panel.querySelectorAll("[data-rule]").forEach(el=>el.addEventListener("click",()=>{const r=(cfg.rules||[]).find(x=>x.id===Number(el.dataset.rule));openModal("Marketing rule",`<form>${input("label","Label",r.label)}<div class="field"><label>Days before</label><input name="days_before" type="number" value="${r.value?.days_before||30}"></div><label><input name="enabled" type="checkbox" ${r.value?.enabled!==false?"checked":""}> Enabled</label><button type="submit">Save</button></form>`,async d=>{await api("/product-config/rules",{method:"POST",body:JSON.stringify({...r,label:d.label,value:{days_before:Number(d.days_before),enabled:!!d.enabled}})});toast("Marketing rule saved");renderSettings();});}));
+      return;
+    }
+    if(activeSection==="ai"){
+      const a=cfg.ai||{}; const allRead=["clients","leads","quotes","bookings","events","tasks","resources","payments","expenses"]; const allWrite=["followups","quotes","tasks","resource_allocations","marketing_opportunities"]; const confirm=["delete_records","financial_changes","send_external_messages","resource_allocations"];
+      panel.innerHTML=`<div class="card"><h2>AI & MCP access</h2><p class="empty">The CRM can expose controlled business actions to ChatGPT through MCP. Permissions are explicit; the AI never receives direct database access.</p>
+      <form id="aiForm"><label><input name="enabled" type="checkbox" ${a.enabled?"checked":""}> Enable AI features</label><br><label><input name="mcp_enabled" type="checkbox" ${a.mcp_enabled?"checked":""}> Enable MCP access</label>
+      <div class="row2" style="margin-top:12px"><div><b>Read access</b>${allRead.map(x=>`<label style="display:block"><input type="checkbox" name="read" value="${x}" ${(a.allowed_read||[]).includes(x)?"checked":""}> ${x}</label>`).join("")}</div>
+      <div><b>Write access</b>${allWrite.map(x=>`<label style="display:block"><input type="checkbox" name="write" value="${x}" ${(a.allowed_write||[]).includes(x)?"checked":""}> ${x}</label>`).join("")}</div></div>
+      <div style="margin-top:12px"><b>Always require confirmation</b>${confirm.map(x=>`<label style="display:block"><input type="checkbox" name="confirm" value="${x}" ${(a.confirmation_required||[]).includes(x)?"checked":""}> ${x}</label>`).join("")}</div>
+      <button type="submit" style="margin-top:12px">Save AI permissions</button></form></div>`;
+      panel.querySelector("#aiForm").addEventListener("submit",async e=>{e.preventDefault();const fd=new FormData(e.target);await api("/product-config/ai",{method:"POST",body:JSON.stringify({enabled:fd.has("enabled"),mcp_enabled:fd.has("mcp_enabled"),allowed_read:fd.getAll("read"),allowed_write:fd.getAll("write"),confirmation_required:fd.getAll("confirm")})});toast("AI permissions saved");renderSettings();});
+      return;
+    }
+    if(activeSection==="audit"){
+      const logs=await api("/product-config/audit?limit=100");
+      panel.innerHTML=`<div class="card"><h2>Configuration audit</h2><p class="empty">Every configuration change is recorded with actor, source, before and after state.</p><table><thead><tr><th>When</th><th>Actor</th><th>Action</th><th>Object</th><th>Source</th></tr></thead><tbody>${logs.map(x=>`<tr><td>${esc(x.created_at)}</td><td>${esc(x.actor_email||"")}</td><td>${esc(x.action)}</td><td>${esc(x.object_key||"")}</td><td>${esc(x.source)}</td></tr>`).join("")||'<tr><td colspan="5" class="empty">No configuration changes yet.</td></tr>'}</tbody></table></div>`;
+    }
   };
 
-  main.querySelectorAll('[data-picklist-object]').forEach(el=>el.addEventListener('click',()=>{
-    activeObject=el.dataset.picklistObject;
-    main.querySelectorAll('[data-picklist-object]').forEach(x=>x.classList.toggle('active',x===el));
-    paintPicklists();
-  }));
-  paintPicklists();
-
-  const openSkillForm=(skill=null)=>{
-    openModal(skill?'Edit skill':'Add skill',`<form>
-      <div class="field"><label>Skill name</label><input name="label" value="${escapeHtml(skill?.label||'')}" required></div>
-      <button type="submit" style="width:100%">${skill?'Save changes':'Add skill'}</button>
-    </form>`,async(data)=>{
-      data.id=skill?.id;
-      data.skill_key=skill?.skill_key || '';
-      await api('/skills',{method:'POST',body:JSON.stringify(data)});
-      toast(skill?'Skill updated':'Skill added'); renderSettings();
-    });
-  };
-
-  document.getElementById('addSkill')?.addEventListener('click',()=>openSkillForm());
-  main.querySelectorAll('[data-edit-skill]').forEach(el=>el.addEventListener('click',()=>{
-    const skill=skills.find(x=>String(x.id)===el.dataset.editSkill); if(skill) openSkillForm(skill);
-  }));
-  main.querySelectorAll('[data-del-skill]').forEach(el=>el.addEventListener('click',async()=>{
-    if(!confirm('Remove this skill?')) return;
-    await api(`/skills/${el.dataset.delSkill}/delete`,{method:'POST',body:'{}'});
-    toast('Skill removed'); renderSettings();
-  }));
+  main.innerHTML=`<h1>${L("nav.settings","Settings")}</h1><p class="empty" style="margin-top:-10px;margin-bottom:16px">One-time business setup. Configure the CRM once, then operate without changing code.</p>
+    <div class="card"><div class="segmented" id="settingsSections">${sectionNames.map(([k,v])=>`<button type="button" class="seg ${k===activeSection?"active":""}" data-settings-section="${k}">${v}</button>`).join("")}</div></div>
+    <div id="settingsPanel"></div>`;
+  main.querySelectorAll("[data-settings-section]").forEach(btn=>btn.addEventListener("click",()=>{activeSection=btn.dataset.settingsSection;main.querySelectorAll("[data-settings-section]").forEach(x=>x.classList.toggle("active",x===btn));renderSection();}));
+  renderSection();
 }
-
-// ── Vendors ────────────────────────────────────────────────
 async function renderResources(){
   const cfg=await loadUiConfig(true);
   const resources=await api("/resources");
@@ -1696,22 +1738,6 @@ async function renderResources(){
       <tbody id="resourcesBody">${renderTable()}</tbody></table></div>
     </div>`;
 
-  const openResource=async(resource)=>{
-    const skillIds=String(resource?.skill_ids||"").split(",").filter(Boolean).map(Number);
-    const currentPhases=String(resource?.phases||"").split(",").filter(Boolean);
-    openModal(resource?"Edit resource":"Add resource",`<form>
-      <div class="field"><label>Name</label><input name="name" value="${escapeHtml(resource?.name||"")}" required></div>
-      <div class="field"><label>Category</label><select name="resource_type">${types.map(t=>`<option value="${escapeHtml(t.value_label||t)}" ${(resource?.resource_type||"Person")===(t.value_label||t)?"selected":""}>${escapeHtml(t.value_label||t)}</option>`).join("")}</select></div>
-      <div class="field"><label>Phone</label><input name="phone" value="${escapeHtml(resource?.phone||"")}"></div>
-      <div class="field"><label>Email</label><input name="email" value="${escapeHtml(resource?.email||"")}"></div>
-      <div class="field"><label>Skills</label><select name="skill_ids" multiple size="7">${skills.map(s=>`<option value="${s.id}" ${skillIds.includes(Number(s.id))?"selected":""}>${escapeHtml(s.label)}</option>`).join("")}</select></div>
-      <div class="field"><label>Workflow phases</label>${phases.map(p=>`<label style="display:block;text-transform:none"><input type="checkbox" name="phases" value="${escapeHtml(p)}" ${currentPhases.includes(p)?"checked":""} style="width:auto"> ${escapeHtml(p)}</label>`).join("")}</div>
-      <div class="field"><label>Notes</label><textarea name="notes" rows="3">${escapeHtml(resource?.notes||"")}</textarea></div>
-      <button type="submit" style="width:100%">${resource?"Save changes":"Add resource"}</button>
-    </form>`,async data=>{
-      data.skill_ids=[...arguments[1].querySelector('[name="skill_ids"]').selectedOptions].map(x=>Number(x.value));
-    });
-  };
 
   // Rebind the modal submit separately so the form element is available in the callback.
   const openResourceForm=(resource)=>{
@@ -1755,7 +1781,7 @@ async function renderResources(){
   bindRows();
 }
 
-// ── Equipment catalog ────────────────────────────────────────
+
 async function renderEquipment() {
   const equipment = await api("/equipment");
   main.innerHTML = `
@@ -1801,7 +1827,7 @@ async function renderEquipment() {
   ));
 }
 
-// ── Expenses — the full ledger, event-tied and general/office both ──
+
 async function renderExpenses() {
   const [expenses, accounts] = await Promise.all([api("/expenses"), api("/accounts")]);
   const total = expenses.reduce((s, x) => s + x.amount, 0);
@@ -1845,9 +1871,7 @@ async function renderExpenses() {
   ));
 }
 
-// ── Financials — the data-entry half: monthly running cost, promotions,
-// the feedback action queue, and business settings. Reports (below) stays
-// the read-only analytics side. ──────────────────────────────────────
+
 async function renderFinancials() {
   const [costs, promotions, feedback, settings] = await Promise.all([
     api("/monthly-costs"), api("/promotions"), api("/feedback"), api("/settings"),
@@ -1933,6 +1957,7 @@ async function renderFinancials() {
     confirmDelete("Delete this promotion record?", `/promotions/${el.dataset.delPromo}/delete`, renderFinancials)
   ));
 }
+
 
 // ── Reports ────────────────────────────────────────────────
 const MONTH_NAMES = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];

@@ -8,6 +8,8 @@ import { captureLead, getFeedbackContext, submitFeedback, getQuoteContext, toggl
 import * as admin from "./routes/adminRoutes.js";
 import * as portal from "./routes/portalRoutes.js";
 import * as config from "./routes/configRoutes.js";
+import * as productConfig from "./routes/productConfigRoutes.js";
+import * as bookingRoutes from "./routes/bookingRoutes.js";
 import { startLogin, handleCallback, logout } from "./routes/authRoutes.js";
 import { handleScheduled } from "./cron.js";
 
@@ -16,6 +18,22 @@ import { handleScheduled } from "./cron.js";
 const ADMIN_ROUTES = [
   ["GET", /^\/api\/admin\/me$/, async (req, env, staff) => json({ email: staff.email })],
   ["GET", /^\/api\/admin\/config$/, (req, env) => config.getConfig(req, env)],
+  ["GET", /^\/api\/admin\/product-config$/, (req, env) => productConfig.getProductConfig(req, env)],
+  ["GET", /^\/api\/admin\/bookings$/, (req, env) => bookingRoutes.listBookings(req, env)],
+  ["GET", /^\/api\/admin\/bookings\/(\d+)$/, (req, env, staff, [id]) => bookingRoutes.getBooking(req, env, id)],
+  ["POST", /^\/api\/admin\/bookings\/(\d+)\/payments$/, (req, env, staff, [id]) => bookingRoutes.addBookingPayment(req, env, id, staff)],
+  ["POST", /^\/api\/admin\/quotes\/(\d+)\/convert$/, (req, env, staff, [id]) => bookingRoutes.convertAcceptedQuote(req, env, id)],
+  ["POST", /^\/api\/admin\/product-config\/company$/, (req, env, staff) => productConfig.updateCompany(req, env, staff)],
+  ["POST", /^\/api\/admin\/product-config\/branding$/, (req, env, staff) => productConfig.updateBranding(req, env, staff)],
+  ["POST", /^\/api\/admin\/product-config\/rules$/, (req, env, staff) => productConfig.upsertBusinessRule(req, env, staff)],
+  ["POST", /^\/api\/admin\/product-config\/task-templates$/, (req, env, staff) => productConfig.upsertTaskTemplate(req, env, staff)],
+  ["POST", /^\/api\/admin\/product-config\/custom-fields$/, (req, env, staff) => productConfig.upsertCustomField(req, env, staff)],
+  ["GET", /^\/api\/admin\/product-config\/custom-fields\/([a-z_]+)\/(\\d+)$/, (req, env, staff, [objectKey,id]) => productConfig.getCustomFieldValues(req, env, objectKey, id)],
+  ["POST", /^\/api\/admin\/product-config\/custom-fields\/([a-z_]+)\/(\\d+)$/, (req, env, staff, [objectKey,id]) => productConfig.upsertCustomFieldValues(req, env, staff, objectKey, id)],
+  ["POST", /^\/api\/admin\/product-config\/numbering$/, (req, env, staff) => productConfig.updateNumbering(req, env, staff)],
+  ["POST", /^\/api\/admin\/product-config\/document-templates$/, (req, env, staff) => productConfig.upsertDocumentTemplate(req, env, staff)],
+  ["POST", /^\/api\/admin\/product-config\/ai$/, (req, env, staff) => productConfig.updateAiPermissions(req, env, staff)],
+  ["GET", /^\/api\/admin\/product-config\/audit$/, (req, env) => productConfig.getAuditLog(req, env)],
   ["GET", /^\/api\/admin\/labels$/, (req, env) => config.listLabels(req, env)],
   ["POST", /^\/api\/admin\/labels$/, (req, env, staff) => config.updateLabel(req, env, staff)],
   ["GET", /^\/api\/admin\/picklists$/, (req, env) => config.listPicklists(req, env)],
@@ -45,6 +63,7 @@ const ADMIN_ROUTES = [
   ["POST", /^\/api\/admin\/leads\/(\d+)\/delete$/, (req, env, staff, [id]) => admin.deleteLead(req, env, id)],
 
   ["POST", /^\/api\/admin\/leads\/(\d+)\/quotes$/, (req, env, staff, [id]) => admin.createQuote(req, env, id)],
+  ["GET", /^\/api\/admin\/quotes$/, (req, env) => admin.listQuotes(req, env)],
   ["GET", /^\/api\/admin\/quotes\/(\d+)$/, (req, env, staff, [id]) => admin.getQuote(req, env, id)],
   ["POST", /^\/api\/admin\/quotes\/(\d+)$/, (req, env, staff, [id]) => admin.updateQuote(req, env, id)],
   ["POST", /^\/api\/admin\/quotes\/(\d+)\/send$/, (req, env, staff, [id]) => admin.sendQuote(req, env, id, staff)],
