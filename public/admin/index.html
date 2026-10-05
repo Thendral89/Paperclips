@@ -777,7 +777,7 @@ async function renderQuoteDetail(id) {
   const addonItems = q.items.filter(i => i.is_addon);
   main.innerHTML = `
     <span class="back" data-lead-back="${q.lead_id}">← ${q.lead_name || "Lead"}</span>
-    <h1>Quote ${statusPill(q.status)} <button type="button" class="icon-btn del" id="deleteQuoteBtn" title="Delete quote">✕ Delete</button></h1>
+    <h1>Quote ${statusPill(q.status)} <button type="button" class="icon-btn del" id="deleteQuoteBtn" title="Delete quote">✕ Delete</button>${["Accepted","Won"].includes(q.status) ? ' <button type="button" class="icon-btn" id="convertQuoteBtn">Convert to Booking + Event</button>' : ""}</h1>
     <div class="kpis">
       <div class="kpi"><div class="l">Subtotal</div><div class="v">${money(q.subtotal)}</div></div>
       <div class="kpi"><div class="l">Concession</div><div class="v" style="color:var(--success)">${q.concession_amount ? "−" + money(q.concession_amount) : "—"}</div></div>
@@ -821,6 +821,12 @@ async function renderQuoteDetail(id) {
     </div>
   `;
   main.querySelector("[data-lead-back]").addEventListener("click", () => go("leadDetail", q.lead_id));
+  main.querySelector("#convertQuoteBtn")?.addEventListener("click", async () => {
+    if(!confirm("Convert this accepted quote into a booking and operational event?")) return;
+    const r=await api(`/quotes/${id}/convert`,{method:"POST",body:"{}"});
+    toast(r.already_exists?"Booking already exists":"Booking and Event created");
+    if(r.event_id) go("eventDetail",r.event_id); else renderQuoteDetail(id);
+  });
   main.querySelector("#deleteQuoteBtn").addEventListener("click", () =>
     confirmDelete("Delete this quote? This can't be undone.", `/quotes/${id}/delete`, () => go("leadDetail", q.lead_id))
   );
