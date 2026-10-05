@@ -55,6 +55,20 @@ export async function getBooking(request, env, id) {
   return json({...b,events:events.results,payments:payments.results});
 }
 
+
+export async function addBookingPayment(request, env, bookingId, staff) {
+  const body=await request.json().catch(()=>null);
+  const amount=Number(body?.amount);
+  if(!Number.isFinite(amount)||amount<=0) return badRequest("amount must be greater than zero");
+  const booking=await env.DB.prepare("SELECT id,booked_value FROM bookings WHERE id=?").bind(bookingId).first();
+  if(!booking) return notFound("booking not found");
+  const paymentDate=body.payment_date || new Date().toISOString().slice(0,10);
+  const result=await env.DB.prepare(`INSERT INTO booking_payments(booking_id,amount,payment_date,method,reference,notes)
+    VALUES(?,?,?,?,?,?)`).bind(bookingId,Math.round(amount),paymentDate,body.method||null,body.reference||null,body.notes||null).run();
+  await env.DB.prepare("UPDATE bookings SET updated_at=datetime('now') WHERE id=?").bind(bookingId).run();
+  return json({ok:true,id:result.meta.last_row_id,booking_id:bookingId});
+}
+
 export async function convertAcceptedQuote(request, env, quoteId) {
   const q=await env.DB.prepare(`SELECT q.*,l.name AS lead_name,l.phone,l.email,l.event_type,l.event_date,l.source,l.id AS lead_id,
     a.id AS existing_account_id
