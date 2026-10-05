@@ -113,6 +113,24 @@ export async function updateNumbering(request, env, staff) {
   await audit(env,staff,before?"update":"create","numbering",after.id,before,after);
   return json(after);
 }
+export async function upsertDocumentTemplate(request, env, staff) {
+  const body=await request.json().catch(()=>null);
+  if(!body?.template_key||!body?.name||!body?.document_type) return badRequest("template_key, name and document_type are required");
+  const before=body.id?await env.DB.prepare("SELECT * FROM crm_document_templates WHERE id=?").bind(body.id).first():null;
+  if(body.id) {
+    await env.DB.prepare("UPDATE crm_document_templates SET template_key=?,name=?,document_type=?,body_html=?,active=?,updated_at=datetime('now') WHERE id=?")
+      .bind(body.template_key,body.name,body.document_type,String(body.body_html||""),body.active===false?0:1,body.id).run();
+  } else {
+    await env.DB.prepare("INSERT INTO crm_document_templates(template_key,name,document_type,body_html,active) VALUES(?,?,?,?,?)")
+      .bind(body.template_key,body.name,body.document_type,String(body.body_html||""),body.active===false?0:1).run();
+  }
+  const after=body.id
+    ? await env.DB.prepare("SELECT * FROM crm_document_templates WHERE id=?").bind(body.id).first()
+    : await env.DB.prepare("SELECT * FROM crm_document_templates WHERE template_key=?").bind(body.template_key).first();
+  await audit(env,staff,body.id?"update":"create","document_template",after.id,before,after);
+  return json(after);
+}
+
 export async function updateAiPermissions(request, env, staff) {
   const body=await request.json().catch(()=>null);
   await env.DB.prepare("UPDATE crm_ai_permissions SET enabled=?,mcp_enabled=?,allowed_read_json=?,allowed_write_json=?,confirmation_required_json=?,updated_at=datetime('now') WHERE id=1")
