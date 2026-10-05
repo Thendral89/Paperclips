@@ -31,6 +31,7 @@ const ADMIN_ROUTES = [
   ["GET", /^\/api\/admin\/product-config\/custom-fields\/([a-z_]+)\/(\\d+)$/, (req, env, staff, [objectKey,id]) => productConfig.getCustomFieldValues(req, env, objectKey, id)],
   ["POST", /^\/api\/admin\/product-config\/custom-fields\/([a-z_]+)\/(\\d+)$/, (req, env, staff, [objectKey,id]) => productConfig.upsertCustomFieldValues(req, env, staff, objectKey, id)],
   ["POST", /^\/api\/admin\/product-config\/numbering$/, (req, env, staff) => productConfig.updateNumbering(req, env, staff)],
+  ["POST", /^\/api\/admin\/product-config\/document-templates$/, (req, env, staff) => productConfig.upsertDocumentTemplate(req, env, staff)],
   ["POST", /^\/api\/admin\/product-config\/ai$/, (req, env, staff) => productConfig.updateAiPermissions(req, env, staff)],
   ["GET", /^\/api\/admin\/product-config\/audit$/, (req, env) => productConfig.getAuditLog(req, env)],
   ["GET", /^\/api\/admin\/labels$/, (req, env) => config.listLabels(req, env)],
