@@ -9,6 +9,9 @@ function parseQty(label) {
   if(/\b(three|3)\b/.test(words)) return 3;
   return 1;
 }
+function parseRuleValue(value) {
+  try { return value == null ? {} : JSON.parse(value); } catch { return {}; }
+}
 function resourceItemMatches(templateTitle,label) {
   const t=String(templateTitle||"").toLowerCase();
   const s=String(label||"").toLowerCase();
@@ -53,11 +56,12 @@ export async function getBooking(request, env, id) {
   const b=await env.DB.prepare(`SELECT b.*,a.name AS client_name,a.phone AS client_phone,a.email AS client_email
     FROM bookings b JOIN accounts a ON a.id=b.account_id WHERE b.id=?`).bind(id).first();
   if(!b) return notFound("booking not found");
-  const [events,payments]=await Promise.all([
+  const [events,payments,schedule]=await Promise.all([
     env.DB.prepare("SELECT * FROM events WHERE booking_id=? ORDER BY event_date,id").bind(id).all(),
-    env.DB.prepare("SELECT * FROM booking_payments WHERE booking_id=? ORDER BY payment_date,id").bind(id).all()
+    env.DB.prepare("SELECT * FROM booking_payments WHERE booking_id=? ORDER BY payment_date,id").bind(id).all(),
+    env.DB.prepare("SELECT * FROM booking_payment_schedule WHERE booking_id=? ORDER BY due_date,id").bind(id).all()
   ]);
-  return json({...b,events:events.results,payments:payments.results});
+  return json({...b,events:events.results,payments:payments.results,payment_schedule:schedule.results});
 }
 
 
@@ -74,6 +78,14 @@ export async function addBookingPayment(request, env, bookingId, staff) {
   const result=await env.DB.prepare(`INSERT INTO booking_payments(booking_id,amount,payment_date,method,reference,notes)
     VALUES(?,?,?,?,?,?)`).bind(bookingId,Math.round(amount),paymentDate,body.method||null,body.reference||null,body.notes||null).run();
   await env.DB.prepare("UPDATE bookings SET updated_at=datetime('now') WHERE id=?").bind(bookingId).run();
+  const schedule=(await env.DB.prepare("SELECT * FROM booking_payment_schedule WHERE booking_id=? ORDER BY due_date,id").bind(bookingId).all()).results;
+  let remainingPaid=Number(paidRow?.paid_amount||0)+Math.round(amount);
+  for(const item of schedule){
+    const itemAmount=Number(item.amount||0);
+    const status=remainingPaid>=itemAmount && itemAmount>0 ? "Paid" : remainingPaid>0 ? "Partially Paid" : "Due";
+    remainingPaid=Math.max(0,remainingPaid-itemAmount);
+    if(status!==item.status) await env.DB.prepare("UPDATE booking_payment_schedule SET status=?,updated_at=datetime('now') WHERE id=?").bind(status,item.id).run();
+  }
   return json({ok:true,id:result.meta.last_row_id,booking_id:bookingId});
 }
 
@@ -102,6 +114,16 @@ export async function convertAcceptedQuote(request, env, quoteId) {
   const br=await env.DB.prepare(`INSERT INTO bookings(account_id,quote_id,booking_number,status,booked_value,discount,notes,confirmed_at)
     VALUES(?,?,?,?,?,?,?,datetime('now'))`).bind(accountId,quoteId,bookingNumber||null,"Booked",Math.max(0,total),Number(q.concession_amount||0),q.concession_note||null).run();
   const bookingId=br.meta.last_row_id;
+
+  const advanceRule=await env.DB.prepare("SELECT value_json FROM crm_business_rules WHERE rule_key='booking.default_advance' AND active=1 ORDER BY id DESC LIMIT 1").first();
+  const advancePercent=Math.min(100,Math.max(0,Number(parseRuleValue(advanceRule?.value_json).percent ?? 30)));
+  const advanceAmount=Math.round(Math.max(0,total)*advancePercent/100);
+  if(Math.max(0,total)>0){
+    await env.DB.batch([
+      env.DB.prepare("INSERT INTO booking_payment_schedule(booking_id,label,due_date,amount,status) VALUES(?,?,?,?,?)").bind(bookingId,"Advance",new Date().toISOString().slice(0,10),advanceAmount,"Due"),
+      env.DB.prepare("INSERT INTO booking_payment_schedule(booking_id,label,due_date,amount,status) VALUES(?,?,?,?,?)").bind(bookingId,"Balance",q.event_date||null,Math.max(0,total)-advanceAmount,"Due")
+    ]);
+  }
 
   const eventNumber=await nextNumber(env,"event");
   const er=await env.DB.prepare(`INSERT INTO events(account_id,booking_id,event_number,type,event_date,status,quote_total)
