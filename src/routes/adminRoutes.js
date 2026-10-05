@@ -425,14 +425,19 @@ export async function createQuote(request, env, id) {
 
 export async function listQuotes(request, env) {
   const { results } = await env.DB.prepare(`
-    SELECT q.id,q.lead_id,q.quote_number,q.status,q.total,q.concession_amount,q.event_type,q.event_date,
-           q.created_at,q.updated_at,l.name AS lead_name,l.phone AS lead_phone
+    SELECT q.id,q.lead_id,q.status,q.concession_amount,q.created_at,q.updated_at,
+           l.name AS lead_name,l.phone AS lead_phone,l.event_type,l.event_date,
+           COALESCE((SELECT SUM(i.price) FROM quote_items i WHERE i.quote_id=q.id AND i.selected=1),0) AS subtotal
     FROM lead_quotes q
     JOIN leads l ON l.id=q.lead_id
     ORDER BY q.created_at DESC
     LIMIT 300
   `).all();
-  return json(results);
+  return json(results.map(q => ({
+    ...q,
+    quote_number:`QT-${String(q.id).padStart(4,"0")}`,
+    total:Math.max(0,Number(q.subtotal||0)-Number(q.concession_amount||0))
+  })));
 }
 
 export async function getQuote(request, env, quoteId) {
