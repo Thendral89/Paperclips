@@ -97,6 +97,13 @@ export async function convertAcceptedQuote(request, env, quoteId) {
     WHERE q.id=?`).bind(quoteId).first();
   if(!q) return notFound("quote not found");
   if(!["Accepted","Won"].includes(q.status)) return badRequest("Quote must be Accepted/Won before conversion");
+  const [conversionRule,taskRule]=await Promise.all([
+    env.DB.prepare("SELECT value_json FROM crm_business_rules WHERE rule_key='booking.create_from_won_quote' AND active=1 ORDER BY id DESC LIMIT 1").first(),
+    env.DB.prepare("SELECT value_json FROM crm_business_rules WHERE rule_key='event.auto_create_quote_tasks' AND active=1 ORDER BY id DESC LIMIT 1").first()
+  ]);
+  const conversionEnabled=conversionRule ? parseRuleValue(conversionRule.value_json).enabled!==false : true;
+  if(!conversionEnabled) return badRequest("Booking creation from quotes is disabled by business rule");
+  const autoCreateTasks=taskRule ? parseRuleValue(taskRule.value_json).enabled!==false : true;
 
   let accountId=q.existing_account_id;
   if(!accountId){
@@ -137,9 +144,11 @@ export async function convertAcceptedQuote(request, env, quoteId) {
     }
   }
 
-  const templates=(await env.DB.prepare(`SELECT * FROM crm_task_templates
-    WHERE active=1 AND auto_create=1 AND (event_type_key IS NULL OR event_type_key=?)
-    ORDER BY phase,sort_order,id`).bind(q.event_type||"Wedding").all()).results;
+  const templates=autoCreateTasks
+    ? (await env.DB.prepare(`SELECT * FROM crm_task_templates
+      WHERE active=1 AND auto_create=1 AND (event_type_key IS NULL OR event_type_key=?)
+      ORDER BY phase,sort_order,id`).bind(q.event_type||"Wedding").all()).results
+    : [];
 
   let taskCount=0;
   for(const t of templates){
