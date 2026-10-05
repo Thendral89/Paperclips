@@ -82,8 +82,8 @@ export async function convertAcceptedQuote(request, env, quoteId) {
   const bookingId=br.meta.last_row_id;
 
   const eventNumber=await nextNumber(env,"event");
-  const er=await env.DB.prepare(`INSERT INTO events(account_id,booking_id,type,event_date,status,quote_total)
-    VALUES(?,?,?,?,?,?)`).bind(accountId,bookingId,q.event_type||"Wedding",q.event_date||null,"Planning",Math.max(0,total)).run();
+  const er=await env.DB.prepare(`INSERT INTO events(account_id,booking_id,event_number,type,event_date,status,quote_total)
+    VALUES(?,?,?,?,?,?,?)`).bind(accountId,bookingId,eventNumber||null,q.event_type||"Wedding",q.event_date||null,"Planning",Math.max(0,total)).run();
   const eventId=er.meta.last_row_id;
 
   for(const item of items){
@@ -97,13 +97,20 @@ export async function convertAcceptedQuote(request, env, quoteId) {
     WHERE active=1 AND auto_create=1 AND (event_type_key IS NULL OR event_type_key=?)
     ORDER BY phase,sort_order,id`).bind(q.event_type||"Wedding").all()).results;
 
+  let taskCount=0;
   for(const t of templates){
-    const matching=items.filter(i=>t.task_type==="Resource" && resourceItemMatches(t.default_title,i.label));
-    const count=t.task_type==="Resource" ? Math.max(1,matching.reduce((n,i)=>n+parseQty(i.label),0)) : 1;
+    const matching=t.task_type==="Resource"
+      ? items.filter(i=>resourceItemMatches(t.default_title,i.label))
+      : [];
+    const count=t.task_type==="Resource"
+      ? matching.reduce((n,i)=>n+parseQty(i.label),0)
+      : 1;
     for(let n=1;n<=count;n++){
+      const sourceItem=t.task_type==="Resource" ? matching[Math.min(n-1,matching.length-1)] : null;
       const title=t.task_type==="Resource" && count>1 ? `${t.default_title} #${n}` : t.default_title;
-      const tr=await env.DB.prepare(`INSERT INTO event_tasks(event_id,task,status,phase,required,template_id)
-        VALUES(?,?,?, ?,?,?)`).bind(eventId,title,"Pending",t.phase,t.required?1:0,t.id).run();
+      const tr=await env.DB.prepare(`INSERT INTO event_tasks(event_id,task,status,phase,required,template_id,source_quote_item_id)
+        VALUES(?,?,?,?,?,?,?)`).bind(eventId,title,"Pending",t.phase,t.required?1:0,t.id,sourceItem?.id||null).run();
+      taskCount++;
       if(t.task_type==="Resource"){
         await env.DB.prepare(`INSERT INTO event_resource_requirements(event_id,task_id,role_label,quantity,phase,allocation_date)
           VALUES(?,?,?,?,?,?)`).bind(eventId,tr.meta.last_row_id,t.default_title,1,t.phase,q.event_date||null).run();
@@ -115,5 +122,5 @@ export async function convertAcceptedQuote(request, env, quoteId) {
   await env.DB.prepare("UPDATE leads SET stage='Booked',updated_at=datetime('now') WHERE id=?").bind(q.lead_id).run();
   await env.DB.prepare("INSERT INTO lead_status_history(lead_id,to_stage,changed_by) VALUES(?,?,?)").bind(q.lead_id,"Booked","quote-conversion").run();
 
-  return json({ok:true,booking_id:bookingId,event_id:eventId,booking_number:bookingNumber,event_number:eventNumber,account_id:accountId,task_count:templates.length});
+  return json({ok:true,booking_id:bookingId,event_id:eventId,booking_number:bookingNumber,event_number:eventNumber,account_id:accountId,task_count:taskCount});
 }
