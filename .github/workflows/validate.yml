@@ -1,0 +1,44 @@
+name: CRM validation
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches:
+      - "feature/**"
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install
+        run: npm ci
+      - name: Check JavaScript syntax
+        shell: bash
+        run: |
+          set -euo pipefail
+          find src -type f -name '*.js' -print0 | xargs -0 -n1 node --check
+          python3 - <<'PY'
+          import re, pathlib, subprocess, tempfile
+          p = pathlib.Path("public/admin/index.html")
+          html = p.read_text(encoding="utf-8")
+          scripts = re.findall(r"<script(?:\\s[^>]*)?>(.*?)</script>", html, flags=re.S|re.I)
+          if not scripts:
+              raise SystemExit("No inline scripts found in public/admin/index.html")
+          for i, script in enumerate(scripts, 1):
+              with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False, encoding="utf-8") as f:
+                  f.write(script)
+                  name=f.name
+              subprocess.run(["node","--check",name],check=True)
+          print(f"Validated {len(scripts)} inline script block(s)")
+          PY
+      - name: Validate D1 migrations locally
+        run: npx wrangler d1 migrations apply paperclip-crm --local
