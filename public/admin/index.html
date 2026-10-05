@@ -199,6 +199,8 @@
     <div class="brand" style="font-family:var(--font-display);font-weight:400;font-size:22px;">Paperclip</div>
     <div class="navlink" data-view="dashboard"><svg width="17" height="17" viewBox="0 0 20 20" fill="none"><rect x="2.5" y="2.5" width="6.5" height="6.5" rx="1.5" stroke="currentColor" stroke-width="1.6"/><rect x="11" y="2.5" width="6.5" height="6.5" rx="1.5" stroke="currentColor" stroke-width="1.6"/><rect x="2.5" y="11" width="6.5" height="6.5" rx="1.5" stroke="currentColor" stroke-width="1.6"/><rect x="11" y="11" width="6.5" height="6.5" rx="1.5" stroke="currentColor" stroke-width="1.6"/></svg>Dashboard</div>
     <div class="navlink" data-view="leads"><svg width="17" height="17" viewBox="0 0 20 20" fill="none"><path d="M3 3.5h14l-5.2 6.4v5.6l-3.6 1.8v-7.4L3 3.5z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>Leads</div>
+    <div class="navlink" data-view="quotes">Quotes</div>
+    <div class="navlink" data-view="bookings">Bookings</div>
     <div class="navlink" data-view="accounts"><svg width="17" height="17" viewBox="0 0 20 20" fill="none"><circle cx="7" cy="7" r="3" stroke="currentColor" stroke-width="1.6"/><circle cx="14" cy="8.5" r="2.4" stroke="currentColor" stroke-width="1.6"/><path d="M2.2 16.5c.6-3 2.5-4.6 4.8-4.6s4.2 1.6 4.8 4.6M12 16.5c.4-2.1 1.7-3.4 3.4-3.4 1.5 0 2.7.9 3.3 2.6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>Customers / Accounts</div>
     <div class="navlink" data-view="calendar"><svg width="17" height="17" viewBox="0 0 20 20" fill="none"><rect x="3" y="4" width="14" height="13" rx="2" stroke="currentColor" stroke-width="1.6"/><path d="M3 8h14M6.5 2.5v3M13.5 2.5v3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>Calendar</div>
     <div class="navlink" data-view="events"><svg width="17" height="17" viewBox="0 0 20 20" fill="none"><rect x="2.5" y="4" width="15" height="13" rx="2" stroke="currentColor" stroke-width="1.6"/><path d="M2.5 8h15M6.5 2.5v3M13.5 2.5v3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>Events</div>
@@ -232,7 +234,7 @@ let uiConfig = null;
 async function loadUiConfig(force=false) { if (uiConfig && !force) return uiConfig; uiConfig = await api("/config"); uiLabels = uiConfig.labels || {}; return uiConfig; }
 function L(key, fallback) { return escapeHtml(uiLabels[key] || fallback); }
 function applyConfiguredLabels() {
-  const navMap={"nav.dashboard":"dashboard","nav.leads":"leads","nav.accounts":"accounts","nav.calendar":"calendar","nav.events":"events","nav.packages":"packages","nav.resources":"resources","nav.equipment":"equipment","nav.expenses":"expenses","nav.financials":"financials","nav.reports":"reports","nav.settings":"settings"};
+  const navMap={"nav.dashboard":"dashboard","nav.leads":"leads","nav.quotes":"quotes","nav.bookings":"bookings","nav.accounts":"accounts","nav.calendar":"calendar","nav.events":"events","nav.packages":"packages","nav.resources":"resources","nav.equipment":"equipment","nav.expenses":"expenses","nav.financials":"financials","nav.reports":"reports","nav.settings":"settings"};
   for (const [key,view] of Object.entries(navMap)) { const el=document.querySelector(`.navlink[data-view="${view}"]`); if(!el||!uiLabels[key]) continue; const n=[...el.childNodes].find(x=>x.nodeType===Node.TEXT_NODE&&x.textContent.trim()); if(n) n.textContent=` ${uiLabels[key]}`; }
 }
 
@@ -420,6 +422,8 @@ async function render() {
   try {
     if (state.view === "dashboard") return renderDashboard();
     if (state.view === "leads") return renderLeads();
+    if (state.view === "quotes") return renderQuotes();
+    if (state.view === "bookings") return renderBookings();
     if (state.view === "leadDetail") return renderLeadDetail(state.id);
     if (state.view === "quoteDetail") return renderQuoteDetail(state.id);
     if (state.view === "accounts") return renderAccounts();
@@ -881,7 +885,64 @@ async function renderQuoteDetail(id) {
   }
 }
 
-// ── Accounts ───────────────────────────────────────────────
+// ── Quotes ──────────────────────────────────────────────────
+async function renderQuotes() {
+  const quotes = await api("/quotes");
+  main.innerHTML = \`
+    \${pageHeader("Quotes")}
+    <div class="card"><h2>All quotes (\${quotes.length})</h2>
+      <table><thead><tr><th>Quote</th><th>Lead</th><th>Status</th><th>Event</th><th>Date</th><th>Value</th></tr></thead>
+      <tbody>\${quotes.map(q => \`<tr class="clickable" data-quote="\${q.id}">
+        <td><b>\${escapeHtml(q.quote_number||("#"+q.id))}</b></td>
+        <td>\${escapeHtml(q.lead_name||"—")}<div class="meta">\${escapeHtml(q.lead_phone||"")}</div></td>
+        <td>\${statusPill(q.status)}</td><td>\${escapeHtml(q.event_type||"—")}</td>
+        <td>\${escapeHtml(q.event_date||"TBD")}</td><td>\${money(Math.max(0,Number(q.total||0)-Number(q.concession_amount||0)))}</td>
+      </tr>\`).join("") || '<tr><td colspan="6" class="empty">No quotes yet.</td></tr>'}</tbody></table>
+    </div>\`;
+  main.querySelectorAll("[data-quote]").forEach(el => el.addEventListener("click",()=>go("quoteDetail",el.dataset.quote)));
+}
+
+// ── Bookings ────────────────────────────────────────────────
+async function renderBookings() {
+  const bookings = await api("/bookings");
+  main.innerHTML = \`
+    \${pageHeader("Bookings")}
+    <div class="card"><h2>All bookings (\${bookings.length})</h2>
+      <table><thead><tr><th>Booking</th><th>Client</th><th>Status</th><th>Events</th><th>Booked value</th><th>Paid</th><th>Outstanding</th></tr></thead>
+      <tbody>\${bookings.map(b => {
+        const value=Number(b.booked_value||0), paid=Number(b.paid_amount||0);
+        return \`<tr class="clickable" data-booking="\${b.id}">
+          <td><b>\${escapeHtml(b.booking_number||("#"+b.id))}</b><div class="meta">\${escapeHtml(b.quote_status||"")}</div></td>
+          <td>\${escapeHtml(b.client_name||"—")}<div class="meta">\${escapeHtml(b.client_phone||"")}</div></td>
+          <td>\${statusPill(b.status)}</td><td>\${Number(b.event_count||0)}</td><td>\${money(value)}</td><td>\${money(paid)}</td><td>\${money(Math.max(0,value-paid))}</td>
+        </tr>\`;
+      }).join("") || '<tr><td colspan="7" class="empty">No bookings yet. Convert an accepted quote to create one.</td></tr>'}</tbody></table>
+    </div>\`;
+  main.querySelectorAll("[data-booking]").forEach(el=>el.addEventListener("click",()=>openBooking(el.dataset.booking)));
+}
+
+async function openBooking(id) {
+  const b=await api(\`/bookings/\${id}\`);
+  const paid=(b.payments||[]).reduce((n,p)=>n+Number(p.amount||0),0);
+  openModal(\`Booking \${escapeHtml(b.booking_number||("#"+b.id))}\`,\`
+    <div class="card" style="margin:0 0 12px"><b>\${escapeHtml(b.client_name||"")}</b><div class="meta">\${escapeHtml(b.client_email||"")} · \${escapeHtml(b.client_phone||"")}</div><div style="margin-top:8px">Booked: \${money(b.booked_value)} · Paid: \${money(paid)} · Outstanding: \${money(Math.max(0,Number(b.booked_value||0)-paid))}</div></div>
+    <div class="card" style="margin:0 0 12px"><h3>Events</h3>\${(b.events||[]).map(e=>\`<div class="list-row"><span><b>\${escapeHtml(e.event_number||("#"+e.id))}</b> · \${escapeHtml(e.type||"")}</span><button type="button" class="icon-btn" data-open-event="\${e.id}">Open</button></div>\`).join("")||'<div class="empty">No events.</div>'}</div>
+    <div class="card" style="margin:0"><h3>Payments <button type="button" class="icon-btn" id="addBookingPayment">+ Add</button></h3>
+      \${(b.payments||[]).map(p=>\`<div class="list-row"><span>\${escapeHtml(p.payment_date)} · \${money(p.amount)} <span class="meta">\${escapeHtml(p.method||"")} \${escapeHtml(p.reference||"")}</span></span></div>\`).join("")||'<div class="empty">No payments recorded.</div>'}</div>
+  \`,async()=>{});
+  main.querySelectorAll("[data-open-event]").forEach(el=>el.addEventListener("click",()=>{closeModal();go("eventDetail",el.dataset.openEvent);}));
+  document.querySelector("#addBookingPayment")?.addEventListener("click",()=>openModal("Add booking payment",\`
+    <form>
+      <div class="field"><label>Amount (₹)</label><input name="amount" type="number" min="1" required></div>
+      <div class="field"><label>Payment date</label><input name="payment_date" type="date" value="\${new Date().toISOString().slice(0,10)}" required></div>
+      <div class="field"><label>Method</label><input name="method" placeholder="UPI / Bank / Cash / Card"></div>
+      <div class="field"><label>Reference</label><input name="reference"></div>
+      <div class="field"><label>Notes</label><input name="notes"></div>
+      <button type="submit" style="width:100%">Record payment</button>
+    </form>\`,async data=>{await api(\`/bookings/\${id}/payments\`,{method:"POST",body:JSON.stringify(data)});toast("Payment recorded");closeModal();renderBookings();}));
+}
+
+// // ── Accounts ───────────────────────────────────────────────
 async function renderAccounts() {
   const allAccts = await api("/accounts");
   const balanceOnly = state.filter && state.filter.balance_due;
