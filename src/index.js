@@ -9,6 +9,7 @@ import * as admin from "./routes/adminRoutes.js";
 import * as portal from "./routes/portalRoutes.js";
 import * as config from "./routes/configRoutes.js";
 import * as productConfig from "./routes/productConfigRoutes.js";
+import * as bookingRoutes from "./routes/bookingRoutes.js";
 import { startLogin, handleCallback, logout } from "./routes/authRoutes.js";
 import { handleScheduled } from "./cron.js";
 
@@ -18,6 +19,9 @@ const ADMIN_ROUTES = [
   ["GET", /^\/api\/admin\/me$/, async (req, env, staff) => json({ email: staff.email })],
   ["GET", /^\/api\/admin\/config$/, (req, env) => config.getConfig(req, env)],
   ["GET", /^\/api\/admin\/product-config$/, (req, env) => productConfig.getProductConfig(req, env)],
+  ["GET", /^\/api\/admin\/bookings$/, (req, env) => bookingRoutes.listBookings(req, env)],
+  ["GET", /^\/api\/admin\/bookings\/(\\d+)$/, (req, env, staff, [id]) => bookingRoutes.getBooking(req, env, id)],
+  ["POST", /^\/api\/admin\/quotes\/(\\d+)\/convert$/, (req, env, staff, [id]) => bookingRoutes.convertAcceptedQuote(req, env, id)],
   ["POST", /^\/api\/admin\/product-config\/company$/, (req, env, staff) => productConfig.updateCompany(req, env, staff)],
   ["POST", /^\/api\/admin\/product-config\/branding$/, (req, env, staff) => productConfig.updateBranding(req, env, staff)],
   ["POST", /^\/api\/admin\/product-config\/rules$/, (req, env, staff) => productConfig.upsertBusinessRule(req, env, staff)],
