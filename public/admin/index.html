@@ -1547,7 +1547,7 @@ async function renderSettings(){
   const input=(name,label,value="",type="text",extra="")=>`<div class="field"><label>${label}</label><input name="${name}" type="${type}" value="${esc(value)}" ${extra}></div>`;
   const save=async(path,data,message)=>{await api(path,{method:"POST",body:JSON.stringify(data)});toast(message||"Saved");await renderSettings();};
 
-  const renderSection=()=>{
+  const renderSection=async()=>{
     const panel=document.getElementById("settingsPanel");
     if(!panel) return;
     if(activeSection==="company"){
