@@ -1,6 +1,6 @@
 import { json, badRequest, notFound } from "../lib/util.js";
 
-const OBJECTS = ["leads","quotes","clients","bookings","events","tasks","resources","expenses","payments"];
+const OBJECTS = ["leads","quotes","clients","bookings","events","tasks","resources","expenses","payments","invoice"];
 
 function parseJson(value, fallback) {
   try { return value == null ? fallback : JSON.parse(value); } catch { return fallback; }
@@ -92,12 +92,20 @@ export async function upsertCustomField(request, env, staff) {
 export async function updateNumbering(request, env, staff) {
   const body=await request.json().catch(()=>null);
   if(!OBJECTS.includes(body?.object_key)||!body?.prefix) return badRequest("object_key and prefix are required");
-  await env.DB.prepare("UPDATE crm_numbering_sequences SET prefix=?,include_year=?,next_number=?,padding=?,updated_at=datetime('now') WHERE object_key=?").bind(body.prefix,body.include_year===false?0:1,Math.max(1,Number(body.next_number||1)),Math.max(1,Number(body.padding||4)),body.object_key).run();
-  const after=await env.DB.prepare("SELECT * FROM crm_numbering_sequences WHERE object_key=?").bind(body.object_key).first();
-  await audit(env,staff,"update","numbering",after.id,null,after);
+  const objectKey=body.object_key;
+  const before=await env.DB.prepare("SELECT * FROM crm_numbering_sequences WHERE object_key=?").bind(objectKey).first();
+  const includeYear=body.include_year===false?0:1;
+  const nextNumber=Math.max(1,Number(body.next_number||1));
+  const padding=Math.max(1,Number(body.padding||4));
+  if(before){
+    await env.DB.prepare("UPDATE crm_numbering_sequences SET prefix=?,include_year=?,next_number=?,padding=?,updated_at=datetime('now') WHERE object_key=?").bind(body.prefix,includeYear,nextNumber,padding,objectKey).run();
+  } else {
+    await env.DB.prepare("INSERT INTO crm_numbering_sequences(object_key,prefix,include_year,next_number,padding) VALUES(?,?,?,?,?)").bind(objectKey,body.prefix,includeYear,nextNumber,padding).run();
+  }
+  const after=await env.DB.prepare("SELECT * FROM crm_numbering_sequences WHERE object_key=?").bind(objectKey).first();
+  await audit(env,staff,before?"update":"create","numbering",after.id,before,after);
   return json(after);
 }
-
 export async function updateAiPermissions(request, env, staff) {
   const body=await request.json().catch(()=>null);
   await env.DB.prepare("UPDATE crm_ai_permissions SET enabled=?,mcp_enabled=?,allowed_read_json=?,allowed_write_json=?,confirmation_required_json=?,updated_at=datetime('now') WHERE id=1")
