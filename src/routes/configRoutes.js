@@ -170,8 +170,9 @@ export async function deleteSkill(request, env, id) {
 
 export async function listResources(request, env) {
   const { results } = await env.DB.prepare(`
-    SELECT r.id,r.name,r.phone,r.email,r.notes,r.active,
+    SELECT r.id,r.name,r.resource_type,r.phone,r.email,r.notes,r.active,
       COALESCE(GROUP_CONCAT(DISTINCT s.label),'') AS skills,
+      COALESCE(GROUP_CONCAT(DISTINCT rs.skill_id),'') AS skill_ids,
       COALESCE(GROUP_CONCAT(DISTINCT rp.phase),'') AS phases
     FROM resources r
     LEFT JOIN resource_skills rs ON rs.resource_id=r.id
