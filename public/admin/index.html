@@ -1505,435 +1505,109 @@ async function renderEventDetail(id) {
 
 
 async function renderSettings(){
-  const cfg=await loadUiConfig(true);
-  const labels=Object.entries(cfg.labels||{});
-  const skills=cfg.skills||[];
-  const picklists=await api('/picklists');
-
-  const objects=[
-    {key:'leads',label:L('nav.leads','Leads')},
-    {key:'accounts',label:'Clients'},
-    {key:'events',label:L('nav.events','Events')},
-    {key:'resources',label:L('nav.resources','Resources')},
-    {key:'packages',label:L('nav.packages','Packages')},
-    {key:'equipment',label:'Equipment'},
-    {key:'expenses',label:'Expenses'},
-    {key:'financials',label:'Financials'}
+  const cfg=await api("/product-config");
+  const labels=await api("/labels");
+  const picklists=await api("/picklists");
+  let activeSection="company";
+  const sectionNames=[
+    ["company","Company"],["branding","Branding"],["crm","CRM Configuration"],
+    ["operations","Operations"],["finance","Finance"],["marketing","Marketing"],
+    ["ai","AI & MCP"],["audit","Audit Log"]
   ];
 
-  // Skills are maintained in their own resource configuration card.
-  // resource_skill is therefore intentionally not duplicated as a generic picklist.
-  const editablePicklists=picklists.filter(g=>g.group_key!=='resource_skill');
-  let activeObject='leads';
+  const esc=v=>escapeHtml(v==null?"":v);
+  const input=(name,label,value="",type="text",extra="")=>`<div class="field"><label>${label}</label><input name="${name}" type="${type}" value="${esc(value)}" ${extra}></div>`;
+  const save=async(path,data,message)=>{await api(path,{method:"POST",body:JSON.stringify(data)});toast(message||"Saved");await renderSettings();};
 
-  main.innerHTML=`${pageHeader(L('nav.settings','Settings'),null)}
-    <div class="card">
-      <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;">
-        <div><h2>Labels</h2><p class="empty">Business and interface wording. Edit the value without changing the internal key.</p></div>
-      </div>
-      ${labels.map(([k,v])=>`<form class="list-row label-form" data-label-key="${escapeHtml(k)}">
-        <span style="flex:1;min-width:220px"><b>${escapeHtml(k)}</b><br>
-          <input name="label_value" value="${escapeHtml(v)}" style="width:100%;margin-top:5px">
-        </span>
-        <button type="submit">Save</button>
-      </form>`).join('') || '<div class="empty">No labels configured.</div>'}
-    </div>
-
-    <div class="card">
-      <div style="margin-bottom:13px;">
-        <h2 style="margin:0">Picklists by tab</h2>
-        <p class="empty" style="margin:3px 0 12px">Choose the CRM object, then edit only the categories and values that belong to that tab.</p>
-        <div class="segbar" id="picklistObjectTabs" style="margin-bottom:0;">
-          ${objects.map(o=>`<button type="button" class="seg ${o.key===activeObject?'active':''}" data-picklist-object="${o.key}">${escapeHtml(o.label)}</button>`).join('')}
-        </div>
-      </div>
-      <div id="picklistObjectPanel"></div>
-    </div>
-
-    <div class="card">
-      <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:13px;">
-        <div><h2 style="margin:0">Skills</h2><p class="empty" style="margin:3px 0 0">Skills available when creating and allocating resources.</p></div>
-        <button type="button" id="addSkill">+ Add skill</button>
-      </div>
-      ${skills.map(x=>`
-        <div class="list-row">
-          <span style="flex:1"><b>${escapeHtml(x.label)}</b><span class="meta"> · ${escapeHtml(x.skill_key||'')}</span></span>
-          <span class="row-actions">
-            <button type="button" class="icon-btn edit" data-edit-skill="${x.id}">Edit</button>
-            <button type="button" class="icon-btn del" data-del-skill="${x.id}">Remove</button>
-          </span>
-        </div>`).join('') || '<div class="empty">No skills configured.</div>'}
-    </div>`;
-
-  main.querySelectorAll('.label-form').forEach(form=>form.addEventListener('submit',async e=>{
-    e.preventDefault();
-    await api('/labels',{method:'POST',body:JSON.stringify({label_key:form.dataset.labelKey,label_value:new FormData(form).get('label_value')})});
-    await loadUiConfig(true); applyConfiguredLabels(); toast('Label saved'); renderSettings();
-  }));
-
-  const groupsForObject=objectKey=>editablePicklists.filter(g=>g.object_key===objectKey);
-
-  const openPicklistForm=(group,value=null)=>{
-    if(!group) return;
-    openModal(value?'Edit picklist value':'Add picklist value',`<form>
-      <div class="field"><label>Object</label><input value="${escapeHtml(objects.find(o=>o.key===activeObject)?.label||activeObject)}" disabled></div>
-      <div class="field"><label>Picklist</label><input value="${escapeHtml(group.label)}" disabled></div>
-      <div class="field"><label>Value</label><input name="value_label" value="${escapeHtml(value?.value_label||'')}" required></div>
-      <div class="field"><label>Sort order</label><input name="sort_order" type="number" value="${Number(value?.sort_order||0)}"></div>
-      <button type="submit" style="width:100%">${value?'Save changes':'Add value'}</button>
-    </form>`,async(data)=>{
-      data.group_key=group.group_key;
-      data.id=value?.id;
-      await api('/picklists',{method:'POST',body:JSON.stringify(data)});
-      toast(value?'Picklist value updated':'Picklist value added');
-      renderSettings();
-    });
-  };
-
-  const paintPicklists=()=>{
-    const panel=document.getElementById('picklistObjectPanel');
+  const renderSection=()=>{
+    const panel=document.getElementById("settingsPanel");
     if(!panel) return;
-    const groups=groupsForObject(activeObject);
-    panel.innerHTML=groups.length ? groups.map(g=>`
-      <div style="border-top:1px solid var(--line);padding:13px 0 5px;">
-        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;">
-          <div><b>${escapeHtml(g.label)}</b><div class="meta">${escapeHtml(g.description||'')}</div></div>
-          <button type="button" class="ghost" data-add-picklist="${escapeHtml(g.group_key)}">+ Add value</button>
-        </div>
-        ${g.values?.length ? g.values.map(v=>`
-          <div class="list-row">
-            <span style="flex:1"><b>${escapeHtml(v.value_label)}</b><span class="meta"> · ${escapeHtml(v.value_key)}</span></span>
-            <span class="row-actions">
-              <button type="button" class="icon-btn edit" data-edit-picklist="${v.id}">Edit</button>
-              <button type="button" class="icon-btn del" data-del-picklist="${v.id}">Remove</button>
-            </span>
-          </div>`).join('') : '<div class="empty" style="padding:8px 0">No values configured.</div>'}
-      </div>`).join('') : `
-        <div style="padding:16px 0 8px;">
-          <div class="empty">No configurable picklists are currently assigned to this tab.</div>
-          <div class="meta" style="margin-top:5px;">This keeps the configuration scoped to the object instead of mixing unrelated dropdowns together.</div>
-        </div>`;
-
-    panel.querySelectorAll('[data-add-picklist]').forEach(el=>el.addEventListener('click',()=>{
-      const group=groups.find(g=>g.group_key===el.dataset.addPicklist);
-      openPicklistForm(group);
-    }));
-    panel.querySelectorAll('[data-edit-picklist]').forEach(el=>el.addEventListener('click',()=>{
-      const value=groups.flatMap(g=>g.values||[]).find(v=>String(v.id)===el.dataset.editPicklist);
-      const group=value ? groups.find(g=>(g.values||[]).some(v=>String(v.id)===String(value.id))) : null;
-      if(value) openPicklistForm(group,value);
-    }));
-    panel.querySelectorAll('[data-del-picklist]').forEach(el=>el.addEventListener('click',async()=>{
-      if(!confirm('Remove this picklist value?')) return;
-      await api(`/picklists/${el.dataset.delPicklist}/delete`,{method:'POST',body:'{}'});
-      toast('Picklist value removed');
-      renderSettings();
-    }));
+    if(activeSection==="company"){
+      const x=cfg.company||{};
+      panel.innerHTML=`<div class="card"><h2>Company profile</h2><p class="empty">Configure the business once. These values become the default identity for quotes, bookings, events and documents.</p>
+        <form id="companyForm" class="row2">
+          <div>${input("company_name","Company name",x.company_name,"text","required")}${input("legal_name","Legal name",x.legal_name)}${input("phone","Phone",x.phone)}${input("email","Email",x.email,"email")}${input("website","Website",x.website,"url")}</div>
+          <div>${input("address","Address",x.address)}${input("tax_id","GST / Tax ID",x.tax_id)}${input("currency","Currency",x.currency||"INR")}${input("timezone","Timezone",x.timezone||"Asia/Kolkata")}${input("business_type","Business type",x.business_type)}</div>
+          <button type="submit">Save company profile</button>
+        </form></div>`;
+      panel.querySelector("#companyForm").addEventListener("submit",async e=>{e.preventDefault();await save("/product-config/company",Object.fromEntries(new FormData(e.target)),"Company profile saved");});
+      return;
+    }
+    if(activeSection==="branding"){
+      const b=cfg.branding||{};
+      panel.innerHTML=`<div class="card"><h2>Branding & appearance</h2><p class="empty">Keep the CRM visually aligned with the company's identity. Small logo files can be stored directly; URL values are also supported.</p>
+        <form id="brandForm">
+          <div class="row2"><div>${input("primary_color","Primary color",b.primary_color,"color")}${input("secondary_color","Secondary color",b.secondary_color,"color")}${input("accent_color","Accent color",b.accent_color,"color")}${input("background_color","Background color",b.background_color,"color")}${input("surface_color","Surface color",b.surface_color,"color")}</div>
+          <div><div class="field"><label>Theme</label><select name="theme_mode"><option ${b.theme_mode==="system"?"selected":""}>system</option><option ${b.theme_mode==="light"?"selected":""}>light</option><option ${b.theme_mode==="dark"?"selected":""}>dark</option></select></div>
+          <div class="field"><label>UI density</label><select name="ui_density"><option ${b.ui_density==="comfortable"?"selected":""}>comfortable</option><option ${b.ui_density==="compact"?"selected":""}>compact</option><option ${b.ui_density==="spacious"?"selected":""}>spacious</option></select></div>
+          ${input("font_family","Font family",b.font_family||"Inter")}${input("logo_primary_url","Primary logo URL / data",b.logo_primary_url||"")}${input("logo_light_url","Light logo URL / data",b.logo_light_url||"")}${input("logo_dark_url","Dark logo URL / data",b.logo_dark_url||"")}</div></div>
+          <div class="field"><label>Logo file (optional, max ~300 KB)</label><input id="logoFile" type="file" accept="image/png,image/jpeg,image/webp"></div>
+          <button type="submit">Save branding</button>
+        </form></div>`;
+      panel.querySelector("#brandForm").addEventListener("submit",async e=>{
+        e.preventDefault(); const data=Object.fromEntries(new FormData(e.target)); const file=panel.querySelector("#logoFile").files[0];
+        if(file){if(file.size>300000){toast("Logo must be under 300 KB",true);return;} data.logo_primary_url=await new Promise((resolve,reject)=>{const r=new FileReader();r.onload=()=>resolve(r.result);r.onerror=reject;r.readAsDataURL(file);});}
+        await save("/product-config/branding",data,"Branding saved");
+      });
+      return;
+    }
+    if(activeSection==="crm"){
+      const grouped={}; (cfg.custom_fields||[]).forEach(f=>(grouped[f.object_key]??=[]).push(f));
+      panel.innerHTML=`<div class="card"><h2>Labels</h2><p class="empty">Change wording without changing internal database keys.</p>${labels.map(x=>`<form class="list-row label-form" data-key="${esc(x.label_key)}"><span style="flex:1"><b>${esc(x.label_key)}</b><br><input name="label_value" value="${esc(x.label_value)}" style="width:100%;margin-top:5px"></span><button type="submit">Save</button></form>`).join("")}</div>
+      <div class="card"><h2>Picklists by object</h2>${picklists.map(g=>`<div class="list-row" style="display:block"><b>${esc(g.object_key||"General")} — ${esc(g.label)}</b><div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:7px">${g.values.map(v=>`<button type="button" class="pill" data-pick="${v.id}" data-group="${esc(g.group_key)}" data-value="${esc(v.value_label)}">${esc(v.value_label)} ✎</button>`).join("")}<button type="button" class="icon-btn" data-add-pick="${esc(g.group_key)}">+ Add</button></div></div>`).join("")||'<div class="empty">No configurable picklists found.</div>'}</div>
+      <div class="card"><h2>Custom fields</h2><p class="empty">Add business-specific fields without changing the database schema.</p><button type="button" id="addCustomField">+ Add custom field</button>${Object.entries(grouped).map(([o,fs])=>`<div style="margin-top:12px"><b>${esc(o)}</b>${fs.map(f=>`<div class="list-row"><span>${esc(f.field_label)} <span class="meta">(${esc(f.field_type)})</span></span><button type="button" class="icon-btn edit" data-edit-field="${f.id}">Edit</button></div>`).join("")}</div>`).join("")}</div>`;
+      panel.querySelectorAll(".label-form").forEach(form=>form.addEventListener("submit",async e=>{e.preventDefault();await api("/labels",{method:"POST",body:JSON.stringify({label_key:form.dataset.key,label_value:new FormData(form).get("label_value")})});toast("Label saved");renderSettings();}));
+      panel.querySelectorAll("[data-add-pick]").forEach(el=>el.addEventListener("click",()=>openPick(el.dataset.addPick)));
+      panel.querySelectorAll("[data-pick]").forEach(el=>el.addEventListener("click",()=>openPick(el.dataset.group,{id:Number(el.dataset.pick),value_label:el.dataset.value})));
+      const openPick=(group,value)=>openModal(value?"Edit picklist value":"Add picklist value",`<form>${input("value_label","Value",value?.value_label||"","text","required")}${input("sort_order","Sort order",0,"number")}<button type="submit">Save</button></form>`,async d=>{await api("/picklists",{method:"POST",body:JSON.stringify({...d,group_key:group,id:value?.id}));toast("Picklist saved");renderSettings();});
+      const openField=(f)=>openModal(f?"Edit custom field":"Add custom field",`<form><div class="field"><label>Object</label><select name="object_key">${(cfg.objects||[]).map(o=>`<option ${f?.object_key===o? "selected":""}>${o}</option>`).join("")}</select></div>${input("field_key","Field key",f?.field_key||"","text","required")}${input("field_label","Display label",f?.field_label||"","text","required")}<div class="field"><label>Type</label><select name="field_type">${["text","long_text","number","date","boolean","select","multi_select","url"].map(t=>`<option ${f?.field_type===t?"selected":""}>${t}</option>`).join("")}</select></div>${input("options","Options (comma separated)",(f?.options||[]).join(","))}<button type="submit">Save</button></form>`,async d=>{d.id=f?.id;d.options=String(d.options||"").split(",").map(x=>x.trim()).filter(Boolean);await api("/product-config/custom-fields",{method:"POST",body:JSON.stringify(d)});toast("Custom field saved");renderSettings();});
+      panel.querySelector("#addCustomField").addEventListener("click",()=>openField(null)); panel.querySelectorAll("[data-edit-field]").forEach(el=>el.addEventListener("click",()=>openField((cfg.custom_fields||[]).find(f=>f.id===Number(el.dataset.editField))));
+      return;
+    }
+    if(activeSection==="operations"){
+      panel.innerHTML=`<div class="card"><h2>Business rules</h2><p class="empty">These are operational decisions the company can change without code.</p>${(cfg.rules||[]).map(r=>`<div class="list-row"><span style="flex:1"><b>${esc(r.label)}</b><br><span class="meta">${esc(r.description||"")}</span></span><button type="button" class="icon-btn edit" data-rule="${r.id}">Edit</button></div>`).join("")}</div>
+      <div class="card"><h2>Task templates</h2><p class="empty">Templates generate Pre-Production, Production and Post-Production work automatically.</p>${(cfg.task_templates||[]).map(t=>`<div class="list-row"><span style="flex:1"><b>${esc(t.default_title)}</b> <span class="pill">${esc(t.phase)}</span><br><span class="meta">${esc(t.event_type_key||"All event types")} · ${t.required?"Required":"Optional"}</span></span><button type="button" class="icon-btn edit" data-template="${t.id}">Edit</button></div>`).join("")}</div>`;
+      const openRule=(r)=>{const value=typeof r?.value==="object"?JSON.stringify(r.value,null,2):"{}";openModal("Business rule",`<form>${input("label","Label",r?.label||"","text","required")}${input("category","Category",r?.category||"Operations")}${input("description","Description",r?.description||"")}<div class="field"><label>Value JSON</label><textarea name="value" rows="5">${esc(value)}</textarea></div><button type="submit">Save</button></form>`,async d=>{let value;try{value=JSON.parse(d.value||"{}")}catch{throw new Error("Value must be valid JSON")}await api("/product-config/rules",{method:"POST",body:JSON.stringify({...r,value,label:d.label,category:d.category,description:d.description})});toast("Rule saved");renderSettings();});};
+      panel.querySelectorAll("[data-rule]").forEach(el=>el.addEventListener("click",()=>openRule((cfg.rules||[]).find(r=>r.id===Number(el.dataset.rule)))));
+      const openTemplate=t=>openModal("Task template",`<form>${input("template_key","Template key",t?.template_key||"","text","required")}${input("default_title","Task title",t?.default_title||"","text","required")}<div class="field"><label>Phase</label><select name="phase">${["Pre-Production","Production","Post-Production"].map(p=>`<option ${t?.phase===p?"selected":""}>${p}</option>`).join("")}</select></div>${input("event_type_key","Event type key",t?.event_type_key||"")}${input("sort_order","Sort order",t?.sort_order||0,"number")}<label><input name="required" type="checkbox" ${t?.required?"checked":""}> Required</label><button type="submit">Save</button></form>`,async d=>{d.required=!!d.required;await api("/product-config/task-templates",{method:"POST",body:JSON.stringify({...t,...d})});toast("Task template saved");renderSettings();}); panel.querySelectorAll("[data-template]").forEach(el=>el.addEventListener("click",()=>openTemplate((cfg.task_templates||[]).find(t=>t.id===Number(el.dataset.template))));
+      return;
+    }
+    if(activeSection==="finance"){
+      const nums=cfg.numbering||[];
+      panel.innerHTML=`<div class="card"><h2>Numbering</h2><p class="empty">Configure human-friendly numbers for the business documents and records.</p>${nums.map(n=>`<form class="list-row" data-num="${esc(n.object_key)}"><span style="width:180px"><b>${esc(n.object_key)}</b></span><input name="prefix" value="${esc(n.prefix)}" style="width:100px"><label style="display:flex;align-items:center;gap:5px"><input name="include_year" type="checkbox" ${n.include_year?"checked":""}> Year</label><input name="padding" type="number" min="1" max="8" value="${n.padding}" style="width:70px"><button type="submit">Save</button></form>`).join("")}</div>
+      <div class="card"><h2>Default payment rule</h2><p class="empty">Change the advance percentage used when new bookings are created.</p>${(cfg.rules||[]).filter(r=>r.rule_key==="booking.default_advance").map(r=>`<button type="button" class="icon-btn edit" id="editAdvance">Edit current: ${esc(r.value?.percent||30)}%</button>`).join("")}</div>`;
+      panel.querySelectorAll("[data-num]").forEach(form=>form.addEventListener("submit",async e=>{e.preventDefault();const d=Object.fromEntries(new FormData(form));await api("/product-config/numbering",{method:"POST",body:JSON.stringify({...d,object_key:form.dataset.num,include_year:form.querySelector('[name="include_year"]').checked})});toast("Numbering saved");renderSettings();}));
+      const adv=(cfg.rules||[]).find(r=>r.rule_key==="booking.default_advance"); panel.querySelector("#editAdvance")?.addEventListener("click",()=>openModal("Default advance",`<form>${input("percent","Advance percentage",adv?.value?.percent||30,"number","min=0 max=100")}<button type="submit">Save</button></form>`,async d=>{await api("/product-config/rules",{method:"POST",body:JSON.stringify({...adv,value:{percent:Number(d.percent)}})});toast("Advance rule saved");renderSettings();}));
+      return;
+    }
+    if(activeSection==="marketing"){
+      panel.innerHTML=`<div class="card"><h2>Client relationship automation</h2><p class="empty">Use the Client 360 timeline to create follow-up opportunities without automatically sending messages.</p>${(cfg.rules||[]).filter(r=>r.category==="Marketing").map(r=>`<div class="list-row"><span><b>${esc(r.label)}</b><br><span class="meta">${esc(r.description||"")}</span></span><button type="button" class="icon-btn edit" data-rule="${r.id}">Edit</button></div>`).join("")}</div>`;
+      panel.querySelectorAll("[data-rule]").forEach(el=>el.addEventListener("click",()=>{const r=(cfg.rules||[]).find(x=>x.id===Number(el.dataset.rule));openModal("Marketing rule",`<form>${input("label","Label",r.label)}<div class="field"><label>Days before</label><input name="days_before" type="number" value="${r.value?.days_before||30}"></div><label><input name="enabled" type="checkbox" ${r.value?.enabled!==false?"checked":""}> Enabled</label><button type="submit">Save</button></form>`,async d=>{await api("/product-config/rules",{method:"POST",body:JSON.stringify({...r,label:d.label,value:{days_before:Number(d.days_before),enabled:!!d.enabled}})});toast("Marketing rule saved");renderSettings();});}));
+      return;
+    }
+    if(activeSection==="ai"){
+      const a=cfg.ai||{}; const allRead=["clients","leads","quotes","bookings","events","tasks","resources","payments","expenses"]; const allWrite=["followups","quotes","tasks","resource_allocations","marketing_opportunities"]; const confirm=["delete_records","financial_changes","send_external_messages","resource_allocations"];
+      panel.innerHTML=`<div class="card"><h2>AI & MCP access</h2><p class="empty">The CRM can expose controlled business actions to ChatGPT through MCP. Permissions are explicit; the AI never receives direct database access.</p>
+      <form id="aiForm"><label><input name="enabled" type="checkbox" ${a.enabled?"checked":""}> Enable AI features</label><br><label><input name="mcp_enabled" type="checkbox" ${a.mcp_enabled?"checked":""}> Enable MCP access</label>
+      <div class="row2" style="margin-top:12px"><div><b>Read access</b>${allRead.map(x=>`<label style="display:block"><input type="checkbox" name="read" value="${x}" ${(a.allowed_read||[]).includes(x)?"checked":""}> ${x}</label>`).join("")}</div>
+      <div><b>Write access</b>${allWrite.map(x=>`<label style="display:block"><input type="checkbox" name="write" value="${x}" ${(a.allowed_write||[]).includes(x)?"checked":""}> ${x}</label>`).join("")}</div></div>
+      <div style="margin-top:12px"><b>Always require confirmation</b>${confirm.map(x=>`<label style="display:block"><input type="checkbox" name="confirm" value="${x}" ${(a.confirmation_required||[]).includes(x)?"checked":""}> ${x}</label>`).join("")}</div>
+      <button type="submit" style="margin-top:12px">Save AI permissions</button></form></div>`;
+      panel.querySelector("#aiForm").addEventListener("submit",async e=>{e.preventDefault();const fd=new FormData(e.target);await api("/product-config/ai",{method:"POST",body:JSON.stringify({enabled:fd.has("enabled"),mcp_enabled:fd.has("mcp_enabled"),allowed_read:fd.getAll("read"),allowed_write:fd.getAll("write"),confirmation_required:fd.getAll("confirm")})});toast("AI permissions saved");renderSettings();});
+      return;
+    }
+    if(activeSection==="audit"){
+      const logs=await api("/product-config/audit?limit=100");
+      panel.innerHTML=`<div class="card"><h2>Configuration audit</h2><p class="empty">Every configuration change is recorded with actor, source, before and after state.</p><table><thead><tr><th>When</th><th>Actor</th><th>Action</th><th>Object</th><th>Source</th></tr></thead><tbody>${logs.map(x=>`<tr><td>${esc(x.created_at)}</td><td>${esc(x.actor_email||"")}</td><td>${esc(x.action)}</td><td>${esc(x.object_key||"")}</td><td>${esc(x.source)}</td></tr>`).join("")||'<tr><td colspan="5" class="empty">No configuration changes yet.</td></tr>'}</tbody></table></div>`;
+    }
   };
 
-  main.querySelectorAll('[data-picklist-object]').forEach(el=>el.addEventListener('click',()=>{
-    activeObject=el.dataset.picklistObject;
-    main.querySelectorAll('[data-picklist-object]').forEach(x=>x.classList.toggle('active',x===el));
-    paintPicklists();
-  }));
-  paintPicklists();
-
-  const openSkillForm=(skill=null)=>{
-    openModal(skill?'Edit skill':'Add skill',`<form>
-      <div class="field"><label>Skill name</label><input name="label" value="${escapeHtml(skill?.label||'')}" required></div>
-      <button type="submit" style="width:100%">${skill?'Save changes':'Add skill'}</button>
-    </form>`,async(data)=>{
-      data.id=skill?.id;
-      data.skill_key=skill?.skill_key || '';
-      await api('/skills',{method:'POST',body:JSON.stringify(data)});
-      toast(skill?'Skill updated':'Skill added'); renderSettings();
-    });
-  };
-
-  document.getElementById('addSkill')?.addEventListener('click',()=>openSkillForm());
-  main.querySelectorAll('[data-edit-skill]').forEach(el=>el.addEventListener('click',()=>{
-    const skill=skills.find(x=>String(x.id)===el.dataset.editSkill); if(skill) openSkillForm(skill);
-  }));
-  main.querySelectorAll('[data-del-skill]').forEach(el=>el.addEventListener('click',async()=>{
-    if(!confirm('Remove this skill?')) return;
-    await api(`/skills/${el.dataset.delSkill}/delete`,{method:'POST',body:'{}'});
-    toast('Skill removed'); renderSettings();
-  }));
+  main.innerHTML=`<h1>${L("nav.settings","Settings")}</h1><p class="empty" style="margin-top:-10px;margin-bottom:16px">One-time business setup. Configure the CRM once, then operate without changing code.</p>
+    <div class="card"><div class="segmented" id="settingsSections">${sectionNames.map(([k,v])=>`<button type="button" class="seg ${k===activeSection?"active":""}" data-settings-section="${k}">${v}</button>`).join("")}</div></div>
+    <div id="settingsPanel"></div>`;
+  main.querySelectorAll("[data-settings-section]").forEach(btn=>btn.addEventListener("click",()=>{activeSection=btn.dataset.settingsSection;main.querySelectorAll("[data-settings-section]").forEach(x=>x.classList.toggle("active",x===btn));renderSection();}));
+  renderSection();
 }
-
-// ── Vendors ────────────────────────────────────────────────
-async function renderResources(){
-  const cfg=await loadUiConfig(true);
-  const resources=await api("/resources");
-  const skills=cfg.skills||[];
-  const phases=cfg.phases||[];
-  const types=cfg.resource_types||[{value_key:"person",value_label:"Person"},{value_key:"vendor",value_label:"Vendor"}];
-  const typeLabel = r => r.resource_type || "Person";
-  let filter="all";
-
-  const renderTable=()=>{
-    const rows=resources.filter(r=>filter==="all" || (filter==="people" ? typeLabel(r)==="Person" : typeLabel(r)==="Vendor"));
-    const body=rows.map(r=>`<tr>
-      <td><b>${escapeHtml(r.name)}</b><div class="meta">${escapeHtml(r.phone||"")}${r.email?` · ${escapeHtml(r.email)}`:""}</div></td>
-      <td><span class="pill">${escapeHtml(typeLabel(r))}</span></td>
-      <td>${escapeHtml(r.skills||"—")}</td>
-      <td>${escapeHtml(r.phases||"—")}</td>
-      <td>${escapeHtml(r.phone||"—")}</td>
-      <td class="row-actions"><button type="button" class="icon-btn edit" data-edit-resource="${r.id}" title="Edit">✎</button>${r.active?`<button type="button" class="icon-btn del" data-del-resource="${r.id}" title="Deactivate">Deactivate</button>`:`<span class="meta">Inactive</span>`}</td>
-    </tr>`).join("");
-    return body || `<tr><td colspan="6" class="empty">No resources in this filter.</td></tr>`;
-  };
-
-  main.innerHTML=`${pageHeader(L("nav.resources","Resources"),"+ Add Resource")}
-    <p class="empty" style="margin-top:-10px;margin-bottom:16px;">People and vendors used to plan and deliver events. Vendors are resources, not a separate module.</p>
-    <div class="segmented" id="resourceFilters">
-      <button type="button" class="active" data-resource-filter="all">All</button>
-      <button type="button" data-resource-filter="people">People</button>
-      <button type="button" data-resource-filter="vendors">Vendors</button>
-    </div>
-    <div class="card"><h2>Resource directory</h2>
-      <div style="overflow:auto"><table><thead><tr><th>Name</th><th>Category</th><th>Skills</th><th>Workflow</th><th>Phone</th><th></th></tr></thead>
-      <tbody id="resourcesBody">${renderTable()}</tbody></table></div>
-    </div>`;
-
-  const openResource=async(resource)=>{
-    const skillIds=String(resource?.skill_ids||"").split(",").filter(Boolean).map(Number);
-    const currentPhases=String(resource?.phases||"").split(",").filter(Boolean);
-    openModal(resource?"Edit resource":"Add resource",`<form>
-      <div class="field"><label>Name</label><input name="name" value="${escapeHtml(resource?.name||"")}" required></div>
-      <div class="field"><label>Category</label><select name="resource_type">${types.map(t=>`<option value="${escapeHtml(t.value_label||t)}" ${(resource?.resource_type||"Person")===(t.value_label||t)?"selected":""}>${escapeHtml(t.value_label||t)}</option>`).join("")}</select></div>
-      <div class="field"><label>Phone</label><input name="phone" value="${escapeHtml(resource?.phone||"")}"></div>
-      <div class="field"><label>Email</label><input name="email" value="${escapeHtml(resource?.email||"")}"></div>
-      <div class="field"><label>Skills</label><select name="skill_ids" multiple size="7">${skills.map(s=>`<option value="${s.id}" ${skillIds.includes(Number(s.id))?"selected":""}>${escapeHtml(s.label)}</option>`).join("")}</select></div>
-      <div class="field"><label>Workflow phases</label>${phases.map(p=>`<label style="display:block;text-transform:none"><input type="checkbox" name="phases" value="${escapeHtml(p)}" ${currentPhases.includes(p)?"checked":""} style="width:auto"> ${escapeHtml(p)}</label>`).join("")}</div>
-      <div class="field"><label>Notes</label><textarea name="notes" rows="3">${escapeHtml(resource?.notes||"")}</textarea></div>
-      <button type="submit" style="width:100%">${resource?"Save changes":"Add resource"}</button>
-    </form>`,async data=>{
-      data.skill_ids=[...arguments[1].querySelector('[name="skill_ids"]').selectedOptions].map(x=>Number(x.value));
-    });
-  };
-
-  // Rebind the modal submit separately so the form element is available in the callback.
-  const openResourceForm=(resource)=>{
-    const skillIds=String(resource?.skill_ids||"").split(",").filter(Boolean).map(Number);
-    const currentPhases=String(resource?.phases||"").split(",").filter(Boolean);
-    openModal(resource?"Edit resource":"Add resource",`<form>
-      <div class="field"><label>Name</label><input name="name" value="${escapeHtml(resource?.name||"")}" required></div>
-      <div class="field"><label>Category</label><select name="resource_type">${types.map(t=>`<option value="${escapeHtml(t.value_label||t)}" ${(resource?.resource_type||"Person")===(t.value_label||t)?"selected":""}>${escapeHtml(t.value_label||t)}</option>`).join("")}</select></div>
-      <div class="field"><label>Phone</label><input name="phone" value="${escapeHtml(resource?.phone||"")}"></div>
-      <div class="field"><label>Email</label><input name="email" value="${escapeHtml(resource?.email||"")}"></div>
-      <div class="field"><label>Skills</label><select name="skill_ids" multiple size="7">${skills.map(s=>`<option value="${s.id}" ${skillIds.includes(Number(s.id))?"selected":""}>${escapeHtml(s.label)}</option>`).join("")}</select></div>
-      <div class="field"><label>Workflow phases</label>${phases.map(p=>`<label style="display:block;text-transform:none"><input type="checkbox" name="phases" value="${escapeHtml(p)}" ${currentPhases.includes(p)?"checked":""} style="width:auto"> ${escapeHtml(p)}</label>`).join("")}</div>
-      <div class="field"><label>Notes</label><textarea name="notes" rows="3">${escapeHtml(resource?.notes||"")}</textarea></div>
-      <button type="submit" style="width:100%">${resource?"Save changes":"Add resource"}</button>
-    </form>`,async(data,form)=>{
-      data.id=resource?.id;
-      data.skill_ids=[...form.querySelector('[name="skill_ids"]').selectedOptions].map(x=>Number(x.value));
-      data.phases=[...form.querySelectorAll('[name="phases"]:checked')].map(x=>x.value);
-      await api("/resources",{method:"POST",body:JSON.stringify(data)});
-      toast(resource?"Resource updated":"Resource added");
-      renderResources();
-    });
-  };
-
-  setPrimaryAction(()=>openResourceForm(null));
-  main.querySelectorAll("[data-resource-filter]").forEach(btn=>btn.addEventListener("click",()=>{
-    filter=btn.dataset.resourceFilter;
-    main.querySelectorAll("[data-resource-filter]").forEach(x=>x.classList.toggle("active",x===btn));
-    document.getElementById("resourcesBody").innerHTML=renderTable();
-    bindRows();
-  }));
-  const bindRows=()=>{
-    main.querySelectorAll("[data-edit-resource]").forEach(el=>el.addEventListener("click",()=>{
-      const r=resources.find(x=>String(x.id)===el.dataset.editResource); if(r) openResourceForm(r);
-    }));
-    main.querySelectorAll("[data-del-resource]").forEach(el=>el.addEventListener("click",async()=>{
-      await api(`/resources/${el.dataset.delResource}/delete`,{method:"POST",body:"{}"});
-      toast("Resource deactivated"); renderResources();
-    }));
-  };
-  bindRows();
-}
-
-// ── Equipment catalog ────────────────────────────────────────
-async function renderEquipment() {
-  const equipment = await api("/equipment");
-  main.innerHTML = `
-    ${pageHeader("Equipment", "+ New equipment")}
-    <p class="empty" style="margin-top:-10px;margin-bottom:16px;">Studio-owned gear you assign to events to plan resourcing — cameras, lenses, drones, lighting. Rented items get their cost tracked as an Outside vendor on the event; this catalog is about what exists and what's owned vs. always-rented.</p>
-    <div class="card"><h2>All equipment</h2>
-      <table><thead><tr><th>Name</th><th>Category</th><th>Ownership</th><th></th></tr></thead>
-      <tbody>${equipment.map(e => `<tr><td>${e.name}</td><td><span class="pill">${e.category||"—"}</span></td><td>${e.owned ? '<span class="pill" style="background:var(--success-soft);color:var(--success)">Owned</span>' : '<span class="pill" style="background:var(--warning-soft);color:var(--warning)">Always rented</span>'}</td><td class="row-actions"><button type="button" class="icon-btn edit" data-edit-equip="${e.id}" title="Edit">✎</button><button type="button" class="icon-btn del" data-del-equip="${e.id}" title="Delete">✕</button></td></tr>`).join("") || `<tr><td colspan="4" class="empty">No equipment yet — use the + button to add one.</td></tr>`}</tbody></table>
-    </div>
-  `;
-  const catOptions = (sel) => ["Camera","Lens","Drone","Lighting","Audio","Stabilizer","Other"].map(c => `<option ${c===sel?"selected":""}>${c}</option>`).join("");
-  setPrimaryAction(() => openModal("Add equipment", `
-    <form>
-      <div class="field"><label>Name</label><input name="name" required></div>
-      <div class="field"><label>Category</label><select name="category">${catOptions()}</select></div>
-      <div class="field"><label><input type="checkbox" name="owned" checked style="width:auto;"> Studio-owned (uncheck if this is always rented)</label></div>
-      <button type="submit" style="width:100%;">Add</button>
-    </form>
-  `, async (data, form) => {
-    data.owned = form.querySelector('[name="owned"]').checked;
-    await api("/equipment", { method: "POST", body: JSON.stringify(data) });
-    toast("Equipment added");
-    renderEquipment();
-  }));
-  main.querySelectorAll("[data-edit-equip]").forEach(el => el.addEventListener("click", () => {
-    const e = equipment.find(x => String(x.id) === el.dataset.editEquip);
-    openModal("Edit equipment", `
-      <form>
-        <div class="field"><label>Name</label><input name="name" value="${e.name}" required></div>
-        <div class="field"><label>Category</label><select name="category">${catOptions(e.category)}</select></div>
-        <div class="field"><label><input type="checkbox" name="owned" ${e.owned?"checked":""} style="width:auto;"> Studio-owned</label></div>
-        <button type="submit" style="width:100%;">Save</button>
-      </form>
-    `, async (data, form) => {
-      data.owned = form.querySelector('[name="owned"]').checked;
-      await api(`/equipment/${e.id}`, { method: "POST", body: JSON.stringify(data) });
-      toast("Updated");
-      renderEquipment();
-    });
-  }));
-  main.querySelectorAll("[data-del-equip]").forEach(el => el.addEventListener("click", () =>
-    confirmDelete("Delete this equipment? Only possible if it's not assigned to any event.", `/equipment/${el.dataset.delEquip}/delete`, renderEquipment)
-  ));
-}
-
-// ── Expenses — the full ledger, event-tied and general/office both ──
-async function renderExpenses() {
-  const [expenses, accounts] = await Promise.all([api("/expenses"), api("/accounts")]);
-  const total = expenses.reduce((s, x) => s + x.amount, 0);
-  main.innerHTML = `
-    ${pageHeader("Expenses", "+ Log expense")}
-    <div class="kpis"><div class="kpi"><div class="l">Total logged</div><div class="v">${money(total)}</div></div></div>
-    <div class="card"><h2>All expenses (${expenses.length})</h2>
-      <table><thead><tr><th>Date</th><th>Category</th><th>Tagged to</th><th>Amount</th><th></th></tr></thead>
-      <tbody>${expenses.map(x => `<tr><td>${(x.submitted_at||"").slice(0,10)}</td><td><span class="pill">${x.category}</span></td><td>${x.event_id ? `<span class="meta">${x.account_name} — ${x.event_type}</span>` : '<span class="meta">Office / general</span>'}</td><td>${money(x.amount)}</td><td class="row-actions"><button type="button" class="icon-btn edit" data-edit-exp="${x.id}" title="Edit">✎</button><button type="button" class="icon-btn del" data-del-exp="${x.id}" title="Delete">✕</button></td></tr>`).join("") || `<tr><td colspan="5" class="empty">No expenses logged yet.</td></tr>`}</tbody></table>
-    </div>
-  `;
-  const expForm = (x) => `
-    <form>
-      <div class="field"><label>Category</label><input name="category" value="${x ? x.category : ""}" list="expCats2" required></div>
-      <datalist id="expCats2"><option>Travel</option><option>Equipment rental</option><option>Food & catering</option><option>Props/Decor</option><option>Rent</option><option>Salaries</option><option>Software/Subscriptions</option><option>Marketing</option><option>Office supplies</option><option>Miscellaneous</option></datalist>
-      <div class="field"><label>Amount (₹)</label><input name="amount" type="number" value="${x ? x.amount : ""}" required></div>
-      <div class="field"><label>Tag to an event's account (optional — leave blank for office/general)</label>
-        <select name="_acct"><option value="">— none, general expense —</option>${accounts.map(a => `<option value="${a.id}" ${x && x.account_name===a.name?"selected":""}>${a.name}</option>`).join("")}</select>
-      </div>
-      <div class="field"><label>Note</label><input name="note" value="${x ? (x.note||"") : ""}"></div>
-      <button type="submit" style="width:100%;">Save</button>
-    </form>
-  `;
-  setPrimaryAction(() => openModal("Log an expense", expForm(), async (data) => {
-    delete data._acct; // event tagging for a brand-new general expense isn't offered here — use the event's own page to tag one to a specific event
-    await api("/expenses", { method: "POST", body: JSON.stringify(data) });
-    toast("Expense logged");
-    renderExpenses();
-  }));
-  main.querySelectorAll("[data-edit-exp]").forEach(el => el.addEventListener("click", () => {
-    const x = expenses.find(e => String(e.id) === el.dataset.editExp);
-    openModal("Edit expense", expForm(x), async data => {
-      delete data._acct;
-      await api(`/expenses/${x.id}`, { method: "POST", body: JSON.stringify(data) });
-      toast("Updated");
-      renderExpenses();
-    });
-  }));
-  main.querySelectorAll("[data-del-exp]").forEach(el => el.addEventListener("click", () =>
-    confirmDelete("Delete this expense?", `/expenses/${el.dataset.delExp}/delete`, renderExpenses)
-  ));
-}
-
-// ── Financials — the data-entry half: monthly running cost, promotions,
-// the feedback action queue, and business settings. Reports (below) stays
-// the read-only analytics side. ──────────────────────────────────────
-async function renderFinancials() {
-  const [costs, promotions, feedback, settings] = await Promise.all([
-    api("/monthly-costs"), api("/promotions"), api("/feedback"), api("/settings"),
-  ]);
-  const thisMonth = new Date().toISOString().slice(0, 7);
-  main.innerHTML = `
-    <h1>Financials</h1>
-    <div class="row2">
-      <div class="card"><h2>Monthly running cost <button class="icon-btn" id="addCostBtn">+ Add</button></h2>
-        <table><thead><tr><th>Month</th><th>Category</th><th>Amount</th><th></th></tr></thead>
-        <tbody>${costs.map(c => `<tr><td>${c.month}</td><td><span class="pill">${c.category}</span></td><td>${money(c.amount)}</td><td class="row-actions"><button type="button" class="icon-btn del" data-del-cost="${c.id}" title="Delete">✕</button></td></tr>`).join("") || `<tr><td colspan="4" class="empty">No overhead logged yet.</td></tr>`}</tbody></table>
-      </div>
-      <div class="card"><h2>Business settings</h2>
-        <form id="settingsForm">
-          <div class="field"><label>Google review link <span class="meta">shown to customers who leave positive feedback</span></label>
-            <input name="google_review_link" value="${settings.google_review_link || ""}" placeholder="https://g.page/r/...">
-          </div>
-          <button type="submit">Save</button>
-        </form>
-      </div>
-    </div>
-
-    <div class="card"><h2>Feedback needing action — ${feedback.filter(f=>f.status==='Open').length} open</h2>
-      ${feedback.map(f => `<div class="list-row"><span>${statusPill(f.status)} <b>${f.account_name}</b> — ${f.event_type} ${f.rating ? "★".repeat(f.rating) : ""} <span class="meta">${(f.created_at||"").slice(0,10)}</span><br><span class="meta">${f.comment||""}</span>${f.action_taken ? `<br><span class="meta">Action taken: ${f.action_taken}</span>` : ""}</span><span class="row-actions">${f.status==='Open' ? `<button class="icon-btn" data-resolve-fb="${f.id}">Mark resolved</button>` : ""}</span></div>`).join("") || '<div class="empty">No negative feedback on file.</div>'}
-    </div>
-
-    <div class="card"><h2>Promotions log — what you ran during a slow month, and what it produced <button class="icon-btn" id="addPromoBtn">+ Add</button></h2>
-      ${promotions.map(p => `<div class="list-row"><span><b>${p.name}</b>${p.channel ? ` <span class="pill">${p.channel}</span>` : ""} <span class="meta">${p.start_date||""}${p.end_date?` – ${p.end_date}`:""} · cost ${money(p.cost)}</span>${p.leads_generated != null || p.bookings_generated != null ? `<br><span class="meta">${p.leads_generated||0} leads, ${p.bookings_generated||0} bookings${p.outcome_notes ? ` — ${p.outcome_notes}` : ""}</span>` : ""}</span><span class="row-actions"><button type="button" class="icon-btn edit" data-edit-promo="${p.id}" title="Record outcome">✎</button><button type="button" class="icon-btn del" data-del-promo="${p.id}" title="Delete">✕</button></span></div>`).join("") || '<div class="empty">No promotions logged yet.</div>'}
-    </div>
-  `;
-  main.querySelector("#addCostBtn").addEventListener("click", () => openModal("Add monthly cost", `
-    <form>
-      <div class="row2">
-        <div class="field"><label>Month</label><input name="month" type="month" value="${thisMonth}" required></div>
-        <div class="field"><label>Category</label><select name="category">${["Rent","Salaries","Ad spend","Equipment","Software","Other"].map(c=>`<option>${c}</option>`).join("")}</select></div>
-      </div>
-      <div class="field"><label>Amount (₹)</label><input name="amount" type="number" required></div>
-      <div class="field"><label>Note</label><input name="note"></div>
-      <button type="submit" style="width:100%;">Save</button>
-    </form>
-  `, async data => { await api("/monthly-costs", { method: "POST", body: JSON.stringify(data) }); toast("Saved"); renderFinancials(); }));
-  main.querySelectorAll("[data-del-cost]").forEach(el => el.addEventListener("click", () =>
-    confirmDelete("Delete this monthly cost entry?", `/monthly-costs/${el.dataset.delCost}/delete`, renderFinancials)
-  ));
-  main.querySelector("#settingsForm").addEventListener("submit", async e => {
-    e.preventDefault();
-    await api("/settings", { method: "POST", body: JSON.stringify({ key: "google_review_link", value: new FormData(e.target).get("google_review_link") }) });
-    toast("Settings saved");
-  });
-  main.querySelectorAll("[data-resolve-fb]").forEach(el => el.addEventListener("click", () => {
-    const action_taken = prompt("What did you do about this? (shown on the feedback record)") || "";
-    api(`/feedback/${el.dataset.resolveFb}`, { method: "POST", body: JSON.stringify({ status: "Resolved", action_taken }) })
-      .then(() => { toast("Marked resolved"); renderFinancials(); });
-  }));
-  main.querySelector("#addPromoBtn").addEventListener("click", () => openModal("Log a promotion", `
-    <form>
-      <div class="field"><label>Name</label><input name="name" placeholder="e.g. Off-season Instagram push" required></div>
-      <div class="row2">
-        <div class="field"><label>Channel</label><select name="channel">${["Instagram","Google Ads","WhatsApp","Referral push","Other"].map(c=>`<option>${c}</option>`).join("")}</select></div>
-        <div class="field"><label>Cost (₹)</label><input name="cost" type="number" value="0"></div>
-      </div>
-      <div class="row2">
-        <div class="field"><label>Start date</label><input name="start_date" type="date"></div>
-        <div class="field"><label>End date</label><input name="end_date" type="date"></div>
-      </div>
-      <button type="submit" style="width:100%;">Log promotion</button>
-    </form>
-  `, async data => { await api("/promotions", { method: "POST", body: JSON.stringify(data) }); toast("Logged"); renderFinancials(); }));
-  main.querySelectorAll("[data-edit-promo]").forEach(el => el.addEventListener("click", () => {
-    const p = promotions.find(x => String(x.id) === el.dataset.editPromo);
-    openModal("Record promotion outcome", `
-      <form>
-        <div class="row2">
-          <div class="field"><label>Leads generated</label><input name="leads_generated" type="number" value="${p.leads_generated ?? ""}"></div>
-          <div class="field"><label>Bookings generated</label><input name="bookings_generated" type="number" value="${p.bookings_generated ?? ""}"></div>
-        </div>
-        <div class="field"><label>Outcome notes</label><textarea name="outcome_notes" rows="2">${p.outcome_notes||""}</textarea></div>
-        <button type="submit" style="width:100%;">Save</button>
-      </form>
-    `, async data => { await api(`/promotions/${p.id}`, { method: "POST", body: JSON.stringify(data) }); toast("Saved"); renderFinancials(); });
-  }));
-  main.querySelectorAll("[data-del-promo]").forEach(el => el.addEventListener("click", () =>
-    confirmDelete("Delete this promotion record?", `/promotions/${el.dataset.delPromo}/delete`, renderFinancials)
-  ));
-}
-
 // ── Reports ────────────────────────────────────────────────
 const MONTH_NAMES = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
 async function renderReports() {
