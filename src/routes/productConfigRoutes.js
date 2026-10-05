@@ -82,10 +82,13 @@ export async function upsertCustomField(request, env, staff) {
   const body=await request.json().catch(()=>null);
   if(!OBJECTS.includes(body?.object_key)||!body?.field_key||!body?.field_label||!["text","long_text","number","date","boolean","select","multi_select","url"].includes(body?.field_type)) return badRequest("valid object_key, field_key, field_label and field_type are required");
   const options=JSON.stringify(Array.isArray(body.options)?body.options:[]);
+  const before=body.id?await env.DB.prepare("SELECT * FROM crm_custom_fields WHERE id=?").bind(body.id).first():null;
   if(body.id) await env.DB.prepare("UPDATE crm_custom_fields SET object_key=?,field_key=?,field_label=?,field_type=?,options_json=?,required=?,active=?,sort_order=? WHERE id=?").bind(body.object_key,body.field_key,body.field_label,body.field_type,options,body.required?1:0,body.active===false?0:1,Number(body.sort_order||0),body.id).run();
   else await env.DB.prepare("INSERT INTO crm_custom_fields(object_key,field_key,field_label,field_type,options_json,required,sort_order) VALUES(?,?,?,?,?,?,?)").bind(body.object_key,body.field_key,body.field_label,body.field_type,options,body.required?1:0,Number(body.sort_order||0)).run();
-  const after=await env.DB.prepare("SELECT * FROM crm_custom_fields WHERE object_key=? AND field_key=?").bind(body.object_key,body.field_key).first();
-  await audit(env,staff,body.id?"update":"create","custom_field",after.id,null,after);
+  const after=body.id
+    ? await env.DB.prepare("SELECT * FROM crm_custom_fields WHERE id=?").bind(body.id).first()
+    : await env.DB.prepare("SELECT * FROM crm_custom_fields WHERE object_key=? AND field_key=?").bind(body.object_key,body.field_key).first();
+  await audit(env,staff,body.id?"update":"create","custom_field",after.id,before,after);
   return json({...after,options:parseJson(after.options_json,[])});
 }
 
