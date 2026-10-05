@@ -930,7 +930,7 @@ async function openBooking(id) {
     <div class="card" style="margin:0"><h3>Payments <button type="button" class="icon-btn" id="addBookingPayment">+ Add</button></h3>
       \${(b.payments||[]).map(p=>\`<div class="list-row"><span>\${escapeHtml(p.payment_date)} · \${money(p.amount)} <span class="meta">\${escapeHtml(p.method||"")} \${escapeHtml(p.reference||"")}</span></span></div>\`).join("")||'<div class="empty">No payments recorded.</div>'}</div>
   \`,async()=>{});
-  main.querySelectorAll("[data-open-event]").forEach(el=>el.addEventListener("click",()=>{closeModal();go("eventDetail",el.dataset.openEvent);}));
+  document.querySelectorAll("[data-open-event]").forEach(el=>el.addEventListener("click",()=>{closeModal();go("eventDetail",el.dataset.openEvent);}));
   document.querySelector("#addBookingPayment")?.addEventListener("click",()=>openModal("Add booking payment",\`
     <form>
       <div class="field"><label>Amount (₹)</label><input name="amount" type="number" min="1" required></div>
