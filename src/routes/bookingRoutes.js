@@ -25,13 +25,18 @@ function resourceItemMatches(templateTitle,label) {
 }
 
 async function nextNumber(env,key) {
-  const row=await env.DB.prepare("SELECT * FROM crm_numbering_sequences WHERE object_key=?").bind(key).first();
-  if(!row) return null;
-  const number=Number(row.next_number||1);
-  const year=row.include_year?new Date().getFullYear()+"-":"";
-  const value=String(number).padStart(Number(row.padding||4),"0");
-  await env.DB.prepare("UPDATE crm_numbering_sequences SET next_number=next_number+1,updated_at=datetime('now') WHERE object_key=?").bind(key).run();
-  return String(row.prefix||"")+year+value;
+  for(let attempt=0;attempt<5;attempt++){
+    const row=await env.DB.prepare("SELECT prefix,include_year,next_number,padding FROM crm_numbering_sequences WHERE object_key=?").bind(key).first();
+    if(!row) return null;
+    const number=Number(row.next_number||1);
+    const year=Number(row.include_year) ? new Date().getFullYear()+"-" : "";
+    const value=String(number).padStart(Number(row.padding||4),"0");
+    const updated=await env.DB.prepare(`UPDATE crm_numbering_sequences
+      SET next_number=next_number+1,updated_at=datetime('now')
+      WHERE object_key=? AND next_number=?`).bind(key,number).run();
+    if(Number(updated.meta?.changes||0)===1) return String(row.prefix||"")+year+value;
+  }
+  throw new Error(`Unable to allocate a unique ${key} number after concurrent updates`);
 }
 
 export async function listBookings(request, env) {
