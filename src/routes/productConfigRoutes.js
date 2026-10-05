@@ -160,12 +160,12 @@ function normalizeCustomValue(field, value) {
 
 export async function getCustomFieldValues(request, env, objectKey, recordId) {
   if(!OBJECTS.includes(objectKey) || !Number.isInteger(Number(recordId))) return badRequest("valid object and record id are required");
-  const {results}=await env.DB.prepare(\`SELECT f.id,f.field_key,f.field_label,f.field_type,f.options_json,
+  const {results}=await env.DB.prepare(`SELECT f.id,f.field_key,f.field_label,f.field_type,f.options_json,
       v.value_text,v.value_number,v.value_date,v.value_boolean
     FROM crm_custom_fields f
     LEFT JOIN crm_custom_field_values v ON v.field_id=f.id AND v.object_key=? AND v.record_id=?
     WHERE f.object_key=? AND f.active=1
-    ORDER BY f.sort_order,f.id\`).bind(objectKey,Number(recordId),objectKey).all();
+    ORDER BY f.sort_order,f.id`).bind(objectKey,Number(recordId),objectKey).all();
   return json(results.map(f=>{
     let value=f.value_text;
     if(f.field_type==="number") value=f.value_number;
@@ -184,24 +184,24 @@ export async function upsertCustomFieldValues(request, env, staff, objectKey, re
   const byKey=new Map(fields.map(f=>[f.field_key,f]));
   for(const [key,value] of Object.entries(body.values)){
     const field=byKey.get(key);
-    if(!field) return badRequest(\`Unknown custom field: \${key}\`);
+    if(!field) return badRequest(`Unknown custom field: ${key}`);
     if(value==null || value===""){
       await env.DB.prepare("DELETE FROM crm_custom_field_values WHERE object_key=? AND record_id=? AND field_id=?").bind(objectKey,Number(recordId),field.id).run();
       continue;
     }
     let normalized;
     try { normalized=normalizeCustomValue(field,value); } catch(e) { return badRequest(e.message); }
-    await env.DB.prepare(\`INSERT INTO crm_custom_field_values(object_key,record_id,field_id,value_text,value_number,value_date,value_boolean)
+    await env.DB.prepare(`INSERT INTO crm_custom_field_values(object_key,record_id,field_id,value_text,value_number,value_date,value_boolean)
       VALUES(?,?,?,?,?,?,?)
       ON CONFLICT(object_key,record_id,field_id) DO UPDATE SET
         value_text=excluded.value_text,value_number=excluded.value_number,
-        value_date=excluded.value_date,value_boolean=excluded.value_boolean\`)
+        value_date=excluded.value_date,value_boolean=excluded.value_boolean`)
       .bind(objectKey,Number(recordId),field.id,normalized.value_text||null,normalized.value_number??null,
         field.field_type==="date"?String(value):null,normalized.value_boolean??null).run();
   }
-  const after=await env.DB.prepare(\`SELECT f.field_key,v.value_text,v.value_number,v.value_date,v.value_boolean
+  const after=await env.DB.prepare(`SELECT f.field_key,v.value_text,v.value_number,v.value_date,v.value_boolean
     FROM crm_custom_fields f JOIN crm_custom_field_values v ON v.field_id=f.id
-    WHERE f.object_key=? AND v.object_key=? AND v.record_id=? ORDER BY f.sort_order,f.id\`).bind(objectKey,objectKey,Number(recordId)).all();
+    WHERE f.object_key=? AND v.object_key=? AND v.record_id=? ORDER BY f.sort_order,f.id`).bind(objectKey,objectKey,Number(recordId)).all();
   await audit(env,staff,"update","custom_field_values",Number(recordId),null,after.results);
   return getCustomFieldValues(request,env,objectKey,recordId);
 }
