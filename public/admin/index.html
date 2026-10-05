@@ -1658,7 +1658,7 @@ async function renderSettings(){
       <div class="card"><h2>Task templates</h2><p class="empty">Templates generate Pre-Production, Production and Post-Production work automatically.</p>${(cfg.task_templates||[]).map(t=>`<div class="list-row"><span style="flex:1"><b>${esc(t.default_title)}</b> <span class="pill">${esc(t.phase)}</span><br><span class="meta">${esc(t.event_type_key||"All event types")} · ${t.required?"Required":"Optional"}</span></span><button type="button" class="icon-btn edit" data-template="${t.id}">Edit</button></div>`).join("")}</div>`;
       const openRule=(r)=>{const value=typeof r?.value==="object"?JSON.stringify(r.value,null,2):"{}";openModal("Business rule",`<form>${input("label","Label",r?.label||"","text","required")}${input("category","Category",r?.category||"Operations")}${input("description","Description",r?.description||"")}<div class="field"><label>Value JSON</label><textarea name="value" rows="5">${esc(value)}</textarea></div><button type="submit">Save</button></form>`,async d=>{let value;try{value=JSON.parse(d.value||"{}")}catch{throw new Error("Value must be valid JSON")}await api("/product-config/rules",{method:"POST",body:JSON.stringify({...r,value,label:d.label,category:d.category,description:d.description})});toast("Rule saved");renderSettings();});};
       panel.querySelectorAll("[data-rule]").forEach(el=>el.addEventListener("click",()=>openRule((cfg.rules||[]).find(r=>r.id===Number(el.dataset.rule)))));
-      const openTemplate=t=>openModal("Task template",`<form>${input("template_key","Template key",t?.template_key||"","text","required")}${input("default_title","Task title",t?.default_title||"","text","required")}<div class="field"><label>Phase</label><select name="phase">${["Pre-Production","Production","Post-Production"].map(p=>`<option ${t?.phase===p?"selected":""}>${p}</option>`).join("")}</select></div>${input("event_type_key","Event type key",t?.event_type_key||"")}${input("sort_order","Sort order",t?.sort_order||0,"number")}<label><input name="required" type="checkbox" ${t?.required?"checked":""}> Required</label><button type="submit">Save</button></form>`,async d=>{d.required=!!d.required;await api("/product-config/task-templates",{method:"POST",body:JSON.stringify({...t,...d})});toast("Task template saved");renderSettings();}); panel.querySelectorAll("[data-template]").forEach(el=>el.addEventListener("click",()=>openTemplate((cfg.task_templates||[]).find(t=>t.id===Number(el.dataset.template)))));
+      const openTemplate=t=>openModal("Task template",`<form>${input("template_key","Template key",t?.template_key||"","text","required")}${input("name","Template name",t?.name||"Default")}${input("default_title","Task title",t?.default_title||"","text","required")}${input("default_description","Description",t?.default_description||"")}<div class="field"><label>Phase</label><select name="phase">${["Pre-Production","Production","Post-Production"].map(p=>`<option ${t?.phase===p?"selected":""}>${p}</option>`).join("")}</select></div><div class="field"><label>Task type</label><select name="task_type">${["Task","Resource"].map(p=>`<option ${t?.task_type===p?"selected":""}>${p}</option>`).join("")}</select></div>${input("event_type_key","Event type key",t?.event_type_key||"")}${input("sort_order","Sort order",t?.sort_order||0,"number")}<label><input name="required" type="checkbox" ${t?.required?"checked":""}> Required</label><label><input name="auto_create" type="checkbox" ${t?.auto_create!==false?"checked":""}> Auto-create</label><label><input name="active" type="checkbox" ${t?.active!==false?"checked":""}> Active</label><button type="submit">Save</button></form>`,async d=>{d.required=!!d.required;d.auto_create=!!d.auto_create;d.active=!!d.active;await api("/product-config/task-templates",{method:"POST",body:JSON.stringify({...t,...d})});toast("Task template saved");renderSettings();}); panel.querySelectorAll("[data-template]").forEach(el=>el.addEventListener("click",()=>openTemplate((cfg.task_templates||[]).find(t=>t.id===Number(el.dataset.template)))));
       return;
     }
     if(activeSection==="finance"){
@@ -1731,22 +1731,6 @@ async function renderResources(){
       <tbody id="resourcesBody">${renderTable()}</tbody></table></div>
     </div>`;
 
-  const openResource=async(resource)=>{
-    const skillIds=String(resource?.skill_ids||"").split(",").filter(Boolean).map(Number);
-    const currentPhases=String(resource?.phases||"").split(",").filter(Boolean);
-    openModal(resource?"Edit resource":"Add resource",`<form>
-      <div class="field"><label>Name</label><input name="name" value="${escapeHtml(resource?.name||"")}" required></div>
-      <div class="field"><label>Category</label><select name="resource_type">${types.map(t=>`<option value="${escapeHtml(t.value_label||t)}" ${(resource?.resource_type||"Person")===(t.value_label||t)?"selected":""}>${escapeHtml(t.value_label||t)}</option>`).join("")}</select></div>
-      <div class="field"><label>Phone</label><input name="phone" value="${escapeHtml(resource?.phone||"")}"></div>
-      <div class="field"><label>Email</label><input name="email" value="${escapeHtml(resource?.email||"")}"></div>
-      <div class="field"><label>Skills</label><select name="skill_ids" multiple size="7">${skills.map(s=>`<option value="${s.id}" ${skillIds.includes(Number(s.id))?"selected":""}>${escapeHtml(s.label)}</option>`).join("")}</select></div>
-      <div class="field"><label>Workflow phases</label>${phases.map(p=>`<label style="display:block;text-transform:none"><input type="checkbox" name="phases" value="${escapeHtml(p)}" ${currentPhases.includes(p)?"checked":""} style="width:auto"> ${escapeHtml(p)}</label>`).join("")}</div>
-      <div class="field"><label>Notes</label><textarea name="notes" rows="3">${escapeHtml(resource?.notes||"")}</textarea></div>
-      <button type="submit" style="width:100%">${resource?"Save changes":"Add resource"}</button>
-    </form>`,async data=>{
-      data.skill_ids=[...arguments[1].querySelector('[name="skill_ids"]').selectedOptions].map(x=>Number(x.value));
-    });
-  };
 
   // Rebind the modal submit separately so the form element is available in the callback.
   const openResourceForm=(resource)=>{
