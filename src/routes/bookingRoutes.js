@@ -1,8 +1,27 @@
 import { json, badRequest, notFound } from "../lib/util.js";
 
 function parseQty(label) {
-  const m=String(label||"").match(/^\s*(\d+)\s*[x×]/i);
-  return Math.max(1,Number(m?.[1]||1));
+  const s=String(label||"");
+  const m=s.match(/^\s*(\d+)\s*[x×]/i);
+  if(m) return Math.max(1,Number(m[1]));
+  const words=s.toLowerCase();
+  if(/\b(two|2)\b/.test(words)) return 2;
+  if(/\b(three|3)\b/.test(words)) return 3;
+  return 1;
+}
+function resourceItemMatches(templateTitle,label) {
+  const t=String(templateTitle||"").toLowerCase();
+  const s=String(label||"").toLowerCase();
+  const groups={
+    "photography":["photography","photographer","photographers","photo"],
+    "videography":["videography","videographer","videographers","video"],
+    "cinematography":["cinematography","cinematographer","cinematographers","cinematic"],
+    "drone":["drone","aerial"]
+  };
+  for(const [key,words] of Object.entries(groups)) {
+    if(t.includes(key)) return words.some(w=>s.includes(w));
+  }
+  return s.includes(t.split(/\s+/)[0]);
 }
 
 async function nextNumber(env,key) {
@@ -79,7 +98,7 @@ export async function convertAcceptedQuote(request, env, quoteId) {
     ORDER BY phase,sort_order,id`).bind(q.event_type||"Wedding").all()).results;
 
   for(const t of templates){
-    const matching=items.filter(i=>t.task_type==="Resource" && String(i.label||"").toLowerCase().includes(String(t.default_title||"").toLowerCase().split(" ")[0]));
+    const matching=items.filter(i=>t.task_type==="Resource" && resourceItemMatches(t.default_title,i.label));
     const count=t.task_type==="Resource" ? Math.max(1,matching.reduce((n,i)=>n+parseQty(i.label),0)) : 1;
     for(let n=1;n<=count;n++){
       const title=t.task_type==="Resource" && count>1 ? `${t.default_title} #${n}` : t.default_title;
