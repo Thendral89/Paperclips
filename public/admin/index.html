@@ -926,6 +926,8 @@ async function openBooking(id) {
   const paid=(b.payments||[]).reduce((n,p)=>n+Number(p.amount||0),0);
   openModal(`Booking ${escapeHtml(b.booking_number||("#"+b.id))}`,`
     <div class="card" style="margin:0 0 12px"><b>${escapeHtml(b.client_name||"")}</b><div class="meta">${escapeHtml(b.client_email||"")} · ${escapeHtml(b.client_phone||"")}</div><div style="margin-top:8px">Booked: ${money(b.booked_value)} · Paid: ${money(paid)} · Outstanding: ${money(Math.max(0,Number(b.booked_value||0)-paid))}</div></div>
+    <div class="card" style="margin:0 0 12px"><h3>Payment schedule</h3>
+      ${(b.payment_schedule||[]).map(p=>`<div class="list-row"><span><b>${escapeHtml(p.label)}</b> · ${money(p.amount)} <span class="meta">${escapeHtml(p.due_date||"No due date")}</span></span>${statusPill(p.status)}</div>`).join("")||'<div class="empty">No payment schedule configured.</div>'}</div>
     <div class="card" style="margin:0 0 12px"><h3>Events</h3>${(b.events||[]).map(e=>`<div class="list-row"><span><b>${escapeHtml(e.event_number||("#"+e.id))}</b> · ${escapeHtml(e.type||"")}</span><button type="button" class="icon-btn" data-open-event="${e.id}">Open</button></div>`).join("")||'<div class="empty">No events.</div>'}</div>
     <div class="card" style="margin:0"><h3>Payments <button type="button" class="icon-btn" id="addBookingPayment">+ Add</button></h3>
       ${(b.payments||[]).map(p=>`<div class="list-row"><span>${escapeHtml(p.payment_date)} · ${money(p.amount)} <span class="meta">${escapeHtml(p.method||"")} ${escapeHtml(p.reference||"")}</span></span></div>`).join("")||'<div class="empty">No payments recorded.</div>'}</div>
