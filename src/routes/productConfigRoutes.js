@@ -107,6 +107,72 @@ export async function updateAiPermissions(request, env, staff) {
   return json({...after,allowed_read:parseJson(after.allowed_read_json,[]),allowed_write:parseJson(after.allowed_write_json,[]),confirmation_required:parseJson(after.confirmation_required_json,[])});
 }
 
+
+function normalizeCustomValue(field, value) {
+  if(value == null || value === "") return null;
+  switch(field.field_type) {
+    case "number": {
+      const n=Number(value);
+      if(!Number.isFinite(n)) throw new Error(\`Invalid number for \${field.field_key}\`);
+      return { value_number:n };
+    }
+    case "boolean": return { value_boolean:value===true || value==="true" || value===1 || value==="1" ? 1 : 0 };
+    case "multi_select": {
+      if(!Array.isArray(value)) throw new Error(\`Expected an array for \${field.field_key}\`);
+      return { value_text:JSON.stringify(value) };
+    }
+    default: return { value_text:String(value) };
+  }
+}
+
+export async function getCustomFieldValues(request, env, objectKey, recordId) {
+  if(!OBJECTS.includes(objectKey) || !Number.isInteger(Number(recordId))) return badRequest("valid object and record id are required");
+  const {results}=await env.DB.prepare(\`SELECT f.id,f.field_key,f.field_label,f.field_type,f.options_json,
+      v.value_text,v.value_number,v.value_date,v.value_boolean
+    FROM crm_custom_fields f
+    LEFT JOIN crm_custom_field_values v ON v.field_id=f.id AND v.object_key=? AND v.record_id=?
+    WHERE f.object_key=? AND f.active=1
+    ORDER BY f.sort_order,f.id\`).bind(objectKey,Number(recordId),objectKey).all();
+  return json(results.map(f=>{
+    let value=f.value_text;
+    if(f.field_type==="number") value=f.value_number;
+    if(f.field_type==="boolean") value=f.value_boolean==null?null:Boolean(f.value_boolean);
+    if(f.field_type==="multi_select" && value!=null) value=parseJson(value,[]);
+    if(value==null && f.field_type==="date") value=f.value_date;
+    return {...f,options:parseJson(f.options_json,[]),value};
+  }));
+}
+
+export async function upsertCustomFieldValues(request, env, staff, objectKey, recordId) {
+  if(!OBJECTS.includes(objectKey) || !Number.isInteger(Number(recordId))) return badRequest("valid object and record id are required");
+  const body=await request.json().catch(()=>null);
+  if(!body || typeof body.values!=="object" || Array.isArray(body.values)) return badRequest("values object is required");
+  const fields=(await env.DB.prepare("SELECT * FROM crm_custom_fields WHERE object_key=? AND active=1").bind(objectKey).all()).results;
+  const byKey=new Map(fields.map(f=>[f.field_key,f]));
+  for(const [key,value] of Object.entries(body.values)){
+    const field=byKey.get(key);
+    if(!field) return badRequest(\`Unknown custom field: \${key}\`);
+    if(value==null || value===""){
+      await env.DB.prepare("DELETE FROM crm_custom_field_values WHERE object_key=? AND record_id=? AND field_id=?").bind(objectKey,Number(recordId),field.id).run();
+      continue;
+    }
+    let normalized;
+    try { normalized=normalizeCustomValue(field,value); } catch(e) { return badRequest(e.message); }
+    await env.DB.prepare(\`INSERT INTO crm_custom_field_values(object_key,record_id,field_id,value_text,value_number,value_date,value_boolean)
+      VALUES(?,?,?,?,?,?,?)
+      ON CONFLICT(object_key,record_id,field_id) DO UPDATE SET
+        value_text=excluded.value_text,value_number=excluded.value_number,
+        value_date=excluded.value_date,value_boolean=excluded.value_boolean\`)
+      .bind(objectKey,Number(recordId),field.id,normalized.value_text||null,normalized.value_number??null,
+        field.field_type==="date"?String(value):null,normalized.value_boolean??null).run();
+  }
+  const after=await env.DB.prepare(\`SELECT f.field_key,v.value_text,v.value_number,v.value_date,v.value_boolean
+    FROM crm_custom_fields f JOIN crm_custom_field_values v ON v.field_id=f.id
+    WHERE f.object_key=? AND v.object_key=? AND v.record_id=? ORDER BY f.sort_order,f.id\`).bind(objectKey,objectKey,Number(recordId)).all();
+  await audit(env,staff,"update","custom_field_values",Number(recordId),null,after.results);
+  return getCustomFieldValues(request,env,objectKey,recordId);
+}
+
 export async function getAuditLog(request, env) {
   const limit=Math.min(200,Math.max(1,Number(new URL(request.url).searchParams.get("limit")||50)));
   const {results}=await env.DB.prepare("SELECT * FROM crm_audit_log ORDER BY id DESC LIMIT ?").bind(limit).all();
