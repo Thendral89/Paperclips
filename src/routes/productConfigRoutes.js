@@ -62,7 +62,9 @@ export async function upsertBusinessRule(request, env, staff) {
   const value=typeof body.value === "string" ? body.value : JSON.stringify(body.value ?? {});
   if(body.id) await env.DB.prepare("UPDATE crm_business_rules SET rule_key=?,label=?,description=?,category=?,value_json=?,active=?,updated_at=datetime('now'),updated_by=? WHERE id=?").bind(body.rule_key,body.label,body.description||null,body.category||"General",value,body.active===false?0:1,staff?.email||null,body.id).run();
   else await env.DB.prepare("INSERT INTO crm_business_rules(rule_key,label,description,category,value_json,active,updated_by) VALUES(?,?,?,?,?,1,?)").bind(body.rule_key,body.label,body.description||null,body.category||"General",value,staff?.email||null).run();
-  const after=await env.DB.prepare("SELECT * FROM crm_business_rules WHERE rule_key=?").bind(body.rule_key).first();
+  const after=body.id
+    ? await env.DB.prepare("SELECT * FROM crm_business_rules WHERE id=?").bind(body.id).first()
+    : await env.DB.prepare("SELECT * FROM crm_business_rules WHERE rule_key=? ORDER BY id DESC LIMIT 1").bind(body.rule_key).first();
   await audit(env,staff,body.id?"update":"create","business_rule",after.id,before,after);
   return json({...after,value:parseJson(after.value_json,{})});
 }
@@ -73,7 +75,9 @@ export async function upsertTaskTemplate(request, env, staff) {
   const before=body.id?await env.DB.prepare("SELECT * FROM crm_task_templates WHERE id=?").bind(body.id).first():null;
   if(body.id) await env.DB.prepare(`UPDATE crm_task_templates SET template_key=?,name=?,event_type_key=?,phase=?,task_type=?,default_title=?,default_description=?,sort_order=?,required=?,auto_create=?,active=?,updated_at=datetime('now') WHERE id=?`).bind(body.template_key,body.name||"Default",body.event_type_key||null,body.phase,body.task_type||"Task",body.default_title,body.default_description||null,Number(body.sort_order||0),body.required?1:0,body.auto_create===false?0:1,body.active===false?0:1,body.id).run();
   else await env.DB.prepare(`INSERT INTO crm_task_templates(template_key,name,event_type_key,phase,task_type,default_title,default_description,sort_order,required,auto_create) VALUES(?,?,?,?,?,?,?,?,?,?)`).bind(body.template_key,body.name||"Default",body.event_type_key||null,body.phase,body.task_type||"Task",body.default_title,body.default_description||null,Number(body.sort_order||0),body.required?1:0,body.auto_create===false?0:1).run();
-  const after=await env.DB.prepare("SELECT * FROM crm_task_templates WHERE template_key=?").bind(body.template_key).first();
+  const after=body.id
+    ? await env.DB.prepare("SELECT * FROM crm_task_templates WHERE id=?").bind(body.id).first()
+    : await env.DB.prepare("SELECT * FROM crm_task_templates WHERE template_key=? ORDER BY id DESC LIMIT 1").bind(body.template_key).first();
   await audit(env,staff,body.id?"update":"create","task_template",after.id,before,after);
   return json(after);
 }
