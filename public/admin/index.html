@@ -888,58 +888,58 @@ async function renderQuoteDetail(id) {
 // ── Quotes ──────────────────────────────────────────────────
 async function renderQuotes() {
   const quotes = await api("/quotes");
-  main.innerHTML = \`
-    \${pageHeader("Quotes")}
-    <div class="card"><h2>All quotes (\${quotes.length})</h2>
+  main.innerHTML = `
+    ${pageHeader("Quotes")}
+    <div class="card"><h2>All quotes (${quotes.length})</h2>
       <table><thead><tr><th>Quote</th><th>Lead</th><th>Status</th><th>Event</th><th>Date</th><th>Value</th></tr></thead>
-      <tbody>\${quotes.map(q => \`<tr class="clickable" data-quote="\${q.id}">
-        <td><b>\${escapeHtml(q.quote_number||("#"+q.id))}</b></td>
-        <td>\${escapeHtml(q.lead_name||"—")}<div class="meta">\${escapeHtml(q.lead_phone||"")}</div></td>
-        <td>\${statusPill(q.status)}</td><td>\${escapeHtml(q.event_type||"—")}</td>
-        <td>\${escapeHtml(q.event_date||"TBD")}</td><td>\${money(Math.max(0,Number(q.total||0)-Number(q.concession_amount||0)))}</td>
-      </tr>\`).join("") || '<tr><td colspan="6" class="empty">No quotes yet.</td></tr>'}</tbody></table>
-    </div>\`;
+      <tbody>${quotes.map(q => `<tr class="clickable" data-quote="${q.id}">
+        <td><b>${escapeHtml(q.quote_number||("#"+q.id))}</b></td>
+        <td>${escapeHtml(q.lead_name||"—")}<div class="meta">${escapeHtml(q.lead_phone||"")}</div></td>
+        <td>${statusPill(q.status)}</td><td>${escapeHtml(q.event_type||"—")}</td>
+        <td>${escapeHtml(q.event_date||"TBD")}</td><td>${money(Math.max(0,Number(q.total||0)-Number(q.concession_amount||0)))}</td>
+      </tr>`).join("") || '<tr><td colspan="6" class="empty">No quotes yet.</td></tr>'}</tbody></table>
+    </div>`;
   main.querySelectorAll("[data-quote]").forEach(el => el.addEventListener("click",()=>go("quoteDetail",el.dataset.quote)));
 }
 
 // ── Bookings ────────────────────────────────────────────────
 async function renderBookings() {
   const bookings = await api("/bookings");
-  main.innerHTML = \`
-    \${pageHeader("Bookings")}
-    <div class="card"><h2>All bookings (\${bookings.length})</h2>
+  main.innerHTML = `
+    ${pageHeader("Bookings")}
+    <div class="card"><h2>All bookings (${bookings.length})</h2>
       <table><thead><tr><th>Booking</th><th>Client</th><th>Status</th><th>Events</th><th>Booked value</th><th>Paid</th><th>Outstanding</th></tr></thead>
-      <tbody>\${bookings.map(b => {
+      <tbody>${bookings.map(b => {
         const value=Number(b.booked_value||0), paid=Number(b.paid_amount||0);
-        return \`<tr class="clickable" data-booking="\${b.id}">
-          <td><b>\${escapeHtml(b.booking_number||("#"+b.id))}</b><div class="meta">\${escapeHtml(b.quote_status||"")}</div></td>
-          <td>\${escapeHtml(b.client_name||"—")}<div class="meta">\${escapeHtml(b.client_phone||"")}</div></td>
-          <td>\${statusPill(b.status)}</td><td>\${Number(b.event_count||0)}</td><td>\${money(value)}</td><td>\${money(paid)}</td><td>\${money(Math.max(0,value-paid))}</td>
-        </tr>\`;
+        return `<tr class="clickable" data-booking="${b.id}">
+          <td><b>${escapeHtml(b.booking_number||("#"+b.id))}</b><div class="meta">${escapeHtml(b.quote_status||"")}</div></td>
+          <td>${escapeHtml(b.client_name||"—")}<div class="meta">${escapeHtml(b.client_phone||"")}</div></td>
+          <td>${statusPill(b.status)}</td><td>${Number(b.event_count||0)}</td><td>${money(value)}</td><td>${money(paid)}</td><td>${money(Math.max(0,value-paid))}</td>
+        </tr>`;
       }).join("") || '<tr><td colspan="7" class="empty">No bookings yet. Convert an accepted quote to create one.</td></tr>'}</tbody></table>
-    </div>\`;
+    </div>`;
   main.querySelectorAll("[data-booking]").forEach(el=>el.addEventListener("click",()=>openBooking(el.dataset.booking)));
 }
 
 async function openBooking(id) {
-  const b=await api(\`/bookings/\${id}\`);
+  const b=await api(`/bookings/${id}`);
   const paid=(b.payments||[]).reduce((n,p)=>n+Number(p.amount||0),0);
-  openModal(\`Booking \${escapeHtml(b.booking_number||("#"+b.id))}\`,\`
-    <div class="card" style="margin:0 0 12px"><b>\${escapeHtml(b.client_name||"")}</b><div class="meta">\${escapeHtml(b.client_email||"")} · \${escapeHtml(b.client_phone||"")}</div><div style="margin-top:8px">Booked: \${money(b.booked_value)} · Paid: \${money(paid)} · Outstanding: \${money(Math.max(0,Number(b.booked_value||0)-paid))}</div></div>
-    <div class="card" style="margin:0 0 12px"><h3>Events</h3>\${(b.events||[]).map(e=>\`<div class="list-row"><span><b>\${escapeHtml(e.event_number||("#"+e.id))}</b> · \${escapeHtml(e.type||"")}</span><button type="button" class="icon-btn" data-open-event="\${e.id}">Open</button></div>\`).join("")||'<div class="empty">No events.</div>'}</div>
+  openModal(`Booking ${escapeHtml(b.booking_number||("#"+b.id))}`,`
+    <div class="card" style="margin:0 0 12px"><b>${escapeHtml(b.client_name||"")}</b><div class="meta">${escapeHtml(b.client_email||"")} · ${escapeHtml(b.client_phone||"")}</div><div style="margin-top:8px">Booked: ${money(b.booked_value)} · Paid: ${money(paid)} · Outstanding: ${money(Math.max(0,Number(b.booked_value||0)-paid))}</div></div>
+    <div class="card" style="margin:0 0 12px"><h3>Events</h3>${(b.events||[]).map(e=>`<div class="list-row"><span><b>${escapeHtml(e.event_number||("#"+e.id))}</b> · ${escapeHtml(e.type||"")}</span><button type="button" class="icon-btn" data-open-event="${e.id}">Open</button></div>`).join("")||'<div class="empty">No events.</div>'}</div>
     <div class="card" style="margin:0"><h3>Payments <button type="button" class="icon-btn" id="addBookingPayment">+ Add</button></h3>
-      \${(b.payments||[]).map(p=>\`<div class="list-row"><span>\${escapeHtml(p.payment_date)} · \${money(p.amount)} <span class="meta">\${escapeHtml(p.method||"")} \${escapeHtml(p.reference||"")}</span></span></div>\`).join("")||'<div class="empty">No payments recorded.</div>'}</div>
-  \`,async()=>{});
+      ${(b.payments||[]).map(p=>`<div class="list-row"><span>${escapeHtml(p.payment_date)} · ${money(p.amount)} <span class="meta">${escapeHtml(p.method||"")} ${escapeHtml(p.reference||"")}</span></span></div>`).join("")||'<div class="empty">No payments recorded.</div>'}</div>
+  `,async()=>{});
   document.querySelectorAll("[data-open-event]").forEach(el=>el.addEventListener("click",()=>{closeModal();go("eventDetail",el.dataset.openEvent);}));
-  document.querySelector("#addBookingPayment")?.addEventListener("click",()=>openModal("Add booking payment",\`
+  document.querySelector("#addBookingPayment")?.addEventListener("click",()=>openModal("Add booking payment",`
     <form>
       <div class="field"><label>Amount (₹)</label><input name="amount" type="number" min="1" required></div>
-      <div class="field"><label>Payment date</label><input name="payment_date" type="date" value="\${new Date().toISOString().slice(0,10)}" required></div>
+      <div class="field"><label>Payment date</label><input name="payment_date" type="date" value="${new Date().toISOString().slice(0,10)}" required></div>
       <div class="field"><label>Method</label><input name="method" placeholder="UPI / Bank / Cash / Card"></div>
       <div class="field"><label>Reference</label><input name="reference"></div>
       <div class="field"><label>Notes</label><input name="notes"></div>
       <button type="submit" style="width:100%">Record payment</button>
-    </form>\`,async data=>{await api(\`/bookings/\${id}/payments\`,{method:"POST",body:JSON.stringify(data)});toast("Payment recorded");closeModal();renderBookings();}));
+    </form>`,async data=>{await api(`/bookings/${id}/payments`,{method:"POST",body:JSON.stringify(data)});toast("Payment recorded");closeModal();renderBookings();}));
 }
 
 // // ── Accounts ───────────────────────────────────────────────
