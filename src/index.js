@@ -21,6 +21,7 @@ const ADMIN_ROUTES = [
   ["GET", /^\/api\/admin\/product-config$/, (req, env) => productConfig.getProductConfig(req, env)],
   ["GET", /^\/api\/admin\/bookings$/, (req, env) => bookingRoutes.listBookings(req, env)],
   ["GET", /^\/api\/admin\/bookings\/(\d+)$/, (req, env, staff, [id]) => bookingRoutes.getBooking(req, env, id)],
+  ["POST", /^\/api\/admin\/bookings\/(\d+)\/payments$/, (req, env, staff, [id]) => bookingRoutes.addBookingPayment(req, env, id, staff)],
   ["POST", /^\/api\/admin\/quotes\/(\d+)\/convert$/, (req, env, staff, [id]) => bookingRoutes.convertAcceptedQuote(req, env, id)],
   ["POST", /^\/api\/admin\/product-config\/company$/, (req, env, staff) => productConfig.updateCompany(req, env, staff)],
   ["POST", /^\/api\/admin\/product-config\/branding$/, (req, env, staff) => productConfig.updateBranding(req, env, staff)],
