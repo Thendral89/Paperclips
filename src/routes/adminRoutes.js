@@ -423,6 +423,18 @@ export async function createQuote(request, env, id) {
   return json({ ok: true, id: result.meta.last_row_id, token }, { status: 201 });
 }
 
+export async function listQuotes(request, env) {
+  const { results } = await env.DB.prepare(`
+    SELECT q.id,q.lead_id,q.quote_number,q.status,q.total,q.concession_amount,q.event_type,q.event_date,
+           q.created_at,q.updated_at,l.name AS lead_name,l.phone AS lead_phone
+    FROM lead_quotes q
+    JOIN leads l ON l.id=q.lead_id
+    ORDER BY q.created_at DESC
+    LIMIT 300
+  `).all();
+  return json(results);
+}
+
 export async function getQuote(request, env, quoteId) {
   const { quote, items, subtotal, total } = await computeQuoteTotals(env, quoteId);
   if (!quote) return notFound("quote not found");
