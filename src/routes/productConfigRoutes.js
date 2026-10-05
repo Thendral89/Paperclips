@@ -146,12 +146,12 @@ function normalizeCustomValue(field, value) {
   switch(field.field_type) {
     case "number": {
       const n=Number(value);
-      if(!Number.isFinite(n)) throw new Error(\`Invalid number for \${field.field_key}\`);
+      if(!Number.isFinite(n)) throw new Error(`Invalid number for ${field.field_key}`);
       return { value_number:n };
     }
     case "boolean": return { value_boolean:value===true || value==="true" || value===1 || value==="1" ? 1 : 0 };
     case "multi_select": {
-      if(!Array.isArray(value)) throw new Error(\`Expected an array for \${field.field_key}\`);
+      if(!Array.isArray(value)) throw new Error(`Expected an array for ${field.field_key}`);
       return { value_text:JSON.stringify(value) };
     }
     default: return { value_text:String(value) };
