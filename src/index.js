@@ -59,6 +59,7 @@ const ADMIN_ROUTES = [
   ["POST", /^\/api\/admin\/leads\/(\d+)\/delete$/, (req, env, staff, [id]) => admin.deleteLead(req, env, id)],
 
   ["POST", /^\/api\/admin\/leads\/(\d+)\/quotes$/, (req, env, staff, [id]) => admin.createQuote(req, env, id)],
+  ["GET", /^\/api\/admin\/quotes$/, (req, env) => admin.listQuotes(req, env)],
   ["GET", /^\/api\/admin\/quotes\/(\d+)$/, (req, env, staff, [id]) => admin.getQuote(req, env, id)],
   ["POST", /^\/api\/admin\/quotes\/(\d+)$/, (req, env, staff, [id]) => admin.updateQuote(req, env, id)],
   ["POST", /^\/api\/admin\/quotes\/(\d+)\/send$/, (req, env, staff, [id]) => admin.sendQuote(req, env, id, staff)],
