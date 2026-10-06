@@ -795,6 +795,7 @@ export async function updateAccountDetails(request, env, id) {
 }
 
 export async function deleteAccount(request, env, id) {
+  if(request.headers.get("x-delete-confirmation")!=="DOUBLE") return badRequest("Delete requires double confirmation.");
   const account = await env.DB.prepare(`SELECT id FROM accounts WHERE id = ?`).bind(id).first();
   if (!account) return notFound("account not found");
   // Any event means real booked history — same "can't delete real business
@@ -830,6 +831,7 @@ export async function updateContact(request, env, contactId) {
 }
 
 export async function deleteContact(request, env, contactId) {
+  if(request.headers.get("x-delete-confirmation")!=="DOUBLE") return badRequest("Delete requires double confirmation.");
   await env.DB.prepare(`DELETE FROM contacts WHERE id = ?`).bind(contactId).run();
   return json({ ok: true });
 }
@@ -997,6 +999,7 @@ export async function updateEvent(request, env, id, ctx) {
 }
 
 export async function deleteEvent(request, env, id) {
+  if(request.headers.get("x-delete-confirmation")!=="DOUBLE") return badRequest("Delete requires double confirmation.");
   const event = await env.DB.prepare(`SELECT id FROM events WHERE id = ?`).bind(id).first();
   if (!event) return notFound("event not found");
   // Any payment recorded is real money against this event — block rather
@@ -1178,6 +1181,7 @@ export async function addPayment(request, env, id) {
 // recorded transaction — also reverses it out of the event's advance_paid,
 // and clears the payment_schedule link if this payment was an installment.
 export async function deletePayment(request, env, paymentId) {
+  if(request.headers.get("x-delete-confirmation")!=="DOUBLE") return badRequest("Delete requires double confirmation.");
   const payment = await env.DB.prepare(`SELECT * FROM payments WHERE id = ?`).bind(paymentId).first();
   if (!payment) return notFound("payment not found");
   await env.DB.batch([
@@ -1399,6 +1403,7 @@ export async function updatePackage(request, env, packageId) {
 }
 
 export async function deletePackage(request, env, packageId) {
+  if(request.headers.get("x-delete-confirmation")!=="DOUBLE") return badRequest("Delete requires double confirmation.");
   await env.DB.prepare(`UPDATE packages SET active = 0 WHERE id = ?`).bind(packageId).run();
   return json({ ok: true });
 }
@@ -1434,6 +1439,7 @@ export async function updateStaffLink(request, env, linkId) {
 // Removing a staff assignment also un-assigns (not deletes) any tasks that
 // were pointed at them, so a task never silently vanishes.
 export async function deleteStaffLink(request, env, linkId) {
+  if(request.headers.get("x-delete-confirmation")!=="DOUBLE") return badRequest("Delete requires double confirmation.");
   await env.DB.batch([
     env.DB.prepare(`UPDATE event_tasks SET link_id = NULL WHERE link_id = ?`).bind(linkId),
     env.DB.prepare(`DELETE FROM event_staff_links WHERE id = ?`).bind(linkId),
@@ -1473,6 +1479,7 @@ export async function updateVendor(request, env, vendorId) {
 // than silently orphaning event_vendors rows — same spirit as the package
 // soft-delete, just enforced differently since vendors have no active flag.
 export async function deleteVendor(request, env, vendorId) {
+  if(request.headers.get("x-delete-confirmation")!=="DOUBLE") return badRequest("Delete requires double confirmation.");
   const used = await env.DB.prepare(`SELECT COUNT(*) AS n FROM event_vendors WHERE vendor_id = ?`).bind(vendorId).first();
   if (used.n > 0) return badRequest(`Can't delete — this vendor is booked on ${used.n} event(s). Remove them from those events first.`);
   await env.DB.prepare(`DELETE FROM vendors WHERE id = ?`).bind(vendorId).run();
@@ -1505,6 +1512,7 @@ export async function updateEventVendor(request, env, eventVendorId) {
 }
 
 export async function deleteEventVendor(request, env, eventVendorId) {
+  if(request.headers.get("x-delete-confirmation")!=="DOUBLE") return badRequest("Delete requires double confirmation.");
   await env.DB.prepare(`DELETE FROM event_vendors WHERE id = ?`).bind(eventVendorId).run();
   return json({ ok: true });
 }
@@ -1551,6 +1559,7 @@ export async function updatePaymentScheduleItem(request, env, scheduleId) {
 }
 
 export async function deletePaymentScheduleItem(request, env, scheduleId) {
+  if(request.headers.get("x-delete-confirmation")!=="DOUBLE") return badRequest("Delete requires double confirmation.");
   const item = await env.DB.prepare(`SELECT status FROM payment_schedule WHERE id = ?`).bind(scheduleId).first();
   if (!item) return notFound("payment schedule item not found");
   if (item.status === "Paid") return badRequest("This installment is already marked paid — it can't be deleted.");
@@ -1593,6 +1602,7 @@ export async function updateDeliverable(request, env, deliverableId) {
 }
 
 export async function deleteDeliverable(request, env, deliverableId) {
+  if(request.headers.get("x-delete-confirmation")!=="DOUBLE") return badRequest("Delete requires double confirmation.");
   await env.DB.prepare(`DELETE FROM deliverables WHERE id = ?`).bind(deliverableId).run();
   return json({ ok: true });
 }
@@ -1613,6 +1623,7 @@ export async function addEventChecklistItem(request, env, id) {
 }
 
 export async function removeEventChecklistItem(request, env, itemId) {
+  if(request.headers.get("x-delete-confirmation")!=="DOUBLE") return badRequest("Delete requires double confirmation.");
   await env.DB.prepare(`DELETE FROM event_checklist WHERE id = ?`).bind(itemId).run();
   return json({ ok: true });
 }
@@ -1672,6 +1683,7 @@ export async function updateEventTask(request, env, taskId) {
 }
 
 export async function deleteEventTask(request, env, taskId) {
+  if(request.headers.get("x-delete-confirmation")!=="DOUBLE") return badRequest("Delete requires double confirmation.");
   await env.DB.prepare(`DELETE FROM event_tasks WHERE id = ?`).bind(taskId).run();
   return json({ ok: true });
 }
@@ -1709,6 +1721,7 @@ export async function updateEquipment(request, env, equipId) {
 // Blocks the delete if it's assigned to any event, same "don't orphan real
 // data" guard used for vendors/packages.
 export async function deleteEquipment(request, env, equipId) {
+  if(request.headers.get("x-delete-confirmation")!=="DOUBLE") return badRequest("Delete requires double confirmation.");
   const used = await env.DB.prepare(`SELECT COUNT(*) AS n FROM event_equipment WHERE equipment_id = ?`).bind(equipId).first();
   if (used.n > 0) return badRequest(`Can't delete — this is assigned to ${used.n} event(s). Remove it from those events first.`);
   await env.DB.prepare(`DELETE FROM equipment WHERE id = ?`).bind(equipId).run();
@@ -1733,6 +1746,7 @@ export async function toggleEventEquipmentReady(request, env, eventEquipId) {
 }
 
 export async function removeEventEquipment(request, env, eventEquipId) {
+  if(request.headers.get("x-delete-confirmation")!=="DOUBLE") return badRequest("Delete requires double confirmation.");
   await env.DB.prepare(`DELETE FROM event_equipment WHERE id = ?`).bind(eventEquipId).run();
   return json({ ok: true });
 }
@@ -1788,6 +1802,7 @@ export async function updateExpense(request, env, expenseId) {
 }
 
 export async function deleteExpense(request, env, expenseId) {
+  if(request.headers.get("x-delete-confirmation")!=="DOUBLE") return badRequest("Delete requires double confirmation.");
   await env.DB.prepare(`DELETE FROM expenses WHERE id = ?`).bind(expenseId).run();
   return json({ ok: true });
 }
@@ -1941,6 +1956,7 @@ export async function setMonthlyCost(request, env) {
 }
 
 export async function deleteMonthlyCost(request, env, costId) {
+  if(request.headers.get("x-delete-confirmation")!=="DOUBLE") return badRequest("Delete requires double confirmation.");
   await env.DB.prepare(`DELETE FROM monthly_costs WHERE id = ?`).bind(costId).run();
   return json({ ok: true });
 }
@@ -1984,6 +2000,7 @@ export async function updatePromotion(request, env, promoId) {
 }
 
 export async function deletePromotion(request, env, promoId) {
+  if(request.headers.get("x-delete-confirmation")!=="DOUBLE") return badRequest("Delete requires double confirmation.");
   await env.DB.prepare(`DELETE FROM promotions WHERE id = ?`).bind(promoId).run();
   return json({ ok: true });
 }
