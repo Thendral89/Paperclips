@@ -381,6 +381,7 @@ let state = { view: "dashboard", id: null, filter: null };
 // explicit level back) from the browser chrome's Back button (full
 // history), so both are worth having.
 let prevState = null;
+let activeEventTab = 'overview';
 
 function encodeHash(view, id, filter) {
   const p = new URLSearchParams();
@@ -413,6 +414,7 @@ function goBack(fallbackView) {
 // to its current value is a no-op in every browser (no hashchange fires),
 // which is fine — there's nothing to re-render if nothing moved.
 function go(view, id, filter) {
+  if(view !== 'eventDetail') activeEventTab='overview';
   location.hash = encodeHash(view, id, filter || null);
 }
 
@@ -1361,7 +1363,8 @@ async function renderEventDetail(id) {
   ];
   const direct=[...main.children], header=direct.filter(el=>el.matches('.back,h1,.sub,.kpis')), content=direct.filter(el=>!header.includes(el));
   const shell=document.createElement('div');
-  shell.innerHTML=`<div class="event-tabs">${tabNames.map(([k,v],i)=>`<button type="button" class="event-tab ${i?'':'active'}" data-event-tab="${k}">${v}</button>`).join('')}</div>${tabNames.map(([k])=>`<section class="event-tab-panel ${k==='overview'?'active':''}" data-event-panel="${k}"></section>`).join('')}`;
+  if(!tabNames.some(([k])=>k===activeEventTab)) activeEventTab='overview';
+  shell.innerHTML=`<div class="event-tabs">${tabNames.map(([k,v])=>`<button type="button" class="event-tab ${k===activeEventTab?'active':''}" data-event-tab="${k}">${v}</button>`).join('')}</div>${tabNames.map(([k])=>`<section class="event-tab-panel ${k===activeEventTab?'active':''}" data-event-panel="${k}"></section>`).join('')}`;
   main.appendChild(shell);
   const panels=Object.fromEntries([...shell.querySelectorAll('[data-event-panel]')].map(x=>[x.dataset.eventPanel,x]));
   const invoiceCard=document.createElement('div'); invoiceCard.className='card'; invoiceCard.id='eventInvoiceCard'; invoiceCard.innerHTML='<h2>Invoice</h2><div class="empty">Loading invoice…</div>'; panels.payments.appendChild(invoiceCard);
@@ -1379,7 +1382,7 @@ async function renderEventDetail(id) {
   const ppFallback=['Exclusive Pictures — 7–14 days','Client Reference — 7–20 days','Album Selection — 1 month','Album Layout — 4 weeks after album selection','Candid Video — 30–45 working days','Traditional Video — 30–60 working days','Album Printing — 2 weeks after layout confirmation','Hard Drive deliverable — Along with album collection'];
   ppCard.innerHTML=`<h2>${L('event.post_production','Post-Production Workflow')}</h2><div class="resource-grid">${(ppValues.length?ppValues:ppFallback).map(x=>`<div class="resource-card">${escapeHtml(x)}</div>`).join('')}</div>`;
   panels.postproduction.appendChild(ppCard);
-  shell.querySelectorAll('[data-event-tab]').forEach(btn=>btn.addEventListener('click',()=>{shell.querySelectorAll('[data-event-tab]').forEach(b=>b.classList.toggle('active',b===btn));shell.querySelectorAll('[data-event-panel]').forEach(x=>x.classList.toggle('active',x.dataset.eventPanel===btn.dataset.eventTab));}));
+  shell.querySelectorAll('[data-event-tab]').forEach(btn=>btn.addEventListener('click',()=>{activeEventTab=btn.dataset.eventTab;shell.querySelectorAll('[data-event-tab]').forEach(b=>b.classList.toggle('active',b===btn));shell.querySelectorAll('[data-event-panel]').forEach(x=>x.classList.toggle('active',x.dataset.eventPanel===activeEventTab));}));
   const rp=document.createElement('div'); rp.className='card'; rp.innerHTML=`<h2>${L('event.resources','Resources')} <button type="button" class="icon-btn" id="addResourceBtn">+ Add</button></h2><div id="eventResourcesList" class="resource-grid"><div class="empty">Loading…</div></div>`; panels.resources.prepend(rp);
   const taskList=Array.isArray(ev.tasks)?ev.tasks:[]; const taskDone=taskList.filter(t=>String(t.status||"").toLowerCase()==="done" || String(t.status||"").toLowerCase()==="completed").length;
   const taskPending=Math.max(0,taskList.length-taskDone);
