@@ -115,7 +115,7 @@
     const options = data.options || [];
     const addons = data.items.filter(i => i.is_addon);
     const selectedOption = options.find(o => Number(o.selected) === 1);
-    const packageServices = selectedOption ? data.items.filter(i => Number(i.quote_package_option_id) === Number(selectedOption.id) && !i.is_addon) : [];
+    const packageServices = selectedOption ? data.items.filter(i => Number(i.quote_package_option_id) === Number(selectedOption.id) && !i.is_addon && Number(i.selected)===1) : [];
     const includedServices = data.items.filter(i => !i.is_addon && !i.package_id && !i.quote_package_option_id);
     const detailList=(items)=>items&&items.length?`<ul>${items.map(x=>`<li>${escapeHtml(x)}</li>`).join("")}</ul>`:`<div class="note">Not specified.</div>`;
     document.getElementById("app").innerHTML = `
