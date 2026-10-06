@@ -113,10 +113,12 @@ export async function getQuoteContext(request, env, token) {
   if (!quote) return notFound("invalid or expired quote link");
 
   const nowStatus = quote.status === "Draft" || quote.status === "Sent" ? "Viewed" : quote.status;
+  const sessionKey=request.headers.get("x-quote-session")||null;
   await env.DB.batch([
     env.DB.prepare(`UPDATE lead_quotes SET view_count = view_count + 1, last_viewed_at = datetime('now'), status = ? WHERE id = ?`)
       .bind(nowStatus, quote.id),
-    env.DB.prepare(`INSERT INTO quote_views (quote_id) VALUES (?)`).bind(quote.id),
+    env.DB.prepare(`INSERT INTO quote_views (quote_id,session_key) VALUES (?,?)`).bind(quote.id,sessionKey),
+    env.DB.prepare(`INSERT INTO quote_engagement_events(quote_id,event_type,session_key) VALUES(?,'quote_opened',?)`).bind(quote.id,sessionKey),
   ]);
   // Only the transition INTO Viewed is worth a line on the lead's timeline —
   // every subsequent view still counts toward view_count/quote_views, but
