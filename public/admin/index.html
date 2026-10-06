@@ -879,7 +879,7 @@ async function renderQuoteDetail(id) {
     ${q.status !== "Draft" ? `<div class="copybox">${q.public_url}</div>` : ""}
 
     <div class="card quote-options-card"><div class="card-headline"><div><h2>Package options</h2><div class="meta">Customer reviews these options and selects one. Only the selected package contributes to the quote total.</div></div><button class="icon-btn" id="addPackageOptionBtn">+ Add option</button></div>
-      ${packageOptions.map(o => `<div class="quote-option-admin ${o.selected ? "selected" : ""}"><div class="quote-option-main"><div><b>${escapeHtml(o.label)}</b> ${o.selected ? '<span class="pill" style="background:var(--success-soft);color:var(--success)">Selected</span>' : ""}<div class="meta">${money(o.price)} · ${escapeHtml(o.details?.sessions_text || "Package details")}</div></div><div class="row-actions"><button type="button" class="icon-btn" data-preview-option="${o.id}">Details</button><button type="button" class="icon-btn del" data-del-option="${o.id}" title="Remove option">✕</button></div></div><div class="meta option-engagement">Views ${o.engagement?.views||0} · Expanded ${o.engagement?.expansions||0} · Selected ${o.engagement?.selections||0}</div></div>`).join("") || '<div class="empty">No package options yet.</div>'}
+      ${packageOptions.map(o => { const optionItems=q.items.filter(i=>Number(i.quote_package_option_id)===Number(o.id)); return `<div class="quote-option-admin ${o.selected ? "selected" : ""}"><div class="quote-option-main"><div><b>${escapeHtml(o.label)}</b> ${o.selected ? '<span class="pill" style="background:var(--success-soft);color:var(--success)">Selected</span>' : ""}<div class="meta">${money(o.price)} · ${escapeHtml(o.details?.sessions_text || "Package details")} · ${optionItems.filter(i=>i.selected).length} included services</div></div><div class="row-actions"><button type="button" class="icon-btn" data-customize-option="${o.id}">Customize</button><button type="button" class="icon-btn" data-preview-option="${o.id}">Details</button><button type="button" class="icon-btn del" data-del-option="${o.id}" title="Remove option">✕</button></div></div><div class="meta option-engagement">Views ${o.engagement?.views||0} · Expanded ${o.engagement?.expansions||0} · Selected ${o.engagement?.selections||0}</div></div>`; }).join("") || '<div class="empty">No package options yet.</div>'}
     </div>
     <div class="card"><h2>Additional included services <button class="icon-btn" id="addBaseBtn">+ Add</button></h2>
       ${baseItems.map(i => `<div class="svc">${escapeHtml(i.label)} — ${money(i.price)} <button type="button" class="icon-btn del" data-del-qitem="${i.id}" title="Remove">✕</button></div>`).join("") || '<div class="empty">No extra included services.</div>'}
@@ -968,6 +968,35 @@ async function renderQuoteDetail(id) {
     toast("Package option added"); renderQuoteDetail(id);
   }));
   main.querySelectorAll("[data-del-option]").forEach(el=>el.addEventListener("click",()=>confirmDelete("Remove this package option?",`/quote-options/${el.dataset.delOption}/delete`,()=>renderQuoteDetail(id))));
+  main.querySelectorAll("[data-customize-option]").forEach(el=>el.addEventListener("click",()=>{
+    const o=packageOptions.find(x=>String(x.id)===el.dataset.customizeOption); if(!o) return;
+    const optionItems=q.items.filter(i=>Number(i.quote_package_option_id)===Number(o.id));
+    const available=services.filter(s=>!optionItems.some(i=>Number(i.service_id)===Number(s.id)));
+    openModal("Customize "+o.label, `<form id="customizePackageForm">
+      <p class="empty">The package price is the base commercial amount. Included services are a quote-level snapshot. Use a positive or negative adjustment to change the quotation without changing the package catalog.</p>
+      <div style="display:grid;gap:8px;">${optionItems.map(i=>`<div class="list-row" style="display:grid;grid-template-columns:auto 1fr 110px 80px;gap:8px;align-items:center;">
+        <input type="checkbox" data-cust-selected="${i.id}" ${i.selected?"checked":""}>
+        <span><b>${escapeHtml(i.label)}</b><br><span class="meta">Package service</span></span>
+        <input type="number" data-cust-price="${i.id}" value="${Number(i.price||0)}" step="1" title="Price adjustment">
+        <input type="number" data-cust-qty="${i.id}" value="${Number(i.quantity||1)}" min="1" step="1" title="Quantity">
+      </div>`).join("")}</div>
+      <div class="field" style="margin-top:12px;"><label>Add service to this package option</label><select name="new_service"><option value="">No additional service</option>${available.map(s=>`<option value="${s.id}">${escapeHtml(s.name)} — ${money(s.base_price)}</option>`).join("")}</select></div>
+      <div class="field"><label>Adjustment for newly added service (₹)</label><input name="new_price" type="number" value="0" step="1"></div>
+      <div class="field"><label>Quantity</label><input name="new_quantity" type="number" value="1" min="1"></div>
+      <button type="submit">Save customization</button>
+    </form>`,async(_data,form)=>{
+      for(const item of optionItems){
+        await api(`/quote-items/${item.id}`,{method:"POST",body:JSON.stringify({
+          selected:form.querySelector(`[data-cust-selected="${item.id}"]`).checked,
+          price:Number(form.querySelector(`[data-cust-price="${item.id}"]`).value||0),
+          quantity:Number(form.querySelector(`[data-cust-qty="${item.id}"]`).value||1)
+        })});
+      }
+      const newService=form.querySelector("[name=new_service]").value;
+      if(newService) await api(`/quotes/${id}/items`,{method:"POST",body:JSON.stringify({service_id:Number(newService),option_id:Number(o.id),is_addon:false,price:Number(form.querySelector("[name=new_price]").value||0),quantity:Number(form.querySelector("[name=new_quantity]").value||1)})});
+      toast("Package customization saved"); renderQuoteDetail(id);
+    });
+  }));
   main.querySelectorAll("[data-preview-option]").forEach(el=>el.addEventListener("click",()=>{
     const o=packageOptions.find(x=>String(x.id)===el.dataset.previewOption); if(!o) return;
     const d=o.details||{};
