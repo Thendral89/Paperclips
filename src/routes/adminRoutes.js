@@ -511,12 +511,14 @@ export async function updateQuote(request, env, quoteId) {
 // moment "we've actually sent this" becomes visible without staff having
 // to remember to note it themselves.
 export async function sendQuote(request, env, quoteId, staff) {
-  const quote = await env.DB.prepare(`SELECT * FROM lead_quotes WHERE id = ?`).bind(quoteId).first();
+  const quote = await env.DB.prepare(`SELECT q.*,l.phone,l.name FROM lead_quotes q JOIN leads l ON l.id=q.lead_id WHERE q.id = ?`).bind(quoteId).first();
   if (!quote) return notFound("quote not found");
-  await env.DB.prepare(`UPDATE lead_quotes SET status = 'Sent', updated_at = datetime('now') WHERE id = ?`).bind(quoteId).run();
-  await logActivity(env, quote.lead_id, "Quote sent", null, staff.email);
   const url = new URL(request.url);
-  return json({ ok: true, public_url: `${url.origin}/quote/${quote.token}` });
+  const publicUrl=`${url.origin}/quote/${quote.token}`;
+  const message=`Hi ${quote.name || "there"}, your Paperclip Studios quote is ready: ${publicUrl}`;
+  await env.DB.prepare(`UPDATE lead_quotes SET status = 'Sent', updated_at = datetime('now') WHERE id = ?`).bind(quoteId).run();
+  await logActivity(env, quote.lead_id, "Quote sent", publicUrl, staff.email);
+  return json({ ok: true, public_url: publicUrl, phone: quote.phone || null, whatsapp_message: message });
 }
 
 export async function deleteQuote(request, env, quoteId) {
