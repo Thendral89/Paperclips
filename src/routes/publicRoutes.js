@@ -128,7 +128,7 @@ export async function getQuoteContext(request, env, token) {
       .bind(quote.lead_id).run();
   }
 
-  const { results: items } = await env.DB.prepare(`SELECT id, label, price, is_addon, selected FROM quote_items WHERE quote_id = ?`).bind(quote.id).all();
+  const { results: items } = await env.DB.prepare(`SELECT id, label, price, is_addon, selected, package_id, service_id FROM quote_items WHERE quote_id = ? ORDER BY is_addon, id`).bind(quote.id).all();
   const subtotal = items.filter((i) => i.selected).reduce((s, i) => s + i.price, 0);
   const total = Math.max(0, subtotal - Number(quote.concession_amount || 0));
   const { results: comments } = await env.DB.prepare(
@@ -149,6 +149,23 @@ export async function getQuoteContext(request, env, token) {
     total,
     comments,
   });
+}
+
+// Meaningful quote engagement only. No scroll, mouse or keystroke telemetry.
+export async function logQuoteEngagement(request, env, token) {
+  const body = await request.json().catch(() => null);
+  const allowed = new Set(["package_viewed","package_expanded","service_viewed","addon_viewed","package_selected","service_selected","addon_selected"]);
+  const eventType = String(body?.event_type || "");
+  if (!allowed.has(eventType)) return badRequest("unsupported engagement event");
+  const quote = await env.DB.prepare("SELECT id FROM lead_quotes WHERE token=?").bind(token).first();
+  if (!quote) return notFound("invalid or expired quote link");
+  const itemId = body?.quote_item_id ? Number(body.quote_item_id) : null;
+  const item = itemId ? await env.DB.prepare("SELECT id,package_id,service_id,is_addon FROM quote_items WHERE id=? AND quote_id=?").bind(itemId,quote.id).first() : null;
+  if (itemId && !item) return notFound("quote item not found");
+  const sessionKey = String(body?.session_key || "").slice(0,120) || null;
+  await env.DB.prepare(`INSERT INTO quote_engagement_events(quote_id,event_type,quote_item_id,package_id,service_id,session_key) VALUES(?,?,?,?,?,?)`)
+    .bind(quote.id,eventType,item?.id||null,item?.package_id||null,item?.service_id||null,sessionKey).run();
+  return json({ok:true});
 }
 
 // A customer message from the public quote page — "can you add a second
