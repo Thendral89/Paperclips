@@ -13,6 +13,7 @@ ALTER TABLE event_resource_allocations ADD COLUMN revised_estimate INTEGER;
 ALTER TABLE event_resource_allocations ADD COLUMN actual_paid INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE event_resource_allocations ADD COLUMN payment_date TEXT;
 ALTER TABLE event_resource_allocations ADD COLUMN cost_notes TEXT;
+UPDATE event_resource_allocations SET original_estimate=COALESCE(cost,0) WHERE original_estimate=0;
 
 CREATE INDEX IF NOT EXISTS idx_event_services_event_final
   ON event_services(event_id, added_after_finalization, id);
