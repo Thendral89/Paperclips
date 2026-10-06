@@ -43,7 +43,6 @@ CREATE INDEX IF NOT EXISTS idx_packages_active_sort
 
 -- Checklist is an operational control board, grouped into the three agreed phases.
 ALTER TABLE checklist_templates ADD COLUMN active INTEGER NOT NULL DEFAULT 1;
-ALTER TABLE checklist_templates ADD COLUMN active INTEGER NOT NULL DEFAULT 1;
 ALTER TABLE event_checklist ADD COLUMN template_id INTEGER REFERENCES checklist_templates(id);
 
 CREATE INDEX IF NOT EXISTS idx_checklist_templates_phase
