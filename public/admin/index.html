@@ -199,6 +199,10 @@
   .checklist-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin-top:10px;}
   .checklist-phase{border:1px solid var(--line);border-radius:12px;padding:11px;background:var(--paper);}
   .resource-phase-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;}
+  .kanban{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;overflow:auto;}
+  .kanban-col{min-width:190px;background:var(--paper);border:1px solid var(--line);border-radius:12px;padding:10px;min-height:150px;}
+  .kanban-col h3{font-size:12px;text-transform:uppercase;letter-spacing:.03em;color:var(--ink-soft);margin:0 0 8px;}
+  .kanban-card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:10px;margin-bottom:8px;cursor:pointer;}
   .resource-phase-column{border:1px solid var(--line);border-radius:12px;padding:12px;background:var(--paper);}
   .toolbar-grid{display:grid;grid-template-columns:minmax(220px,2fr) minmax(180px,1fr) auto;gap:8px;align-items:end;}
   @media(max-width:760px){.checklist-grid,.resource-phase-grid,.toolbar-grid{grid-template-columns:1fr;}}
