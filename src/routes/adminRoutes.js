@@ -533,6 +533,9 @@ export async function deleteQuote(request, env, quoteId) {
 export async function addQuoteItem(request, env, quoteId) {
   const body = await request.json().catch(() => null);
   if (!body || (!body.service_id && !body.package_id)) return badRequest("service_id or package_id is required");
+  const quoteState=await env.DB.prepare("SELECT status FROM lead_quotes WHERE id=?").bind(quoteId).first();
+  if(!quoteState) return notFound("quote not found");
+  if(["Accepted","Rejected","Expired","Cancelled"].includes(quoteState.status)) return badRequest("this Quote is locked and cannot be changed");
   let label, price;
   if (body.package_id) {
     const pkg = await env.DB.prepare(`SELECT name, base_price FROM packages WHERE id = ?`).bind(body.package_id).first();
@@ -550,6 +553,9 @@ export async function addQuoteItem(request, env, quoteId) {
 }
 
 export async function removeQuoteItem(request, env, itemId) {
+  const item=await env.DB.prepare("SELECT qi.quote_id,q.status FROM quote_items qi JOIN lead_quotes q ON q.id=qi.quote_id WHERE qi.id=?").bind(itemId).first();
+  if(!item) return notFound("quote item not found");
+  if(["Accepted","Rejected","Expired","Cancelled"].includes(item.status)) return badRequest("this Quote is locked and cannot be changed");
   await env.DB.prepare(`DELETE FROM quote_items WHERE id = ?`).bind(itemId).run();
   return json({ ok: true });
 }
