@@ -880,6 +880,14 @@ export async function updateEvent(request, env, id, ctx) {
   const end_time = body.end_time !== undefined ? body.end_time || null : event.end_time;
   const reporting_time = body.reporting_time !== undefined ? body.reporting_time || null : event.reporting_time;
   const status = body.status ?? event.status;
+  const allowedStatuses=["Pending","Planning","In-Progress","Completed","Overdue","Cancelled"];
+  if(!allowedStatuses.includes(status)) return badRequest("invalid event status");
+  if(status==="Completed" && event.status!=="Completed"){
+    const pending=await env.DB.prepare("SELECT COUNT(*) AS count FROM event_tasks WHERE event_id=? AND required=1 AND lower(status) NOT IN ('done','completed')").bind(id).first();
+    const rule=await env.DB.prepare("SELECT value_json FROM crm_business_rules WHERE rule_key='event.block_completion_pending' AND active=1 ORDER BY id DESC LIMIT 1").first();
+    let enabled=true; try{enabled=rule?JSON.parse(rule.value_json||"{}").enabled!==false:true;}catch{}
+    if(enabled && Number(pending?.count||0)>0) return badRequest("required Event tasks are still pending");
+  }
   await env.DB.prepare(`UPDATE events SET type = ?, venue = ?, event_date = ?, start_time = ?, end_time = ?, reporting_time = ?, status = ? WHERE id = ?`)
     .bind(type, venue, event_date, start_time, end_time, reporting_time, status, id).run();
 
