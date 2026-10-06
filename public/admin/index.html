@@ -772,8 +772,8 @@ async function renderLeadDetail(id) {
 // customer-facing view (read-only except add-on toggles) lives at
 // /quote/<token>; this is the admin side that controls it. ──────────
 async function renderQuoteDetail(id) {
-  const [q, services, packages, tiers] = await Promise.all([
-    api(`/quotes/${id}`), api("/services"), api("/packages"), api("/tiers"),
+  const [q, services, packages] = await Promise.all([
+    api(`/quotes/${id}`), api("/services"), api("/packages"),
   ]);
   const baseItems = q.items.filter(i => !i.is_addon);
   const addonItems = q.items.filter(i => i.is_addon);
@@ -788,10 +788,6 @@ async function renderQuoteDetail(id) {
     </div>
 
     ${q.status !== "Draft" ? `<div class="copybox">${q.public_url}</div>` : ""}
-
-    <div class="card"><h2>Pricing tier</h2>
-      <div style="display:flex;gap:8px;">${tiers.map(t => `<div class="tier ${t.id===q.pricing_tier_id?"sel":""}" data-tier="${t.id}"><b>${t.name}</b><div style="font-size:11px;color:var(--ink-soft)">${t.perks}</div></div>`).join("")}</div>
-    </div>
 
     <div class="card"><h2>Included (base) <button class="icon-btn" id="addBaseBtn">+ Add</button></h2>
       ${baseItems.map(i => `<div class="svc">${i.label} — ${money(i.price)} <button type="button" class="icon-btn del" data-del-qitem="${i.id}" title="Remove">✕</button></div>`).join("") || '<div class="empty">Nothing added yet.</div>'}
@@ -818,7 +814,7 @@ async function renderQuoteDetail(id) {
       </form>
     </div>
 
-    <div class="card"><h2>View history <span class="meta">how many times the customer has actually opened this link</span></h2>
+    <div class="card"><h2>Quote Engagement</h2>\n      <div class="kpis" style="grid-template-columns:repeat(3,minmax(0,1fr));">\n        <div class="kpi"><div class="l">Views</div><div class="v">${q.view_count||0}</div></div>\n        <div class="kpi"><div class="l">Sessions</div><div class="v">${q.engagement_summary?.unique_sessions||0}</div></div>\n        <div class="kpi"><div class="l">Interactions</div><div class="v">${q.engagement_summary?.total_events||0}</div></div>\n      </div>\n      <div class="meta">Last engaged: ${q.engagement_summary?.last_engaged_at||"Not yet"} · Selections: ${q.engagement_summary?.selections||0}</div>\n    </div>\n    <div class="card"><h2>View history <span class="meta">how many times the customer has actually opened this link</span></h2>
       ${q.view_log.length ? `<table>${q.view_log.map(v => `<tr><td>${v.viewed_at}</td></tr>`).join("")}</table>` : '<div class="empty">Not viewed yet.</div>'}
     </div>
   `;
@@ -832,8 +828,6 @@ async function renderQuoteDetail(id) {
   main.querySelector("#deleteQuoteBtn").addEventListener("click", () =>
     confirmDelete("Delete this quote? This can't be undone.", `/quotes/${id}/delete`, () => go("leadDetail", q.lead_id))
   );
-  main.querySelectorAll("[data-tier]").forEach(el => el.addEventListener("click", async () => {
-    await api(`/quotes/${id}`, { method: "POST", body: JSON.stringify({ pricing_tier_id: el.dataset.tier }) });
     renderQuoteDetail(id);
   }));
   main.querySelectorAll("[data-del-qitem]").forEach(el => el.addEventListener("click", () =>
