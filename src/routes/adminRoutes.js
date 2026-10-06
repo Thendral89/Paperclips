@@ -425,16 +425,19 @@ export async function createQuote(request, env, id) {
   const body = await request.json().catch(() => ({}));
   const lead = await env.DB.prepare(`SELECT id FROM leads WHERE id = ?`).bind(id).first();
   if (!lead) return notFound("lead not found");
+  let selectedPackage=null;
+  if(body.package_id){
+    selectedPackage=await env.DB.prepare(`SELECT id,name,base_price FROM packages WHERE id=? AND active=1`).bind(Number(body.package_id)).first();
+    if(!selectedPackage) return badRequest("selected package not found or inactive");
+  }
   const token = makeToken();
   const result = await env.DB.prepare(
     `INSERT INTO lead_quotes (lead_id, token) VALUES (?, ?)`
   ).bind(id, token).run();
   const quoteId = result.meta.last_row_id;
-  if (body.package_id) {
-    const pkg = await env.DB.prepare(`SELECT id,name,base_price FROM packages WHERE id=? AND active=1`).bind(Number(body.package_id)).first();
-    if (!pkg) return badRequest("selected package not found or inactive");
+  if (selectedPackage) {
     await env.DB.prepare(`INSERT INTO quote_items (quote_id,package_id,label,price,is_addon,selected) VALUES (?,?,?,?,0,1)`)
-      .bind(quoteId,pkg.id,pkg.name,Number(pkg.base_price||0)).run();
+      .bind(quoteId,selectedPackage.id,selectedPackage.name,Number(selectedPackage.base_price||0)).run();
   }
   return json({ ok: true, id: quoteId, token }, { status: 201 });
 }
