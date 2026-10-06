@@ -497,6 +497,7 @@ export async function updateQuote(request, env, quoteId) {
   if (!body) return badRequest("no fields given");
   const quote = await env.DB.prepare(`SELECT * FROM lead_quotes WHERE id = ?`).bind(quoteId).first();
   if (!quote) return notFound("quote not found");
+  if(["Accepted","Rejected","Expired","Cancelled"].includes(quote.status)) return badRequest("this Quote is locked and cannot be changed");
   const concession_amount = body.concession_amount !== undefined ? Number(body.concession_amount) : quote.concession_amount;
   if(!Number.isFinite(concession_amount) || concession_amount<0) return badRequest("concession_amount must be a valid non-negative number");
   const concession_note = body.concession_note !== undefined ? body.concession_note || null : quote.concession_note;
