@@ -129,6 +129,14 @@ export async function getQuoteContext(request, env, token) {
   }
 
   const { results: items } = await env.DB.prepare(`SELECT id, label, price, is_addon, selected, package_id, service_id FROM quote_items WHERE quote_id = ? ORDER BY is_addon, id`).bind(quote.id).all();
+  const packageIds=[...new Set(items.map(i=>i.package_id).filter(Boolean))];
+  let packageServices={};
+  if(packageIds.length){
+    const placeholders=packageIds.map(()=>"?").join(",");
+    const {results:ps}=await env.DB.prepare(`SELECT pi.package_id,s.id,s.name,pi.quantity FROM package_items pi JOIN services s ON s.id=pi.service_id WHERE pi.package_id IN (${placeholders}) ORDER BY s.name`).bind(...packageIds).all();
+    for(const row of ps)(packageServices[row.package_id] ||= []).push({id:row.id,name:row.name,quantity:row.quantity});
+  }
+  for(const item of items) if(item.package_id) item.package_services=packageServices[item.package_id]||[];
   const subtotal = items.filter((i) => i.selected).reduce((s, i) => s + i.price, 0);
   const total = Math.max(0, subtotal - Number(quote.concession_amount || 0));
   const { results: comments } = await env.DB.prepare(
