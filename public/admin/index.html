@@ -1784,7 +1784,7 @@ async function renderResources(){
   const types=cfg.resource_types||[{value_label:'Internal'},{value_label:'External'},{value_label:'Equipment / Vendor'}];
   let filter='all';
   const typeLabel=r=>r.resource_type||'Internal';
-  const filtered=()=>resources.filter(r=>r.active && (filter==='all' || (filter==='people' && typeLabel(r)==='Internal') || (filter==='vendors' && typeLabel(r)!=='Internal')));
+  const filtered=()=>resources.filter(r=>r.active && (filter==='all' || (filter==='people' && ['Internal','Person'].includes(typeLabel(r))) || (filter==='vendors' && !['Internal','Person'].includes(typeLabel(r)))));
   const phaseRows=(phase)=>filtered().filter(r=>String(r.phases||'').split(',').includes(phase));
   const card=(r)=>`<div class='resource-card'><div style='display:flex;justify-content:space-between;gap:8px'><div><b>${escapeHtml(r.name)}</b><div class='meta'>${escapeHtml(typeLabel(r))}</div></div><div class='row-actions'><button type='button' class='icon-btn edit' data-edit-resource='${r.id}'>✎</button>${r.active?`<button type='button' class='icon-btn del' data-del-resource='${r.id}'>Deactivate</button>`:''}</div></div><div style='margin-top:8px'><span class='pill'>${escapeHtml(r.skills||'No skills')}</span></div><div class='meta' style='margin-top:6px'>${escapeHtml(r.phone||r.email||'No contact details')}</div></div>`;
   const render=()=>{
