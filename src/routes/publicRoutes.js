@@ -171,7 +171,7 @@ export async function selectQuotePackage(request, env, token) {
   await env.DB.batch([
     env.DB.prepare(`UPDATE quote_package_options SET selected=0,updated_at=datetime('now') WHERE quote_id=?`).bind(quote.id),
     env.DB.prepare(`UPDATE quote_package_options SET selected=1,updated_at=datetime('now') WHERE id=?`).bind(optionId),
-    env.DB.prepare(`INSERT INTO quote_engagement_events(quote_id,event_type,package_id,session_key) VALUES(?,?,?,?,?)`.replace("VALUES(?,?,?,?,?)","VALUES(?,?,?,?)")).bind(quote.id,"package_selected",option.package_id,sessionKey)
+    env.DB.prepare(`INSERT INTO quote_engagement_events(quote_id,event_type,package_id,session_key) VALUES(?,?,?,?)`).bind(quote.id,"package_selected",option.package_id,sessionKey)
   ]);
   return json({ok:true,selected_package_option_id:optionId});
 }
