@@ -4,7 +4,7 @@
 
 import { json, unauthorized, notFound } from "./lib/util.js";
 import { requireStaff, requireEventLink } from "./lib/auth.js";
-import { captureLead, getFeedbackContext, submitFeedback, getQuoteContext, toggleQuoteItem, addQuoteComment } from "./routes/publicRoutes.js";
+import { captureLead, getFeedbackContext, submitFeedback, getQuoteContext, toggleQuoteItem, addQuoteComment, logQuoteEngagement } from "./routes/publicRoutes.js";
 import * as admin from "./routes/adminRoutes.js";
 import * as portal from "./routes/portalRoutes.js";
 import * as config from "./routes/configRoutes.js";
@@ -209,6 +209,11 @@ export default {
       if (request.method === "GET") {
         return getQuoteContext(request, env, quoteMatch[1]).catch((e) => json({ error: String(e) }, { status: 500 }));
       }
+    }
+
+    const quoteEngagementMatch = pathname.match(/^\/api\/quote\/([a-f0-9]+)\/engagement$/);
+    if (quoteEngagementMatch && request.method === "POST") {
+      return logQuoteEngagement(request, env, quoteEngagementMatch[1]).catch((e) => json({ error: String(e) }, { status: 500 }));
     }
 
     const quoteToggleMatch = pathname.match(/^\/api\/quote\/([a-f0-9]+)\/toggle$/);
