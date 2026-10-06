@@ -930,6 +930,9 @@ async function renderAccounts() {
         <div class="field"><label>Name</label><input name="name" value="${a.name}" required></div>
         <div class="field"><label>Phone</label><input name="phone" value="${a.phone || ""}"></div>
         <div class="field"><label>Email</label><input name="email" value="${a.email || ""}"></div>
+        <div class="row2"><div class="field"><label>Birth date</label><input name="birth_date" type="date" value="${a.birth_date || ""}"></div><div class="field"><label>Marriage / Anniversary date</label><input name="anniversary_date" type="date" value="${a.anniversary_date || ""}"></div></div>
+        <div class="field"><label>Address</label><input name="address" value="${a.address || ""}"></div>
+        <div class="field"><label>Notes</label><textarea name="notes" rows="2">${a.notes || ""}</textarea></div>
         <button type="submit" style="width:100%;">Save</button>
       </form>
     `, async data => { await api(`/accounts/${a.id}/details`, { method: "POST", body: JSON.stringify(data) }); toast("Customer updated"); renderAccounts(); });
@@ -945,6 +948,11 @@ async function renderAccountDetail(id) {
   main.innerHTML = `
     <span class="back" data-back>← Clients</span>
     ${pageHeader(`${a.name} <span class="pill">LTV ₹${a.lifetime_value}</span> ${waButton(a.phone, `Hi ${a.name}, this is Paperclip Studios — thank you for booking with us!`)}`, "+ New event")}
+    <div class="card"><h2>Client 360</h2>
+      <div class="row2"><div><div class="meta">Phone</div><b>${escapeHtml(a.phone||"—")}</b><div class="meta" style="margin-top:8px">Email</div><b>${escapeHtml(a.email||"—")}</b></div><div><div class="meta">Birth date</div><b>${escapeHtml(a.birth_date||"—")}</b><div class="meta" style="margin-top:8px">Marriage / Anniversary</div><b>${escapeHtml(a.anniversary_date||"—")}</b></div></div>
+      <div class="meta" style="margin-top:10px">${escapeHtml(a.address||"No address saved.")}</div>
+      ${a.notes?`<div class="list-row" style="margin-top:8px"><span>${escapeHtml(a.notes)}</span></div>`:""}
+    </div>
     <div class="card"><h2>Contacts <button class="icon-btn" id="addContactBtn">+ Add</button></h2>
       ${a.contacts.map(c => `<div class="list-row"><span>${c.name}${c.role ? ` <span class="pill">${c.role}</span>` : ""}${c.is_primary ? ' <span class="pill" style="background:var(--success-soft);color:var(--success)">Primary</span>' : ""} <span class="meta">${[c.phone, c.email].filter(Boolean).join(" · ")}</span></span><span class="row-actions">${waButton(c.phone, `Hi ${c.name}, this is Paperclip Studios — reaching out about your upcoming event.`)}<button type="button" class="icon-btn edit" data-edit-contact="${c.id}" title="Edit">✎</button><button type="button" class="icon-btn del" data-del-contact="${c.id}" title="Delete">✕</button></span></div>`).join("") || '<div class="empty">No additional contacts yet — the customer\'s own phone/email above counts as the primary.</div>'}
     </div>
