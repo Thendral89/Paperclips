@@ -455,7 +455,8 @@ export async function listQuotes(request, env) {
            l.name AS lead_name,l.phone AS lead_phone,l.event_type,l.event_date,
            CASE WHEN EXISTS(SELECT 1 FROM quote_package_options o WHERE o.quote_id=q.id)
              THEN COALESCE((SELECT o.price FROM quote_package_options o WHERE o.quote_id=q.id AND o.selected=1 LIMIT 1),0)
-                + COALESCE((SELECT SUM(i.price) FROM quote_items i WHERE i.quote_id=q.id AND i.is_addon=1 AND i.selected=1),0)
+                + COALESCE((SELECT SUM(i.price*i.quantity) FROM quote_items i WHERE i.quote_id=q.id AND i.quote_package_option_id=(SELECT o2.id FROM quote_package_options o2 WHERE o2.quote_id=q.id AND o2.selected=1 LIMIT 1) AND i.is_addon=0 AND i.selected=1),0)
+                + COALESCE((SELECT SUM(i.price*i.quantity) FROM quote_items i WHERE i.quote_id=q.id AND i.is_addon=1 AND i.selected=1),0)
              ELSE COALESCE((SELECT SUM(i.price) FROM quote_items i WHERE i.quote_id=q.id AND i.selected=1),0)
            END AS subtotal,
            (SELECT COUNT(*) FROM quote_package_options o WHERE o.quote_id=q.id) AS package_option_count,
