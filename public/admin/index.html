@@ -901,7 +901,7 @@ async function renderQuoteDetail(id) {
       <div class="field"><label>Notes</label><textarea name="notes" rows="2"></textarea></div>
       <button type="submit" style="width:100%">Allocate</button></form>`;
     openModal('Allocate resource',formHtml,async data=>{await api(`/events/${id}/resources`,{method:'POST',body:JSON.stringify(data)});toast('Resource allocated');renderEventDetail(id);});
-    const modal=document.querySelector('#modal');
+    const modal=document.getElementById('modal-body');
     const refreshSkills=()=>{const r=active.find(x=>String(x.id)===String(modal.querySelector('#allocResource')?.value));const ids=String(r?.skill_ids||'').split(',').map(Number).filter(Number.isFinite);const list=skills.filter(s=>ids.includes(Number(s.id)));modal.querySelector('#allocSkill').innerHTML='<option value="">— none —</option>'+list.map(s=>`<option value="${s.id}">${escapeHtml(s.label)}</option>`).join('');};
     modal?.querySelector('#allocResource')?.addEventListener('change',refreshSkills); refreshSkills();
   });
