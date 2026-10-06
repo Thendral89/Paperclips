@@ -70,6 +70,7 @@ const ADMIN_ROUTES = [
   ["POST", /^\/api\/admin\/quotes\/(\d+)\/send$/, (req, env, staff, [id]) => admin.sendQuote(req, env, id, staff)],
   ["POST", /^\/api\/admin\/quotes\/(\d+)\/delete$/, (req, env, staff, [id]) => admin.deleteQuote(req, env, id)],
   ["POST", /^\/api\/admin\/quotes\/(\d+)\/items$/, (req, env, staff, [id]) => admin.addQuoteItem(req, env, id)],
+  ["POST", /^\/api\/admin\/quote-items\/(\d+)$/, (req, env, staff, [id]) => admin.updateQuoteItem(req, env, id)],
   ["POST", /^\/api\/admin\/quote-items\/(\d+)\/delete$/, (req, env, staff, [id]) => admin.removeQuoteItem(req, env, id)],
   ["POST", /^\/api\/admin\/quote-options\/(\d+)\/delete$/, (req, env, staff, [id]) => admin.removeQuotePackageOption(req, env, id)],
   ["POST", /^\/api\/admin\/quotes\/(\d+)\/comments$/, (req, env, staff, [id]) => admin.addStaffQuoteComment(req, env, id, staff)],
