@@ -712,6 +712,7 @@ async function renderLeadDetail(id) {
   main.innerHTML = `
     <span class="back" data-back>← Leads</span>
     <h1>${l.name} ${engaged ? '<span class="pill" style="background:var(--critical-soft);color:var(--critical)">🔥 High engagement</span>' : ""} <button class="icon-btn" id="editLeadBtn">✎ Edit</button></h1>
+    <div class="card"><h2>Lead path</h2><div class="pipeline">${LEAD_STAGES.map(([v,label],i)=>`<div class="pipeline-step ${v===l.stage?"active":""} ${LEAD_STAGES.findIndex(x=>x[0]===l.stage)>i?"done":""}"><span>${i+1}</span><b>${label}${v==="Won"?" / Booked":""}</b></div>`).join("")}</div><div class="meta">Current stage: ${escapeHtml(l.stage||"New")} · Next follow-up: ${escapeHtml(l.next_follow_up_date||"Not scheduled")}</div></div>
     <div class="row2">
       <div class="card">
         <h2>Details</h2>
