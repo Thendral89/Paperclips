@@ -756,9 +756,7 @@ async function renderLeadDetail(id) {
   `, async data => { await api(`/leads/${id}/activities`, { method: "POST", body: JSON.stringify(data) }); toast("Activity logged"); renderLeadDetail(id); }));
   main.querySelector("#newQuoteBtn").addEventListener("click", () => openModal("New quote", `
     <form>
-      <div class="field"><label>Pricing tier</label>
-        <select name="pricing_tier_id"><option value="1">Standard</option><option value="2">Premium</option><option value="3">Signature</option></select>
-      </div>
+      <p class="empty">Build the Quote from reusable Packages and individual Services. Pricing tiers are no longer used.</p>
       <button type="submit" style="width:100%;">Create quote</button>
     </form>
   `, async data => {
