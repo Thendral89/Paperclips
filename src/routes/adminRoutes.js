@@ -1213,7 +1213,7 @@ export async function listPackages(request, env) {
     ).all(),
   ]);
   const byPackage = {};
-  for (const it of items) (byPackage[it.package_id] ||= []).push({ name: it.name, quantity: it.quantity });
+  for (const it of items) (byPackage[it.package_id] ||= []).push({ service_id:it.service_id, name: it.name, quantity: it.quantity });
   return json(packages.map((p) => ({ ...p, items: byPackage[p.id] || [] })));
 }
 
