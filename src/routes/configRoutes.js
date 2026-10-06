@@ -39,6 +39,7 @@ export async function getConfig(request, env) {
       env.DB.prepare(`
         SELECT r.*,
           GROUP_CONCAT(DISTINCT s.label) AS skills,
+          GROUP_CONCAT(DISTINCT rs.skill_id) AS skill_ids,
           GROUP_CONCAT(DISTINCT rp.phase) AS phases
         FROM resources r
         LEFT JOIN resource_skills rs ON rs.resource_id=r.id
