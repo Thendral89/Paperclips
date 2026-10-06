@@ -1079,6 +1079,51 @@ export async function deletePayment(request, env, paymentId) {
   return json({ ok: true });
 }
 
+// ── Event invoices ──────────────────────────────────────────────────
+export async function getEventInvoice(request, env, eventId) {
+  const invoice=await env.DB.prepare("SELECT * FROM invoices WHERE event_id=? ORDER BY version DESC,id DESC LIMIT 1").bind(eventId).first();
+  return json(invoice||null);
+}
+
+export async function generateEventInvoice(request, env, eventId) {
+  const event=await env.DB.prepare(`SELECT e.*,a.name AS client_name,a.phone,a.email,a.address FROM events e JOIN accounts a ON a.id=e.account_id WHERE e.id=?`).bind(eventId).first();
+  if(!event) return notFound("event not found");
+  const existing=await env.DB.prepare("SELECT * FROM invoices WHERE event_id=? ORDER BY version DESC,id DESC LIMIT 1").bind(eventId).first();
+  if(existing?.locked_at) return badRequest("invoice is locked");
+  const items=(await env.DB.prepare(`SELECT es.id,COALESCE(s.name,p.name) AS label,es.price_at_booking,es.is_crosssell,es.added_after_finalization
+    FROM event_services es LEFT JOIN services s ON s.id=es.service_id LEFT JOIN packages p ON p.id=es.package_id
+    WHERE es.event_id=? ORDER BY es.id`).bind(eventId).all()).results;
+  const payments=(await env.DB.prepare("SELECT id,amount,method,date,note FROM payments WHERE event_id=? ORDER BY date,id").bind(eventId).all()).results;
+  const version=existing?Number(existing.version||1)+1:1;
+  const snapshot={event_id:eventId,client:{name:event.client_name,phone:event.phone,email:event.email,address:event.address},event:{type:event.type,date:event.event_date,venue:event.venue},items,total:Number(event.quote_total||0),payments,generated_at:new Date().toISOString()};
+  if(existing){
+    await env.DB.prepare("UPDATE invoices SET total_amount=?,snapshot_json=?,version=?,status='Draft',issued_at=NULL,paid_at=NULL,updated_at=datetime('now') WHERE id=?")
+      .bind(Number(event.quote_total||0),JSON.stringify(snapshot),version,existing.id).run();
+    return json({ok:true,id:existing.id,version});
+  }
+  const number=`INV-${String(eventId).padStart(4,"0")}`;
+  const r=await env.DB.prepare("INSERT INTO invoices(event_id,invoice_number,status,total_amount,snapshot_json,version) VALUES(?,?, 'Draft',?,?,?)")
+    .bind(eventId,number,Number(event.quote_total||0),JSON.stringify(snapshot),version).run();
+  return json({ok:true,id:r.meta.last_row_id,invoice_number:number,version});
+}
+
+export async function issueEventInvoice(request, env, invoiceId) {
+  const invoice=await env.DB.prepare("SELECT * FROM invoices WHERE id=?").bind(invoiceId).first();
+  if(!invoice) return notFound("invoice not found");
+  if(invoice.locked_at) return badRequest("invoice is locked");
+  if(invoice.status==="Cancelled") return badRequest("cancelled invoice cannot be issued");
+  await env.DB.prepare("UPDATE invoices SET status='Issued',issued_at=datetime('now'),updated_at=datetime('now') WHERE id=?").bind(invoiceId).run();
+  return json({ok:true});
+}
+
+export async function markInvoicePaid(request, env, invoiceId) {
+  const invoice=await env.DB.prepare("SELECT * FROM invoices WHERE id=?").bind(invoiceId).first();
+  if(!invoice) return notFound("invoice not found");
+  if(invoice.locked_at && invoice.status==="Paid") return json({ok:true});
+  await env.DB.prepare("UPDATE invoices SET status='Paid',paid_at=datetime('now'),updated_at=datetime('now') WHERE id=?").bind(invoiceId).run();
+  return json({ok:true});
+}
+
 // ── Catalogue ────────────────────────────────────────────────────────
 export async function listServices(request, env) {
   const { results } = await env.DB.prepare(
