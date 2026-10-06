@@ -466,9 +466,11 @@ export async function getQuote(request, env, quoteId) {
     env.DB.prepare(`SELECT
       COUNT(*) AS total_events,
       COUNT(DISTINCT session_key) AS unique_sessions,
+      MIN(created_at) AS first_engaged_at,
       MAX(created_at) AS last_engaged_at,
       SUM(CASE WHEN event_type LIKE 'package_%' THEN 1 ELSE 0 END) AS package_events,
-      SUM(CASE WHEN event_type LIKE '%service%' OR event_type LIKE 'addon_%' THEN 1 ELSE 0 END) AS service_events,
+      SUM(CASE WHEN event_type LIKE 'service_%' THEN 1 ELSE 0 END) AS service_events,
+      SUM(CASE WHEN event_type LIKE 'addon_%' THEN 1 ELSE 0 END) AS addon_events,
       SUM(CASE WHEN event_type LIKE '%selected' THEN 1 ELSE 0 END) AS selections
       FROM quote_engagement_events WHERE quote_id = ?`).bind(quoteId).first()
   ]);
@@ -484,8 +486,8 @@ export async function getQuote(request, env, quoteId) {
     view_log: views,
     comments,
     engagement_summary: engagement || {
-      total_events:0,unique_sessions:0,last_engaged_at:null,
-      package_events:0,service_events:0,selections:0
+      total_events:0,unique_sessions:0,first_engaged_at:null,last_engaged_at:null,
+      package_events:0,service_events:0,addon_events:0,selections:0
     },
     public_url: `${url.origin}/quote/${quote.token}`
   });
