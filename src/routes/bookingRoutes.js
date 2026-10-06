@@ -97,57 +97,114 @@ export async function convertAcceptedQuote(request, env, quoteId) {
     WHERE q.id=?`).bind(quoteId).first();
   if(!q) return notFound("quote not found");
   if(!["Accepted","Won"].includes(q.status)) return badRequest("Quote must be Accepted/Won before conversion");
-  const [conversionRule,taskRule]=await Promise.all([
-    env.DB.prepare("SELECT value_json FROM crm_business_rules WHERE rule_key='booking.create_from_won_quote' AND active=1 ORDER BY id DESC LIMIT 1").first(),
-    env.DB.prepare("SELECT value_json FROM crm_business_rules WHERE rule_key='event.auto_create_quote_tasks' AND active=1 ORDER BY id DESC LIMIT 1").first()
-  ]);
-  const conversionEnabled=conversionRule ? parseRuleValue(conversionRule.value_json).enabled!==false : true;
-  if(!conversionEnabled) return badRequest("Booking creation from quotes is disabled by business rule");
+
+  const architectureRule=await env.DB.prepare(
+    "SELECT value_json FROM crm_business_rules WHERE rule_key='architecture.accepted_quote.create_event' AND active=1 ORDER BY id DESC LIMIT 1"
+  ).first();
+  const conversionEnabled=architectureRule ? parseRuleValue(architectureRule.value_json).enabled!==false : true;
+  if(!conversionEnabled) return badRequest("Accepted quote to Event conversion is disabled by business rule");
+
+  const taskRule=await env.DB.prepare(
+    "SELECT value_json FROM crm_business_rules WHERE rule_key='event.auto_create_quote_tasks' AND active=1 ORDER BY id DESC LIMIT 1"
+  ).first();
   const autoCreateTasks=taskRule ? parseRuleValue(taskRule.value_json).enabled!==false : true;
 
   let accountId=q.existing_account_id;
   if(!accountId){
-    const ar=await env.DB.prepare("INSERT INTO accounts(lead_id,name,phone,email,notes) VALUES(?,?,?,?,?)")
-      .bind(q.lead_id,q.lead_name,q.phone||null,q.email||null,"Created from accepted quote").run();
+    const ar=await env.DB.prepare(
+      "INSERT INTO accounts(lead_id,name,phone,email,notes) VALUES(?,?,?,?,?)"
+    ).bind(
+      q.lead_id,
+      q.lead_name,
+      q.phone||null,
+      q.email||null,
+      "Created from accepted quote"
+    ).run();
     accountId=ar.meta.last_row_id;
   }
 
-  const existingBooking=await env.DB.prepare("SELECT id FROM bookings WHERE quote_id=?").bind(quoteId).first();
-  if(existingBooking) return json({ok:true,booking_id:existingBooking.id,already_exists:true});
+  const existingEvent=await env.DB.prepare(
+    "SELECT id,event_number FROM events WHERE quote_id=? ORDER BY id DESC LIMIT 1"
+  ).bind(quoteId).first();
+  if(existingEvent) return json({
+    ok:true,
+    event_id:existingEvent.id,
+    event_number:existingEvent.event_number,
+    account_id:accountId,
+    already_exists:true
+  });
 
-  const items=(await env.DB.prepare("SELECT * FROM quote_items WHERE quote_id=? AND selected=1 ORDER BY id").bind(quoteId).all()).results;
-  const total=items.reduce((s,x)=>s+Number(x.price||0),0)-Number(q.concession_amount||0);
-  const bookingNumber=await nextNumber(env,"booking");
-  const br=await env.DB.prepare(`INSERT INTO bookings(account_id,quote_id,booking_number,status,booked_value,discount,notes,confirmed_at)
-    VALUES(?,?,?,?,?,?,?,datetime('now'))`).bind(accountId,quoteId,bookingNumber||null,"Booked",Math.max(0,total),Number(q.concession_amount||0),q.concession_note||null).run();
-  const bookingId=br.meta.last_row_id;
+  const items=(await env.DB.prepare(
+    "SELECT * FROM quote_items WHERE quote_id=? AND selected=1 ORDER BY id"
+  ).bind(quoteId).all()).results;
 
-  const advanceRule=await env.DB.prepare("SELECT value_json FROM crm_business_rules WHERE rule_key='booking.default_advance' AND active=1 ORDER BY id DESC LIMIT 1").first();
-  const advancePercent=Math.min(100,Math.max(0,Number(parseRuleValue(advanceRule?.value_json).percent ?? 30)));
-  const advanceAmount=Math.round(Math.max(0,total)*advancePercent/100);
-  if(Math.max(0,total)>0){
-    await env.DB.batch([
-      env.DB.prepare("INSERT INTO booking_payment_schedule(booking_id,label,due_date,amount,status) VALUES(?,?,?,?,?)").bind(bookingId,"Advance",new Date().toISOString().slice(0,10),advanceAmount,"Due"),
-      env.DB.prepare("INSERT INTO booking_payment_schedule(booking_id,label,due_date,amount,status) VALUES(?,?,?,?,?)").bind(bookingId,"Balance",q.event_date||null,Math.max(0,total)-advanceAmount,"Due")
-    ]);
-  }
+  const total=Math.max(0,items.reduce((s,x)=>s+Number(x.price||0),0)-Number(q.concession_amount||0));
+  const quoteSnapshot={
+    quote_id:q.id,
+    status:"Accepted",
+    accepted_at:new Date().toISOString(),
+    concession_amount:Number(q.concession_amount||0),
+    concession_note:q.concession_note||null,
+    valid_until:q.valid_until||null,
+    items:items.map(x=>({
+      id:x.id,
+      service_id:x.service_id||null,
+      package_id:x.package_id||null,
+      label:x.label,
+      price:Number(x.price||0),
+      is_addon:Number(x.is_addon||0),
+      selected:Number(x.selected||0)
+    }))
+  };
 
   const eventNumber=await nextNumber(env,"event");
-  const er=await env.DB.prepare(`INSERT INTO events(account_id,booking_id,event_number,type,event_date,status,quote_total)
-    VALUES(?,?,?,?,?,?,?)`).bind(accountId,bookingId,eventNumber||null,q.event_type||"Wedding",q.event_date||null,"Planning",Math.max(0,total)).run();
+  const er=await env.DB.prepare(`INSERT INTO events(
+      account_id,quote_id,event_number,type,event_date,status,quote_total,
+      quote_snapshot_json,commercial_finalized_at
+    ) VALUES(?,?,?,?,?,?,?,?,datetime('now'))`).bind(
+      accountId,
+      quoteId,
+      eventNumber||null,
+      q.event_type||"Wedding",
+      q.event_date||null,
+      "Planning",
+      total,
+      JSON.stringify(quoteSnapshot)
+    ).run();
   const eventId=er.meta.last_row_id;
 
   for(const item of items){
     if(item.service_id){
-      await env.DB.prepare("INSERT INTO event_services(event_id,service_id,price_at_booking,is_crosssell) VALUES(?,?,?,?)")
-        .bind(eventId,item.service_id,Number(item.price||0),item.is_addon?1:0).run();
+      await env.DB.prepare(
+        "INSERT INTO event_services(event_id,service_id,price_at_booking,is_crosssell) VALUES(?,?,?,?)"
+      ).bind(eventId,item.service_id,Number(item.price||0),item.is_addon?1:0).run();
+    } else if(item.package_id){
+      await env.DB.prepare(
+        "INSERT INTO event_services(event_id,package_id,price_at_booking,is_crosssell) VALUES(?,?,?,?)"
+      ).bind(eventId,item.package_id,Number(item.price||0),item.is_addon?1:0).run();
     }
+  }
+
+  if(total>0){
+    const advanceRule=await env.DB.prepare(
+      "SELECT value_json FROM crm_business_rules WHERE rule_key='booking.default_advance' AND active=1 ORDER BY id DESC LIMIT 1"
+    ).first();
+    const advancePercent=Math.min(100,Math.max(0,Number(parseRuleValue(advanceRule?.value_json).percent ?? 30)));
+    const advanceAmount=Math.round(total*advancePercent/100);
+    await env.DB.batch([
+      env.DB.prepare(
+        "INSERT INTO payment_schedule(event_id,label,due_date,amount,status) VALUES(?,?,?,?,?)"
+      ).bind(eventId,"Advance",new Date().toISOString().slice(0,10),advanceAmount,"Pending"),
+      env.DB.prepare(
+        "INSERT INTO payment_schedule(event_id,label,due_date,amount,status) VALUES(?,?,?,?,?)"
+      ).bind(eventId,"Balance",q.event_date||null,total-advanceAmount,"Pending")
+    ]);
   }
 
   const templates=autoCreateTasks
     ? (await env.DB.prepare(`SELECT * FROM crm_task_templates
-      WHERE active=1 AND auto_create=1 AND (event_type_key IS NULL OR event_type_key=?)
-      ORDER BY phase,sort_order,id`).bind(q.event_type||"Wedding").all()).results
+        WHERE active=1 AND auto_create=1 AND (event_type_key IS NULL OR event_type_key=?)
+        ORDER BY phase,sort_order,id`).bind(q.event_type||"Wedding").all()).results
     : [];
 
   let taskCount=0;
@@ -158,22 +215,59 @@ export async function convertAcceptedQuote(request, env, quoteId) {
     const count=t.task_type==="Resource"
       ? matching.reduce((n,i)=>n+parseQty(i.label),0)
       : 1;
+
     for(let n=1;n<=count;n++){
-      const sourceItem=t.task_type==="Resource" ? matching[Math.min(n-1,matching.length-1)] : null;
-      const title=t.task_type==="Resource" && count>1 ? `${t.default_title} #${n}` : t.default_title;
-      const tr=await env.DB.prepare(`INSERT INTO event_tasks(event_id,task,status,phase,required,template_id,source_quote_item_id)
-        VALUES(?,?,?,?,?,?,?)`).bind(eventId,title,"Pending",t.phase,t.required?1:0,t.id,sourceItem?.id||null).run();
+      const sourceItem=t.task_type==="Resource"
+        ? matching[Math.min(n-1,matching.length-1)]
+        : null;
+      const title=t.task_type==="Resource" && count>1
+        ? `${t.default_title} #${n}`
+        : t.default_title;
+
+      const tr=await env.DB.prepare(`INSERT INTO event_tasks(
+          event_id,task,status,phase,required,template_id,source_quote_item_id
+        ) VALUES(?,?,?,?,?,?,?)`).bind(
+          eventId,title,"Pending",t.phase,t.required?1:0,t.id,sourceItem?.id||null
+        ).run();
       taskCount++;
+
       if(t.task_type==="Resource"){
-        await env.DB.prepare(`INSERT INTO event_resource_requirements(event_id,task_id,role_label,quantity,phase,allocation_date)
-          VALUES(?,?,?,?,?,?)`).bind(eventId,tr.meta.last_row_id,t.default_title,1,t.phase,q.event_date||null).run();
+        await env.DB.prepare(`INSERT INTO event_resource_requirements(
+            event_id,task_id,role_label,quantity,phase,allocation_date
+          ) VALUES(?,?,?,?,?,?)`).bind(
+            eventId,tr.meta.last_row_id,t.default_title,1,t.phase,q.event_date||null
+          ).run();
       }
     }
   }
 
-  await env.DB.prepare("UPDATE lead_quotes SET status='Accepted',updated_at=datetime('now') WHERE id=?").bind(quoteId).run();
-  await env.DB.prepare("UPDATE leads SET stage='Booked',updated_at=datetime('now') WHERE id=?").bind(q.lead_id).run();
-  await env.DB.prepare("INSERT INTO lead_status_history(lead_id,to_stage,changed_by) VALUES(?,?,?)").bind(q.lead_id,"Booked","quote-conversion").run();
+  const checklistTemplates=(await env.DB.prepare(
+    "SELECT * FROM checklist_templates WHERE active=1 ORDER BY phase,sort_order,id"
+  ).all()).results;
+  for(const item of checklistTemplates){
+    await env.DB.prepare(`INSERT INTO event_checklist(
+      event_id,item,done,phase,template_id
+    ) VALUES(?,?,0,?,?)`).bind(
+      eventId,item.item,item.phase||"Pre-Production",item.id
+    ).run();
+  }
 
-  return json({ok:true,booking_id:bookingId,event_id:eventId,booking_number:bookingNumber,event_number:eventNumber,account_id:accountId,task_count:taskCount});
+  await env.DB.prepare(
+    "UPDATE lead_quotes SET status='Accepted',updated_at=datetime('now') WHERE id=?"
+  ).bind(quoteId).run();
+  await env.DB.prepare(
+    "UPDATE leads SET stage='Won',updated_at=datetime('now') WHERE id=?"
+  ).bind(q.lead_id).run();
+  await env.DB.prepare(
+    "INSERT INTO lead_status_history(lead_id,to_stage,changed_by) VALUES(?,?,?)"
+  ).bind(q.lead_id,"Won","quote-conversion").run();
+
+  return json({
+    ok:true,
+    event_id:eventId,
+    event_number:eventNumber,
+    account_id:accountId,
+    task_count:taskCount,
+    checklist_count:checklistTemplates.length
+  });
 }
