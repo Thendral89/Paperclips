@@ -118,35 +118,35 @@ INSERT OR REPLACE INTO package_details(package_id,sessions_text,crew_json,delive
 SELECT p.id,'2 sessions',
 '["Traditional Photographer × 1","Traditional Videographer × 1"]',
 '["Exclusive picture highlights","Unlimited softcopy files","Album photo book × 1","80 pages; 200 edited pictures per album","Full HD Traditional video — Edited version","Full secured private video links"]',
-'[]','Wedding Package Details PDF — Basic';
+'[]','Wedding Package Details PDF — Basic'
 FROM packages p WHERE p.name='Basic';
 
 INSERT OR REPLACE INTO package_details(package_id,sessions_text,crew_json,deliverables_json,complimentary_json,source_note)
 SELECT p.id,'2 sessions',
 '["Traditional Photographer × 1","Traditional Videographer × 1","Creative Photographer × 1"]',
 '["Exclusive picture highlights","Unlimited softcopy files","Online software based photo selection — album","Album photo book × 1","80 pages; 200–250 edited pictures per album","Full HD Traditional video — Edited version","Full secured private video links"]',
-'[]','Wedding Package Details PDF — Standard';
+'[]','Wedding Package Details PDF — Standard'
 FROM packages p WHERE p.name='Standard';
 
 INSERT OR REPLACE INTO package_details(package_id,sessions_text,crew_json,deliverables_json,complimentary_json,source_note)
 SELECT p.id,'2 sessions',
 '["Traditional Photographer × 1","Traditional Videographer × 1","Creative Photographer × 1","Cinematographer × 1"]',
 '["Exclusive picture highlights","Unlimited softcopy files","Complete RAW images copied to hard drive","Online software based photo selection — album","Album photo book × 1","80 pages; 200–250 edited pictures per album","Glossy/Mate finish album","Full HD Traditional video — Edited version","Full secured private video links","Cinematic film (2 to 3 mins)"]',
-'["Pre/post wedding photoshoot"]','Wedding Package Details PDF — Classic';
+'["Pre/post wedding photoshoot"]','Wedding Package Details PDF — Classic'
 FROM packages p WHERE p.name='Classic';
 
 INSERT OR REPLACE INTO package_details(package_id,sessions_text,crew_json,deliverables_json,complimentary_json,source_note)
 SELECT p.id,'2 sessions',
 '["Traditional Photographer × 1","Traditional Videographer × 2","Creative Photographer × 1","Cinematographer × 1","Drone × 1"]',
 '["Exclusive picture highlights","Unlimited softcopy files","Complete RAW images copied to hard drive","Online software based photo selection — album","Album photo book × 2","80 pages; 200 edited pictures per album","Glossy/Mate finish album","Full HD Traditional video — Edited version","Full secured private video links","Cinematic film (2 to 3 mins)","Exclusive reel video"]',
-'["Pre/post wedding photoshoot","Guest link — AI based photo sharing (complimentary)"]','Wedding Package Details PDF — Premium';
+'["Pre/post wedding photoshoot","Guest link — AI based photo sharing (complimentary)"]','Wedding Package Details PDF — Premium'
 FROM packages p WHERE p.name='Premium';
 
 INSERT OR REPLACE INTO package_details(package_id,sessions_text,crew_json,deliverables_json,complimentary_json,source_note)
 SELECT p.id,'2 sessions',
 '["Traditional Photographer × 2","Traditional Videographer × 2","Creative Photographer × 1","Cinematographer × 1","Drone × 1","LED Wall 12×8 × 1","Mixing Unit"]',
 '["Exclusive picture highlights","Unlimited softcopy files","Complete RAW images copied to hard drive","Online software based photo selection — album","Premium Album photo book × 3","80 pages; 200 edited pictures per album","Glossy/Mate finish album","Full HD Traditional video — Edited version","Full secured private video links","Cinematic film (2 to 3 mins)","Exclusive reel video"]',
-'["Pre/post wedding photoshoot","Pre/post wedding videoshoot","Guest link — AI based photo sharing"]','Wedding Package Details PDF — Exclusive';
+'["Pre/post wedding photoshoot","Pre/post wedding videoshoot","Guest link — AI based photo sharing"]','Wedding Package Details PDF — Exclusive'
 FROM packages p WHERE p.name='Exclusive';
 
 -- Backfill the new option model from existing package quote items.
