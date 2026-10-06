@@ -42,9 +42,8 @@ CREATE INDEX IF NOT EXISTS idx_packages_active_sort
   ON packages(active, sort_order, id);
 
 -- Checklist is an operational control board, grouped into the three agreed phases.
-ALTER TABLE checklist_templates ADD COLUMN phase TEXT NOT NULL DEFAULT 'Pre-Production';
 ALTER TABLE checklist_templates ADD COLUMN active INTEGER NOT NULL DEFAULT 1;
-ALTER TABLE event_checklist ADD COLUMN phase TEXT NOT NULL DEFAULT 'Pre-Production';
+ALTER TABLE checklist_templates ADD COLUMN active INTEGER NOT NULL DEFAULT 1;
 ALTER TABLE event_checklist ADD COLUMN template_id INTEGER REFERENCES checklist_templates(id);
 
 CREATE INDEX IF NOT EXISTS idx_checklist_templates_phase
@@ -139,10 +138,15 @@ INSERT OR IGNORE INTO crm_business_rules(
   '{"enabled":true}'
 );
 
--- Seed phase metadata for the existing checklist template.
-UPDATE checklist_templates
-SET phase='Pre-Production'
-WHERE phase IS NULL OR phase='';
+-- Normalize the existing three checklist phases from the legacy vocabulary
+-- to the approved operational vocabulary. The phase columns already exist
+-- from migration 0004.
+UPDATE checklist_templates SET phase='Pre-Production' WHERE phase='Pre-wedding';
+UPDATE checklist_templates SET phase='Production' WHERE phase='Wedding day';
+UPDATE checklist_templates SET phase='Post-Production' WHERE phase='Post-wedding';
+UPDATE event_checklist SET phase='Pre-Production' WHERE phase='Pre-wedding';
+UPDATE event_checklist SET phase='Production' WHERE phase='Wedding day';
+UPDATE event_checklist SET phase='Post-Production' WHERE phase='Post-wedding';
 
 -- Future tenant isolation is implemented only when request/auth context is available.
 -- Do not infer a tenant from user input or leave cross-tenant filtering implicit.
