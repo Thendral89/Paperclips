@@ -205,6 +205,10 @@
   .kanban-card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:10px;margin-bottom:8px;cursor:pointer;}
   .resource-phase-column{border:1px solid var(--line);border-radius:12px;padding:12px;background:var(--paper);}
   .toolbar-grid{display:grid;grid-template-columns:minmax(220px,2fr) minmax(180px,1fr) auto;gap:8px;align-items:end;}
+  .package-choice-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;}
+  .package-choice{border:1px solid var(--line);border-radius:12px;padding:12px;background:var(--paper);display:block;cursor:pointer;min-height:110px;}
+  .package-choice:has(input:checked){border-color:var(--accent);background:var(--accent-soft);}
+  @media(max-width:760px){.package-choice-grid{grid-template-columns:1fr;}}
   @media(max-width:760px){.checklist-grid,.resource-phase-grid,.toolbar-grid{grid-template-columns:1fr;}}
 </style>
 </head>
@@ -827,7 +831,7 @@ async function renderLeadDetail(id) {
     openModal("New quote", `
       <form>
         <p class="empty">Start the quote with a reusable package. You can add individual services or optional add-ons after creation.</p>
-        <div class="field"><label>Package</label><div class="row2">${packages.map(p=>`<label class="tier"><input type="radio" name="package_id" value="${p.id}" style="width:auto;margin-right:6px;"><b>${escapeHtml(p.name)}</b><div class="meta">${money(p.base_price)} · ${(p.items||[]).map(i=>escapeHtml(i.name)).join(", ")}</div></label>`).join("") || `<div class="empty">No packages configured yet. Create one in Settings → Operations → Packages.</div>`}</div></div>
+        <div class="field"><label>Package</label><div class="package-choice-grid">${packages.map(p=>`<label class="package-choice"><input type="radio" name="package_id" value="${p.id}" style="width:auto;margin-right:6px;"><b>${escapeHtml(p.name)}</b><div class="meta">${money(p.base_price)} · ${(p.items||[]).map(i=>escapeHtml(i.name)).join(", ")}</div></label>`).join("") || `<div class="empty">No packages configured yet. Create one in Settings → Operations → Packages.</div>`}</div></div>
         <button type="submit" style="width:100%;">Create quote</button>
       </form>
     `, async data => {
