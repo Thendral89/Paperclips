@@ -884,7 +884,16 @@ async function renderQuoteDetail(id) {
       </form>
     </div>
 
-    <div class="card"><h2>Quote Engagement</h2>\n      <div class="kpis" style="grid-template-columns:repeat(3,minmax(0,1fr));">\n        <div class="kpi"><div class="l">Views</div><div class="v">${q.view_count||0}</div></div>\n        <div class="kpi"><div class="l">Sessions</div><div class="v">${q.engagement_summary?.unique_sessions||0}</div></div>\n        <div class="kpi"><div class="l">Interactions</div><div class="v">${q.engagement_summary?.total_events||0}</div></div>\n      </div>\n      <div class="meta">Last engaged: ${q.engagement_summary?.last_engaged_at||"Not yet"} · Selections: ${q.engagement_summary?.selections||0}</div>\n    </div>\n    <div class="card"><h2>View history <span class="meta">how many times the customer has actually opened this link</span></h2>
+    <div class="card"><h2>Quote Engagement</h2>
+      <div class="kpis" style="grid-template-columns:repeat(3,minmax(0,1fr));">
+        <div class="kpi"><div class="l">Views</div><div class="v">${q.view_count||0}</div></div>
+        <div class="kpi"><div class="l">Sessions</div><div class="v">${q.engagement_summary?.unique_sessions||0}</div></div>
+        <div class="kpi"><div class="l">Interactions</div><div class="v">${q.engagement_summary?.total_events||0}</div></div>
+      </div>
+      <div class="row2" style="margin-top:10px"><div><div class="meta">Package interactions</div><b>${q.engagement_summary?.package_events||0}</b><div class="meta" style="margin-top:6px">Service interactions</div><b>${q.engagement_summary?.service_events||0}</b></div><div><div class="meta">Add-on interactions</div><b>${q.engagement_summary?.addon_events||0}</b><div class="meta" style="margin-top:6px">Selections</div><b>${q.engagement_summary?.selections||0}</b></div></div>
+      <div class="meta" style="margin-top:10px">First engaged: ${q.engagement_summary?.first_engaged_at||"Not yet"} · Last engaged: ${q.engagement_summary?.last_engaged_at||"Not yet"}</div>
+    </div>
+    <div class="card"><h2>View history <span class="meta">how many times the customer has actually opened this link</span></h2>
       ${q.view_log.length ? `<table>${q.view_log.map(v => `<tr><td>${v.viewed_at}</td></tr>`).join("")}</table>` : '<div class="empty">Not viewed yet.</div>'}
     </div>
   `;
