@@ -453,7 +453,7 @@ function commentThread(comments) {
       <div class="meta">${c.author === "studio" ? "You" : "Customer"} · ${c.created_at}</div>
     </div>`).join("")}</div>`;
 }
-const CLOSED_LEAD_STAGES = ["Booked", "Lost", "Cancelled"];
+const CLOSED_LEAD_STAGES = ["Won", "Lost", "Cancelled"];
 function followUpCell(l) {
   if (!l.next_follow_up_date) return '<span class="empty">—</span>';
   if (CLOSED_LEAD_STAGES.includes(l.stage)) return l.next_follow_up_date;
