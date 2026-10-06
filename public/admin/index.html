@@ -593,6 +593,7 @@ async function renderDashboard() {
     </div>
   `;
   main.querySelectorAll("[data-lead]").forEach(el => el.addEventListener("click", () => go("leadDetail", el.dataset.lead)));
+  main.querySelectorAll("[data-event-mode]").forEach(btn=>btn.addEventListener("click",()=>{eventListMode=btn.dataset.eventMode;renderEvents(range);}));
   main.querySelectorAll("[data-event]").forEach(el => el.addEventListener("click", () => go("eventDetail", el.dataset.event)));
   main.querySelectorAll("[data-kpi]").forEach(el => el.addEventListener("click", () => {
     const kpi = el.dataset.kpi;
@@ -1081,6 +1082,7 @@ const EVENT_RANGES = [
   ["this_month", "This month"], ["next_month", "Next month"], ["custom", "Custom range"],
 ];
 let eventsCustom = { from: "", to: "" };
+let eventListMode = "list";
 
 async function renderEvents(range) {
   range = range || state.eventsRange || "all";
@@ -1099,7 +1101,7 @@ async function renderEvents(range) {
 
   const rangeLabel = EVENT_RANGES.find(r => r[0] === range)[1];
   main.innerHTML = `
-    ${pageHeader("Events", "+ New event")}
+    ${pageHeader("Events", "+ New event", `<div class="segbar" style="margin:0"><button type="button" class="seg ${eventListMode==="list"?"active":""}" data-event-mode="list">List</button><button type="button" class="seg ${eventListMode==="kanban"?"active":""}" data-event-mode="kanban">Kanban</button></div>`)}
     <div class="segbar">${EVENT_RANGES.map(([key, label]) => `<button type="button" class="seg ${range === key ? "active" : ""}" data-range="${key}">${label}</button>`).join("")}</div>
     ${range === "custom" ? `<div class="customrange">
         <input type="date" id="customFrom" value="${eventsCustom.from}">
@@ -1108,15 +1110,8 @@ async function renderEvents(range) {
         <button type="button" class="ghost" id="applyCustom">Apply</button>
       </div>` : ""}
     <div class="card"><h2>${range === "all" ? "All events" : rangeLabel} (${data.events.length})</h2>
-      <table><thead><tr><th>Customer</th><th>Type</th><th>Date</th><th>Status</th><th>Balance due</th><th></th></tr></thead>
-      <tbody>${data.events.map(e => `<tr class="clickable" data-event="${e.id}">
-          <td>${e.account_name}</td>
-          <td>${e.type}</td>
-          <td>${e.event_date || "TBD"}</td>
-          <td>${statusPill(e.status)}${e.payment_overdue ? ` <span class="pill" style="background:var(--critical-soft);color:var(--critical)">Payment overdue</span>` : ""}</td>
-          <td>${money(e.balance_due)}</td>
-          <td class="row-actions"><button type="button" class="icon-btn edit" data-edit-event="${e.id}" title="Edit">✎</button><button type="button" class="icon-btn del" data-del-event="${e.id}" title="Delete">✕</button></td>
-        </tr>`).join("") || `<tr><td colspan="6" class="empty">${range === "custom" && !qs ? "Pick a date range above." : "No events in this range."}</td></tr>`}</tbody></table>
+      <div id="eventListView" style="${eventListMode==="list"?"":"display:none"}"><table><thead><tr><th>Customer</th><th>Type</th><th>Date</th><th>Status</th><th>Balance due</th><th></th></tr></thead><tbody>${data.events.map(e => `<tr class="clickable" data-event="${e.id}"><td>${escapeHtml(e.account_name||"")}</td><td>${escapeHtml(e.type||"")}</td><td>${e.event_date || "TBD"}</td><td>${statusPill(e.status)}${e.payment_overdue ? ` <span class="pill" style="background:var(--critical-soft);color:var(--critical)">Payment overdue</span>` : ""}</td><td>${money(e.balance_due)}</td><td class="row-actions"><button type="button" class="icon-btn edit" data-edit-event="${e.id}" title="Edit">✎</button><button type="button" class="icon-btn del" data-del-event="${e.id}" title="Delete">✕</button></td></tr>`).join("") || `<tr><td colspan="6" class="empty">${range === "custom" && !qs ? "Pick a date range above." : "No events in this range."}</td></tr>`}</tbody></table></div>
+      <div id="eventKanbanView" class="kanban" style="${eventListMode==="kanban"?"":"display:none"}">${["Pending","Planning","In-Progress","Completed","Overdue","Cancelled"].map(status=>`<div class="kanban-col"><h3>${status}</h3>${data.events.filter(e=>e.status===status).map(e=>`<div class="kanban-card" data-event="${e.id}"><b>${escapeHtml(e.account_name||"")}</b><div class="meta">${escapeHtml(e.type||"")} · ${e.event_date||"TBD"}</div><div style="margin-top:6px">${statusPill(e.status)}</div></div>`).join("") || '<div class="empty">None</div>'}</div>`).join("")}</div>
     </div>
   `;
   main.querySelectorAll("[data-event]").forEach(el => el.addEventListener("click", () => go("eventDetail", el.dataset.event)));
