@@ -865,8 +865,11 @@ async function renderQuoteDetail(id) {
 
     ${q.status !== "Draft" ? `<div class="copybox">${q.public_url}</div>` : ""}
 
-    <div class="card"><h2>Included (base) <button class="icon-btn" id="addBaseBtn">+ Add</button></h2>
-      ${baseItems.map(i => `<div class="svc">${i.label} — ${money(i.price)} <button type="button" class="icon-btn del" data-del-qitem="${i.id}" title="Remove">✕</button></div>`).join("") || '<div class="empty">Nothing added yet.</div>'}
+    <div class="card quote-options-card"><div class="card-headline"><div><h2>Package options</h2><div class="meta">Customer reviews these options and selects one. Only the selected package contributes to the quote total.</div></div><button class="icon-btn" id="addPackageOptionBtn">+ Add option</button></div>
+      ${packageOptions.map(o => `<div class="quote-option-admin ${o.selected ? "selected" : ""}"><div class="quote-option-main"><div><b>${escapeHtml(o.label)}</b> ${o.selected ? '<span class="pill" style="background:var(--success-soft);color:var(--success)">Selected</span>' : ""}<div class="meta">${money(o.price)} · ${escapeHtml(o.details?.sessions_text || "Package details")}</div></div><div class="row-actions"><button type="button" class="icon-btn" data-preview-option="${o.id}">Details</button><button type="button" class="icon-btn del" data-del-option="${o.id}" title="Remove option">✕</button></div></div><div class="meta option-engagement">Views ${o.engagement?.views||0} · Expanded ${o.engagement?.expansions||0} · Selected ${o.engagement?.selections||0}</div></div>`).join("") || '<div class="empty">No package options yet.</div>'}
+    </div>
+    <div class="card"><h2>Additional included services <button class="icon-btn" id="addBaseBtn">+ Add</button></h2>
+      ${baseItems.map(i => `<div class="svc">${escapeHtml(i.label)} — ${money(i.price)} <button type="button" class="icon-btn del" data-del-qitem="${i.id}" title="Remove">✕</button></div>`).join("") || '<div class="empty">No extra included services.</div>'}
     </div>
     <div class="card"><h2>Optional add-ons <span class="meta">customer can toggle these on the public link</span> <button class="icon-btn" id="addAddonBtn">+ Add</button></h2>
       ${addonItems.map(i => `<div class="svc">${i.label} — ${money(i.price)} ${i.selected ? '<span class="pill" style="background:var(--success-soft);color:var(--success)">selected</span>' : '<span class="pill">not selected</span>'} <button type="button" class="icon-btn del" data-del-qitem="${i.id}" title="Remove">✕</button></div>`).join("") || '<div class="empty">No optional add-ons offered on this quote.</div>'}
