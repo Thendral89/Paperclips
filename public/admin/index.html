@@ -1297,14 +1297,8 @@ async function renderEventDetail(id) {
     </div>
 
     <div class="card"><h2>Event checklist — ${checklistDone}/${ev.checklist.length} ready ${checklistDone < ev.checklist.length ? '<span class="pill" style="background:var(--critical-soft);color:var(--critical)">incomplete</span>' : '<span class="pill" style="background:var(--success-soft);color:var(--success)">all set</span>'}</h2>
-      ${ev.checklist.length ? `<div class="bar"><div class="bar-fill" style="width:${Math.round(checklistDone / ev.checklist.length * 100)}%;background:${checklistDone < ev.checklist.length ? 'var(--warning)' : 'var(--success)'}"></div></div>` : ""}
-      ${["Pre-Production","Production","Post-Production"].map(phase => {
-        const items = ev.checklist.filter(c => c.phase === phase);
-        return `<div style="margin-top:10px;">
-          <div style="display:flex;justify-content:space-between;align-items:center;"><b style="font-size:12px;color:var(--ink-soft);text-transform:uppercase;letter-spacing:.03em;">${phase}</b><button type="button" class="icon-btn" data-add-checklist="${phase}" title="Add item">+ Add</button></div>
-          ${items.map(c => `<div class="check-row ${c.done ? "done" : ""}"><input type="checkbox" data-check="${c.id}" ${c.done ? "checked" : ""}> <span style="flex:1;">${c.item}</span> <button type="button" class="icon-btn del" data-del-checklist="${c.id}" title="Remove">✕</button></div>`).join("") || '<div class="empty" style="padding:6px 0;">Nothing here yet.</div>'}
-        </div>`;
-      }).join("")}
+      ${ev.checklist.length ? `<div class="bar"><div class="bar-fill" style="width:${Math.round(checklistDone / ev.checklist.length * 100)}%;background:${checklistDone < ev.checklist.length ? "var(--warning)" : "var(--success)"}"></div></div>` : ""}
+      <div class="checklist-grid">${["Pre-Production","Production","Post-Production"].map(phase => { const items=ev.checklist.filter(c=>c.phase===phase); return `<div class="checklist-phase"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;"><b style="font-size:12px;color:var(--ink-soft);text-transform:uppercase;letter-spacing:.03em;">${phase}</b><button type="button" class="icon-btn" data-add-checklist="${phase}" title="Add item">+ Add</button></div>${items.map(c=>`<div class="check-row ${c.done?"done":""}"><input type="checkbox" data-check="${c.id}" ${c.done?"checked":""}> <span style="flex:1;">${escapeHtml(c.item)}</span><button type="button" class="icon-btn del" data-del-checklist="${c.id}" title="Remove">✕</button></div>`).join("") || '<div class="empty">Nothing here yet.</div>'}</div>`; }).join("")}</div>
     </div>
 
     <div class="card"><h2>Line items — what this event is actually billed for</h2>
