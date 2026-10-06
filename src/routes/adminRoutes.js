@@ -1055,11 +1055,17 @@ export async function setEventTier(request, env, id) {
 }
 
 async function recomputeQuote(env, eventId) {
+  const event=await env.DB.prepare("SELECT quote_snapshot_json,commercial_finalized_at,finalized_quote_total FROM events WHERE id=?").bind(eventId).first();
   const { results } = await env.DB.prepare(
-    `SELECT price_at_booking FROM event_services WHERE event_id = ?`
+    `SELECT price_at_booking,added_after_finalization FROM event_services WHERE event_id = ?`
   ).bind(eventId).all();
-  const total = Math.max(0, results.reduce((s, r) => s + Number(r.price_at_booking||0), 0));
-  await env.DB.prepare(`UPDATE events SET quote_total = ? WHERE id = ?`).bind(total, eventId).run();
+  const lineTotal=results.reduce((s,r)=>s+Number(r.price_at_booking||0),0);
+  let total=lineTotal;
+  if(event?.commercial_finalized_at){
+    const additions=results.filter(r=>Number(r.added_after_finalization)===1).reduce((s,r)=>s+Number(r.price_at_booking||0),0);
+    total=Number(event.finalized_quote_total ?? 0)+additions;
+  }
+  await env.DB.prepare(`UPDATE events SET quote_total = ? WHERE id = ?`).bind(Math.max(0,total),eventId).run();
 }
 
 export async function addPayment(request, env, id) {
