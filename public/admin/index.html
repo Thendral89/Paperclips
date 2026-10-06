@@ -1115,9 +1115,7 @@ async function renderQuoteDetail(id) {
 
 
 async function renderSettings(){
-  const cfg=await api("/product-config");
-  const labels=await api("/labels");
-  const picklists=await api("/picklists");
+  const [cfg,labels,picklists,skillsCfg]=await Promise.all([api("/product-config"),api("/labels"),api("/picklists"),api("/skills")]);
   let activeSection="company";
   const sectionNames=[
     ["company","Company"],["branding","Branding"],["crm","CRM Configuration"],
@@ -1190,7 +1188,7 @@ async function renderSettings(){
       const openService=s=>openModal(s?"Edit service":"Add service",`<form>
         ${input("name","Service name",s?.name||"","text","required")}${input("internal_code","Internal code",s?.internal_code||"")}${input("base_price","Default price",s?.base_price||0,"number","min=0")}${input("category","Category",s?.category||"Production")}${input("description","Description",s?.description||"")}
         <div class="field"><label><input name="resource_required" type="checkbox" ${s?.resource_required?"checked":""}> Resource required</label></div>
-        <div class="field"><label>Required skills</label><select name="skill_ids" multiple size="6">${(cfg.skills||[]).map(k=>`<option value="${k.id}" ${String(s?.skill_ids||"").split(",").includes(String(k.id))?"selected":""}>${esc(k.label)}</option>`).join("")}</select></div>
+        <div class="field"><label>Required skills</label><select name="skill_ids" multiple size="6">${(skillsCfg||[]).map(k=>`<option value="${k.id}" ${String(s?.skill_ids||"").split(",").includes(String(k.id))?"selected":""}>${esc(k.label)}</option>`).join("")}</select></div>
         ${input("sort_order","Sort order",s?.sort_order||0,"number")}<label><input name="active" type="checkbox" ${s?.active!==false?"checked":""}> Active</label>
         <button type="submit">Save</button></form>`,async d=>{d.id=s?.id;d.resource_required=!!d.resource_required;d.active=!!d.active;d.skill_ids=[...document.getElementById("modal-body").querySelector('[name="skill_ids"]').selectedOptions].map(x=>x.value);await api(s?"/services/"+s.id:"/services",{method:"POST",body:JSON.stringify(d)});toast("Service saved");renderSettings();});
       panel.querySelector("#addServiceCfg").addEventListener("click",()=>openService(null));
