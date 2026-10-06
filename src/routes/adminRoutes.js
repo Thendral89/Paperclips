@@ -97,8 +97,10 @@ export async function createLeadManual(request, env, staff) {
     )
     .run();
   const id = result.meta.last_row_id;
-  await env.DB.prepare(`INSERT INTO lead_status_history (lead_id, to_stage, changed_by) VALUES (?, 'New', ?)`)
-    .bind(id, staff.email).run();
+  await env.DB.batch([
+    env.DB.prepare(`INSERT INTO lead_status_history (lead_id, to_stage, changed_by) VALUES (?, 'New', ?)`).bind(id, staff.email),
+    env.DB.prepare(`INSERT INTO lead_activities (lead_id, activity_type, description, created_by) VALUES (?, 'Lead Created', 'Lead created', ?)`).bind(id, staff.email)
+  ]);
   return json({ ok: true, id }, { status: 201 });
 }
 
