@@ -140,13 +140,16 @@ export async function convertAcceptedQuote(request, env, quoteId) {
   const addonItems=(await env.DB.prepare(
     "SELECT * FROM quote_items WHERE quote_id=? AND is_addon=1 AND selected=1 ORDER BY id"
   ).bind(quoteId).all()).results;
+  const customizedItems=selectedOption ? (await env.DB.prepare(
+    "SELECT * FROM quote_items WHERE quote_package_option_id=? AND is_addon=0 AND selected=1 ORDER BY id"
+  ).bind(selectedOption.id).all()).results : [];
   const legacyItems=selectedOption ? [] : (await env.DB.prepare(
     "SELECT * FROM quote_items WHERE quote_id=? AND selected=1 ORDER BY id"
   ).bind(quoteId).all()).results;
   const items=selectedOption
-    ? [{id:selectedOption.id,service_id:null,package_id:selectedOption.package_id,label:selectedOption.label,price:Number(selectedOption.price||0),is_addon:0,selected:1,details_json:selectedOption.details_json},...addonItems]
+    ? [{id:selectedOption.id,service_id:null,package_id:selectedOption.package_id,label:selectedOption.label,price:Number(selectedOption.price||0),quantity:1,is_addon:0,selected:1,details_json:selectedOption.details_json},...customizedItems,...addonItems]
     : legacyItems;
-  const total=Math.max(0,items.reduce((sum,x)=>sum+Number(x.price||0),0)-Number(q.concession_amount||0));
+  const total=Math.max(0,items.reduce((sum,x)=>sum+Number(x.price||0)*Number(x.quantity||1),0)-Number(q.concession_amount||0));
   const quoteSnapshot={
     quote_id:q.id,
     status:"Accepted",
@@ -157,7 +160,7 @@ export async function convertAcceptedQuote(request, env, quoteId) {
     selected_package_option_id:selectedOption?.id||null,
     items:items.map(x=>({
       id:x.id,service_id:x.service_id||null,package_id:x.package_id||null,label:x.label,
-      price:Number(x.price||0),is_addon:Number(x.is_addon||0),selected:Number(x.selected||0),
+      price:Number(x.price||0),quantity:Number(x.quantity||1),is_addon:Number(x.is_addon||0),selected:Number(x.selected||0),
       details_json:x.details_json||null
     }))
   };

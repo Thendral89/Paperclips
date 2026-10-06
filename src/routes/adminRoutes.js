@@ -326,19 +326,25 @@ async function logActivity(env, leadId, activity_type, description, created_by) 
 }
 
 export async function deleteLead(request, env, id) {
-  const lead = await env.DB.prepare(`SELECT id FROM leads WHERE id = ?`).bind(id).first();
+  const lead = await env.DB.prepare(`SELECT id,stage FROM leads WHERE id = ?`).bind(id).first();
   if (!lead) return notFound("lead not found");
+  if(request.headers.get("x-delete-confirmation")!=="DOUBLE") return badRequest("Delete requires double confirmation.");
   // A converted lead has become a real customer — that's business history,
   // not a mistaken entry. Block the delete and point at the account instead,
   // same guard style as vendor/account deletes below.
   const account = await env.DB.prepare(`SELECT id FROM accounts WHERE lead_id = ?`).bind(id).first();
   if (account) return badRequest("This lead was converted to a customer account — it can't be deleted. Edit or remove the account instead.");
+  const booked = await env.DB.prepare(`SELECT e.id FROM events e JOIN lead_quotes q ON q.id=e.quote_id WHERE q.lead_id=? LIMIT 1`).bind(id).first();
+  if(booked) return badRequest("This lead already has a booked Event and cannot be deleted.");
 
   const { results: quoteIds } = await env.DB.prepare(`SELECT id FROM lead_quotes WHERE lead_id = ?`).bind(id).all();
   await env.DB.batch([
     ...quoteIds.flatMap((q) => [
       env.DB.prepare(`DELETE FROM quote_items WHERE quote_id = ?`).bind(q.id),
+      env.DB.prepare(`DELETE FROM quote_comments WHERE quote_id = ?`).bind(q.id),
       env.DB.prepare(`DELETE FROM quote_views WHERE quote_id = ?`).bind(q.id),
+      env.DB.prepare(`DELETE FROM quote_engagement_events WHERE quote_id = ?`).bind(q.id),
+      env.DB.prepare(`DELETE FROM quote_package_options WHERE quote_id = ?`).bind(q.id),
     ]),
     env.DB.prepare(`DELETE FROM lead_quotes WHERE lead_id = ?`).bind(id),
     env.DB.prepare(`DELETE FROM lead_activities WHERE lead_id = ?`).bind(id),
@@ -414,13 +420,17 @@ export async function convertLead(request, env, id) {
 async function computeQuoteTotals(env, quoteId) {
   const quote = await env.DB.prepare(`SELECT q.* FROM lead_quotes q WHERE q.id = ?`).bind(quoteId).first();
   const [{ results: items }, { results: options }] = await Promise.all([
-    env.DB.prepare(`SELECT * FROM quote_items WHERE quote_id = ? ORDER BY is_addon, id`).bind(quoteId).all(),
+    env.DB.prepare(`SELECT * FROM quote_items WHERE quote_id = ? ORDER BY quote_package_option_id, is_addon, id`).bind(quoteId).all(),
     env.DB.prepare(`SELECT * FROM quote_package_options WHERE quote_id = ? ORDER BY sort_order,id`).bind(quoteId).all(),
   ]);
   const selectedOption=options.find(x=>Number(x.selected)===1);
-  const addonTotal=items.filter(i=>Number(i.is_addon)===1 && Number(i.selected)===1).reduce((s,i)=>s+Number(i.price||0),0);
-  const legacyBaseTotal=options.length ? 0 : items.filter(i=>Number(i.is_addon)===0 && Number(i.selected)===1).reduce((s,i)=>s+Number(i.price||0),0);
-  const subtotal=Number(selectedOption?.price||0)+addonTotal+legacyBaseTotal;
+  const addonTotal=items.filter(i=>Number(i.is_addon)===1 && Number(i.selected)===1).reduce((s,i)=>s+Number(i.price||0)*Number(i.quantity||1),0);
+  const customizedServiceTotal=selectedOption
+    ? items.filter(i=>Number(i.quote_package_option_id)===Number(selectedOption.id) && Number(i.is_addon)===0 && Number(i.selected)===1)
+        .reduce((s,i)=>s+Number(i.price||0)*Number(i.quantity||1),0)
+    : 0;
+  const legacyBaseTotal=options.length ? 0 : items.filter(i=>Number(i.is_addon)===0 && Number(i.selected)===1).reduce((s,i)=>s+Number(i.price||0)*Number(i.quantity||1),0);
+  const subtotal=Number(selectedOption?.price||0)+customizedServiceTotal+addonTotal+legacyBaseTotal;
   const total=Math.max(0,subtotal-Number(quote?.concession_amount||0));
   return {quote,items,options,selectedOption,subtotal,total};
 }
@@ -447,7 +457,8 @@ export async function listQuotes(request, env) {
            l.name AS lead_name,l.phone AS lead_phone,l.event_type,l.event_date,
            CASE WHEN EXISTS(SELECT 1 FROM quote_package_options o WHERE o.quote_id=q.id)
              THEN COALESCE((SELECT o.price FROM quote_package_options o WHERE o.quote_id=q.id AND o.selected=1 LIMIT 1),0)
-                + COALESCE((SELECT SUM(i.price) FROM quote_items i WHERE i.quote_id=q.id AND i.is_addon=1 AND i.selected=1),0)
+                + COALESCE((SELECT SUM(i.price*i.quantity) FROM quote_items i WHERE i.quote_id=q.id AND i.quote_package_option_id=(SELECT o2.id FROM quote_package_options o2 WHERE o2.quote_id=q.id AND o2.selected=1 LIMIT 1) AND i.is_addon=0 AND i.selected=1),0)
+                + COALESCE((SELECT SUM(i.price*i.quantity) FROM quote_items i WHERE i.quote_id=q.id AND i.is_addon=1 AND i.selected=1),0)
              ELSE COALESCE((SELECT SUM(i.price) FROM quote_items i WHERE i.quote_id=q.id AND i.selected=1),0)
            END AS subtotal,
            (SELECT COUNT(*) FROM quote_package_options o WHERE o.quote_id=q.id) AS package_option_count,
@@ -535,9 +546,15 @@ export async function sendQuote(request, env, quoteId, staff) {
 }
 
 export async function deleteQuote(request, env, quoteId) {
+  const quote=await env.DB.prepare(`SELECT id,status FROM lead_quotes WHERE id=?`).bind(quoteId).first();
+  if(!quote) return notFound("quote not found");
+  if(["Accepted","Won"].includes(quote.status)) return badRequest("This Quote is finalized/accepted and cannot be deleted.");
+  if(request.headers.get("x-delete-confirmation")!=="DOUBLE") return badRequest("Delete requires double confirmation.");
   await env.DB.batch([
-    env.DB.prepare(`DELETE FROM quote_items WHERE quote_id = ?`).bind(quoteId),
+    env.DB.prepare(`DELETE FROM quote_comments WHERE quote_id = ?`).bind(quoteId),
     env.DB.prepare(`DELETE FROM quote_views WHERE quote_id = ?`).bind(quoteId),
+    env.DB.prepare(`DELETE FROM quote_items WHERE quote_id = ?`).bind(quoteId),
+    env.DB.prepare(`DELETE FROM quote_package_options WHERE quote_id = ?`).bind(quoteId),
     env.DB.prepare(`DELETE FROM lead_quotes WHERE id = ?`).bind(quoteId),
   ]);
   return json({ ok: true });
@@ -564,8 +581,16 @@ export async function addQuoteItem(request, env, quoteId) {
     if (!svc) return notFound("service not found");
     label=svc.name; price=svc.base_price;
   }
-  await env.DB.prepare(`INSERT INTO quote_items (quote_id, service_id, package_id, label, price, is_addon, selected) VALUES (?, ?, ?, ?, ?, ?, 1)`)
-    .bind(quoteId, body.service_id || null, body.package_id || null, label, price, body.is_addon ? 1 : 0).run();
+  const optionId=body.option_id ? Number(body.option_id) : null;
+  if(optionId){
+    const option=await env.DB.prepare(`SELECT id,package_id FROM quote_package_options WHERE id=? AND quote_id=?`).bind(optionId,quoteId).first();
+    if(!option) return badRequest("package option does not belong to this quote");
+  }
+  const isAddon=body.is_addon ? 1 : 0;
+  const quotePrice=body.price !== undefined ? Number(body.price) : (optionId && !isAddon ? 0 : price);
+  await env.DB.prepare(`INSERT INTO quote_items (quote_id, service_id, package_id, quote_package_option_id, label, price, is_addon, selected, quantity)
+    VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?)`)
+    .bind(quoteId, body.service_id || null, optionId ? null : (body.package_id || null), optionId, label, quotePrice, isAddon, Math.max(1,Number(body.quantity||1))).run();
   return json({ok:true},{status:201});
 }
 export async function removeQuotePackageOption(request, env, optionId) {
@@ -576,6 +601,21 @@ export async function removeQuotePackageOption(request, env, optionId) {
   const remaining=await env.DB.prepare("SELECT id FROM quote_package_options WHERE quote_id=? ORDER BY sort_order,id").bind(option.quote_id).all();
   if(remaining.results.length && !(await env.DB.prepare("SELECT id FROM quote_package_options WHERE quote_id=? AND selected=1").bind(option.quote_id).first()))
     await env.DB.prepare("UPDATE quote_package_options SET selected=1 WHERE id=?").bind(remaining.results[0].id).run();
+  return json({ok:true});
+}
+
+export async function updateQuoteItem(request, env, itemId) {
+  const body=await request.json().catch(()=>null);
+  const item=await env.DB.prepare(`SELECT qi.*,q.status FROM quote_items qi JOIN lead_quotes q ON q.id=qi.quote_id WHERE qi.id=?`).bind(itemId).first();
+  if(!item) return notFound("quote item not found");
+  if(["Accepted","Rejected","Expired","Cancelled"].includes(item.status)) return badRequest("this Quote is locked and cannot be changed");
+  if(body?.price !== undefined && (!Number.isFinite(Number(body.price)))) return badRequest("price must be a valid number");
+  const price=body?.price !== undefined ? Number(body.price) : Number(item.price||0);
+  const quantity=body?.quantity !== undefined ? Math.max(1,Number(body.quantity)) : Number(item.quantity||1);
+  const selected=body?.selected !== undefined ? (body.selected?1:0) : Number(item.selected||0);
+  const label=body?.label !== undefined ? String(body.label).trim() : item.label;
+  await env.DB.prepare(`UPDATE quote_items SET price=?,quantity=?,selected=?,label=? WHERE id=?`)
+    .bind(price,quantity,selected,label,itemId).run();
   return json({ok:true});
 }
 
@@ -757,6 +797,7 @@ export async function updateAccountDetails(request, env, id) {
 }
 
 export async function deleteAccount(request, env, id) {
+  if(request.headers.get("x-delete-confirmation")!=="DOUBLE") return badRequest("Delete requires double confirmation.");
   const account = await env.DB.prepare(`SELECT id FROM accounts WHERE id = ?`).bind(id).first();
   if (!account) return notFound("account not found");
   // Any event means real booked history — same "can't delete real business
@@ -792,6 +833,7 @@ export async function updateContact(request, env, contactId) {
 }
 
 export async function deleteContact(request, env, contactId) {
+  if(request.headers.get("x-delete-confirmation")!=="DOUBLE") return badRequest("Delete requires double confirmation.");
   await env.DB.prepare(`DELETE FROM contacts WHERE id = ?`).bind(contactId).run();
   return json({ ok: true });
 }
@@ -959,6 +1001,7 @@ export async function updateEvent(request, env, id, ctx) {
 }
 
 export async function deleteEvent(request, env, id) {
+  if(request.headers.get("x-delete-confirmation")!=="DOUBLE") return badRequest("Delete requires double confirmation.");
   const event = await env.DB.prepare(`SELECT id FROM events WHERE id = ?`).bind(id).first();
   if (!event) return notFound("event not found");
   // Any payment recorded is real money against this event — block rather
@@ -1140,6 +1183,7 @@ export async function addPayment(request, env, id) {
 // recorded transaction — also reverses it out of the event's advance_paid,
 // and clears the payment_schedule link if this payment was an installment.
 export async function deletePayment(request, env, paymentId) {
+  if(request.headers.get("x-delete-confirmation")!=="DOUBLE") return badRequest("Delete requires double confirmation.");
   const payment = await env.DB.prepare(`SELECT * FROM payments WHERE id = ?`).bind(paymentId).first();
   if (!payment) return notFound("payment not found");
   await env.DB.batch([
@@ -1296,6 +1340,20 @@ async function createQuotePackageOptionRecord(env, quoteId, packageId, sortOrder
       label=excluded.label,price=excluded.price,details_json=excluded.details_json,
       sort_order=excluded.sort_order,updated_at=datetime('now')`)
     .bind(quoteId,pkg.id,pkg.name,Number(pkg.base_price||0),detailsJson,selected?1:0,sortOrder).run();
+  const option = await env.DB.prepare(`SELECT id FROM quote_package_options WHERE quote_id=? AND package_id=?`).bind(quoteId,pkg.id).first();
+  if(option){
+    const services = await env.DB.prepare(`SELECT pi.service_id,s.name,pi.quantity
+      FROM package_items pi JOIN services s ON s.id=pi.service_id WHERE pi.package_id=? ORDER BY pi.id`).bind(pkg.id).all();
+    for(const svc of services.results){
+      await env.DB.prepare(`INSERT INTO quote_items
+        (quote_id,service_id,package_id,quote_package_option_id,label,price,is_addon,selected,quantity)
+        SELECT ?,?,?,?,?,0,0,1,?
+        WHERE NOT EXISTS (
+          SELECT 1 FROM quote_items WHERE quote_package_option_id=? AND service_id=?
+        )`)
+        .bind(quoteId,svc.service_id,pkg.id,option.id,svc.name,Number(svc.quantity||1),option.id,svc.service_id).run();
+    }
+  }
 }
 export async function listPackages(request, env) {
   const [{ results: packages }, { results: items }, { results: details }] = await Promise.all([
@@ -1347,6 +1405,7 @@ export async function updatePackage(request, env, packageId) {
 }
 
 export async function deletePackage(request, env, packageId) {
+  if(request.headers.get("x-delete-confirmation")!=="DOUBLE") return badRequest("Delete requires double confirmation.");
   await env.DB.prepare(`UPDATE packages SET active = 0 WHERE id = ?`).bind(packageId).run();
   return json({ ok: true });
 }
@@ -1382,6 +1441,7 @@ export async function updateStaffLink(request, env, linkId) {
 // Removing a staff assignment also un-assigns (not deletes) any tasks that
 // were pointed at them, so a task never silently vanishes.
 export async function deleteStaffLink(request, env, linkId) {
+  if(request.headers.get("x-delete-confirmation")!=="DOUBLE") return badRequest("Delete requires double confirmation.");
   await env.DB.batch([
     env.DB.prepare(`UPDATE event_tasks SET link_id = NULL WHERE link_id = ?`).bind(linkId),
     env.DB.prepare(`DELETE FROM event_staff_links WHERE id = ?`).bind(linkId),
@@ -1421,6 +1481,7 @@ export async function updateVendor(request, env, vendorId) {
 // than silently orphaning event_vendors rows — same spirit as the package
 // soft-delete, just enforced differently since vendors have no active flag.
 export async function deleteVendor(request, env, vendorId) {
+  if(request.headers.get("x-delete-confirmation")!=="DOUBLE") return badRequest("Delete requires double confirmation.");
   const used = await env.DB.prepare(`SELECT COUNT(*) AS n FROM event_vendors WHERE vendor_id = ?`).bind(vendorId).first();
   if (used.n > 0) return badRequest(`Can't delete — this vendor is booked on ${used.n} event(s). Remove them from those events first.`);
   await env.DB.prepare(`DELETE FROM vendors WHERE id = ?`).bind(vendorId).run();
@@ -1453,6 +1514,7 @@ export async function updateEventVendor(request, env, eventVendorId) {
 }
 
 export async function deleteEventVendor(request, env, eventVendorId) {
+  if(request.headers.get("x-delete-confirmation")!=="DOUBLE") return badRequest("Delete requires double confirmation.");
   await env.DB.prepare(`DELETE FROM event_vendors WHERE id = ?`).bind(eventVendorId).run();
   return json({ ok: true });
 }
@@ -1499,6 +1561,7 @@ export async function updatePaymentScheduleItem(request, env, scheduleId) {
 }
 
 export async function deletePaymentScheduleItem(request, env, scheduleId) {
+  if(request.headers.get("x-delete-confirmation")!=="DOUBLE") return badRequest("Delete requires double confirmation.");
   const item = await env.DB.prepare(`SELECT status FROM payment_schedule WHERE id = ?`).bind(scheduleId).first();
   if (!item) return notFound("payment schedule item not found");
   if (item.status === "Paid") return badRequest("This installment is already marked paid — it can't be deleted.");
@@ -1541,6 +1604,7 @@ export async function updateDeliverable(request, env, deliverableId) {
 }
 
 export async function deleteDeliverable(request, env, deliverableId) {
+  if(request.headers.get("x-delete-confirmation")!=="DOUBLE") return badRequest("Delete requires double confirmation.");
   await env.DB.prepare(`DELETE FROM deliverables WHERE id = ?`).bind(deliverableId).run();
   return json({ ok: true });
 }
@@ -1561,6 +1625,7 @@ export async function addEventChecklistItem(request, env, id) {
 }
 
 export async function removeEventChecklistItem(request, env, itemId) {
+  if(request.headers.get("x-delete-confirmation")!=="DOUBLE") return badRequest("Delete requires double confirmation.");
   await env.DB.prepare(`DELETE FROM event_checklist WHERE id = ?`).bind(itemId).run();
   return json({ ok: true });
 }
@@ -1620,6 +1685,7 @@ export async function updateEventTask(request, env, taskId) {
 }
 
 export async function deleteEventTask(request, env, taskId) {
+  if(request.headers.get("x-delete-confirmation")!=="DOUBLE") return badRequest("Delete requires double confirmation.");
   await env.DB.prepare(`DELETE FROM event_tasks WHERE id = ?`).bind(taskId).run();
   return json({ ok: true });
 }
@@ -1657,6 +1723,7 @@ export async function updateEquipment(request, env, equipId) {
 // Blocks the delete if it's assigned to any event, same "don't orphan real
 // data" guard used for vendors/packages.
 export async function deleteEquipment(request, env, equipId) {
+  if(request.headers.get("x-delete-confirmation")!=="DOUBLE") return badRequest("Delete requires double confirmation.");
   const used = await env.DB.prepare(`SELECT COUNT(*) AS n FROM event_equipment WHERE equipment_id = ?`).bind(equipId).first();
   if (used.n > 0) return badRequest(`Can't delete — this is assigned to ${used.n} event(s). Remove it from those events first.`);
   await env.DB.prepare(`DELETE FROM equipment WHERE id = ?`).bind(equipId).run();
@@ -1681,6 +1748,7 @@ export async function toggleEventEquipmentReady(request, env, eventEquipId) {
 }
 
 export async function removeEventEquipment(request, env, eventEquipId) {
+  if(request.headers.get("x-delete-confirmation")!=="DOUBLE") return badRequest("Delete requires double confirmation.");
   await env.DB.prepare(`DELETE FROM event_equipment WHERE id = ?`).bind(eventEquipId).run();
   return json({ ok: true });
 }
@@ -1736,6 +1804,7 @@ export async function updateExpense(request, env, expenseId) {
 }
 
 export async function deleteExpense(request, env, expenseId) {
+  if(request.headers.get("x-delete-confirmation")!=="DOUBLE") return badRequest("Delete requires double confirmation.");
   await env.DB.prepare(`DELETE FROM expenses WHERE id = ?`).bind(expenseId).run();
   return json({ ok: true });
 }
@@ -1889,6 +1958,7 @@ export async function setMonthlyCost(request, env) {
 }
 
 export async function deleteMonthlyCost(request, env, costId) {
+  if(request.headers.get("x-delete-confirmation")!=="DOUBLE") return badRequest("Delete requires double confirmation.");
   await env.DB.prepare(`DELETE FROM monthly_costs WHERE id = ?`).bind(costId).run();
   return json({ ok: true });
 }
@@ -1932,6 +2002,7 @@ export async function updatePromotion(request, env, promoId) {
 }
 
 export async function deletePromotion(request, env, promoId) {
+  if(request.headers.get("x-delete-confirmation")!=="DOUBLE") return badRequest("Delete requires double confirmation.");
   await env.DB.prepare(`DELETE FROM promotions WHERE id = ?`).bind(promoId).run();
   return json({ ok: true });
 }

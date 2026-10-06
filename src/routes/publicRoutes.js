@@ -124,7 +124,7 @@ export async function getQuoteContext(request, env, token) {
   }
 
   const [{results:items},{results:options},{results:comments}] = await Promise.all([
-    env.DB.prepare(`SELECT id,label,price,is_addon,selected,package_id,service_id FROM quote_items WHERE quote_id=? ORDER BY is_addon,id`).bind(quote.id).all(),
+    env.DB.prepare(`SELECT id,label,price,is_addon,selected,package_id,service_id,quote_package_option_id,quantity FROM quote_items WHERE quote_id=? ORDER BY quote_package_option_id,is_addon,id`).bind(quote.id).all(),
     env.DB.prepare(`SELECT id,package_id,label,price,details_json,selected,sort_order FROM quote_package_options WHERE quote_id=? ORDER BY sort_order,id`).bind(quote.id).all(),
     env.DB.prepare(`SELECT author,message,created_at FROM quote_comments WHERE quote_id=? ORDER BY created_at ASC`).bind(quote.id).all()
   ]);
@@ -146,9 +146,13 @@ export async function getQuoteContext(request, env, token) {
     option.package_services=packageServices[option.package_id]||details.services||[];
   }
   const selectedOption=options.find(o=>Number(o.selected)===1);
-  const addonTotal=items.filter(i=>Number(i.is_addon)===1 && Number(i.selected)===1).reduce((sum,i)=>sum+Number(i.price||0),0);
-  const legacyBase=options.length ? 0 : items.filter(i=>Number(i.is_addon)===0 && Number(i.selected)===1).reduce((sum,i)=>sum+Number(i.price||0),0);
-  const subtotal=Number(selectedOption?.price||0)+addonTotal+legacyBase;
+  const addonTotal=items.filter(i=>Number(i.is_addon)===1 && Number(i.selected)===1).reduce((sum,i)=>sum+Number(i.price||0)*Number(i.quantity||1),0);
+  const customizedServiceTotal=selectedOption
+    ? items.filter(i=>Number(i.quote_package_option_id)===Number(selectedOption.id) && Number(i.is_addon)===0 && Number(i.selected)===1)
+        .reduce((sum,i)=>sum+Number(i.price||0)*Number(i.quantity||1),0)
+    : 0;
+  const legacyBase=options.length ? 0 : items.filter(i=>Number(i.is_addon)===0 && Number(i.selected)===1).reduce((sum,i)=>sum+Number(i.price||0)*Number(i.quantity||1),0);
+  const subtotal=Number(selectedOption?.price||0)+customizedServiceTotal+addonTotal+legacyBase;
   const total=Math.max(0,subtotal-Number(quote.concession_amount||0));
 
   return json({
