@@ -1297,11 +1297,6 @@ async function createQuotePackageOptionRecord(env, quoteId, packageId, sortOrder
       sort_order=excluded.sort_order,updated_at=datetime('now')`)
     .bind(quoteId,pkg.id,pkg.name,Number(pkg.base_price||0),detailsJson,selected?1:0,sortOrder).run();
 }
-export async function listTiers(request, env) {
-  const { results } = await env.DB.prepare(`SELECT * FROM pricing_tiers ORDER BY multiplier`).all();
-  return json(results);
-}
-
 export async function listPackages(request, env) {
   const [{ results: packages }, { results: items }, { results: details }] = await Promise.all([
     env.DB.prepare(`SELECT * FROM packages WHERE active = 1 ORDER BY base_price, sort_order, id`).all(),
