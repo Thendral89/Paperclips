@@ -214,8 +214,8 @@ export async function updateLeadDetails(request, env, id) {
   return json({ ok: true });
 }
 
-// Terminal stages: 'Booked' (Closed Won — the UI labels it that; the stored
-// value stays 'Booked' so every existing query/report keyed on it keeps
+// Terminal stages: 'Won' (Closed Won — the UI labels it that; the stored
+// value stays 'Won' so every existing query/report keyed on it keeps
 // working) and the two ways a lead dies: Lost and Cancelled. Both require a
 // reason — that's the only way "get feedback on what can be done better"
 // actually produces usable data instead of another blank field nobody fills.
@@ -393,7 +393,7 @@ export async function convertLead(request, env, id) {
   await env.DB.batch([
     env.DB.prepare(`INSERT INTO contacts (account_id, name, phone, email, is_primary) VALUES (?, ?, ?, ?, 1)`)
       .bind(accountId, name, phone, email),
-    env.DB.prepare(`UPDATE leads SET stage = 'Booked', updated_at = datetime('now') WHERE id = ?`).bind(id),
+    env.DB.prepare(`UPDATE leads SET stage = 'Won', updated_at = datetime('now') WHERE id = ?`).bind(id),
   ]);
   return json({ ok: true, account_id: accountId }, { status: 201 });
 }
@@ -1488,7 +1488,7 @@ export async function reportConversion(request, env) {
   const row = await env.DB.prepare(
     `SELECT
        COUNT(*) AS total,
-       SUM(CASE WHEN stage = 'Booked' THEN 1 ELSE 0 END) AS booked
+       SUM(CASE WHEN stage = 'Won' THEN 1 ELSE 0 END) AS booked
      FROM leads WHERE created_at >= datetime('now','-90 days')`
   ).first();
   const pct = row.total ? Math.round((row.booked / row.total) * 1000) / 10 : 0;
@@ -1500,8 +1500,8 @@ export async function reportSourceRoi(request, env) {
     `SELECT
        source,
        COUNT(*) AS leads,
-       SUM(CASE WHEN stage = 'Booked' THEN 1 ELSE 0 END) AS booked,
-       SUM(CASE WHEN stage = 'Booked' THEN budget_est ELSE 0 END) AS booked_value
+       SUM(CASE WHEN stage = 'Won' THEN 1 ELSE 0 END) AS booked,
+       SUM(CASE WHEN stage = 'Won' THEN budget_est ELSE 0 END) AS booked_value
      FROM leads GROUP BY source ORDER BY booked_value DESC`
   ).all();
   return json(results);
