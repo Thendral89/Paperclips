@@ -890,6 +890,9 @@ export async function updateEvent(request, env, id, ctx) {
   }
   await env.DB.prepare(`UPDATE events SET type = ?, venue = ?, event_date = ?, start_time = ?, end_time = ?, reporting_time = ?, status = ? WHERE id = ?`)
     .bind(type, venue, event_date, start_time, end_time, reporting_time, status, id).run();
+  if(status==="Completed"){
+    await env.DB.prepare("UPDATE invoices SET locked_at=COALESCE(locked_at,datetime('now')),updated_at=datetime('now') WHERE event_id=?").bind(id).run();
+  }
 
   // Calendar sync is deliberately non-critical to the CRM save.
   const account = await env.DB.prepare(`SELECT name FROM accounts WHERE id = ?`).bind(event.account_id).first();
