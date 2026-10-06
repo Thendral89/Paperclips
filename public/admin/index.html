@@ -934,16 +934,13 @@ async function renderQuoteDetail(id) {
   });
   const itemPicker = (isAddon) => `
     <form>
-      <div class="field"><label>Service or package</label>
-        <select name="pick" required>
-          <optgroup label="Services">${services.map(s => `<option value="svc:${s.id}">${s.name} — ${money(s.base_price)}</option>`).join("")}</optgroup>
-          <optgroup label="Packages">${packages.map(p => `<option value="pkg:${p.id}">${p.name} — ${money(p.base_price)}</option>`).join("")}</optgroup>
-        </select>
+      <div class="field"><label>${isAddon ? "Service / optional add-on" : "Included service"}</label>
+        <select name="pick" required><optgroup label="Services">${services.filter(s=>s.category!=="Crew").map(s => `<option value="svc:${s.id}">${escapeHtml(s.name)} — ${money(s.base_price)}</option>`).join("")}</optgroup></select>
       </div>
       <button type="submit" style="width:100%;">Add to quote</button>
     </form>
   `;
-  main.querySelector("#addBaseBtn").addEventListener("click", () => openModal("Add included item", itemPicker(false), async data => {
+  main.querySelector("#addBaseBtn")?.addEventListener("click", () => openModal("Add included service", itemPicker(false), async data => {
     const [kind, itemId] = data.pick.split(":");
     await api(`/quotes/${id}/items`, { method: "POST", body: JSON.stringify({ [kind === "svc" ? "service_id" : "package_id"]: itemId, is_addon: false }) });
     toast("Added"); renderQuoteDetail(id);
@@ -952,6 +949,16 @@ async function renderQuoteDetail(id) {
     const [kind, itemId] = data.pick.split(":");
     await api(`/quotes/${id}/items`, { method: "POST", body: JSON.stringify({ [kind === "svc" ? "service_id" : "package_id"]: itemId, is_addon: true }) });
     toast("Added"); renderQuoteDetail(id);
+  }));
+  main.querySelector("#addPackageOptionBtn")?.addEventListener("click", () => openModal("Add package option", `<form><div class="field"><label>Package</label><select name="package_id" required>${packages.map(p=>`<option value="${p.id}">${escapeHtml(p.name)} — ${money(p.base_price)}</option>`).join("")}</select></div><button type="submit">Add package option</button></form>`, async data => {
+    await api(`/quotes/${id}/items`, { method:"POST", body:JSON.stringify({package_id:Number(data.package_id),is_addon:false}) });
+    toast("Package option added"); renderQuoteDetail(id);
+  }));
+  main.querySelectorAll("[data-del-option]").forEach(el=>el.addEventListener("click",()=>confirmDelete("Remove this package option?",`/quote-options/${el.dataset.delOption}/delete`,()=>renderQuoteDetail(id))));
+  main.querySelectorAll("[data-preview-option]").forEach(el=>el.addEventListener("click",()=>{
+    const o=packageOptions.find(x=>String(x.id)===el.dataset.previewOption); if(!o) return;
+    const d=o.details||{};
+    openModal(o.label, `<div class="package-detail-modal"><div><b>${escapeHtml(d.sessions_text||"")}</b></div><h4>Crew</h4><ul>${(d.crew||[]).map(x=>`<li>${escapeHtml(x)}</li>`).join("")}</ul><h4>Deliverables</h4><ul>${(d.deliverables||[]).map(x=>`<li>${escapeHtml(x)}</li>`).join("")}</ul>${(d.complimentary||[]).length?`<h4>Complimentary</h4><ul>${d.complimentary.map(x=>`<li>${escapeHtml(x)}</li>`).join("")}</ul>`:""}</div>`,()=>{});
   }));
   if (q.status === "Draft") {
     main.querySelector("h1").insertAdjacentHTML("beforeend", ` <button type="button" class="icon-btn" id="sendQuoteBtn">Send quote</button>`);
