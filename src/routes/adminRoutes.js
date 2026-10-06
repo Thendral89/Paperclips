@@ -1244,7 +1244,7 @@ function parseJsonArray(value) {
   if (Array.isArray(value)) return value.map(x=>String(x).trim()).filter(Boolean);
   if (value == null || value === "") return [];
   try { const parsed=JSON.parse(value); return Array.isArray(parsed) ? parsed.map(x=>String(x).trim()).filter(Boolean) : []; } catch {
-    return String(value).split(/\\r?\\n|\\s*[,;]\\s*/).map(x=>x.trim()).filter(Boolean);
+    return String(value).split(/\r?\n|\s*[,;]\s*/).map(x=>x.trim()).filter(Boolean);
   }
 }
 function packageDetailsFromRow(row) {
