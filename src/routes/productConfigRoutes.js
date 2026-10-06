@@ -1,6 +1,6 @@
 import { json, badRequest, notFound } from "../lib/util.js";
 
-const OBJECTS = ["leads","quotes","clients","bookings","events","tasks","resources","expenses","payments","invoice"];
+const OBJECTS = ["leads","quotes","clients","events","tasks","resources","inventory","expenses","payments","invoice"];
 
 function parseJson(value, fallback) {
   try { return value == null ? fallback : JSON.parse(value); } catch { return fallback; }

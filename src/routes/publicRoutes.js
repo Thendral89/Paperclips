@@ -107,17 +107,18 @@ export async function submitFeedback(request, env, token) {
 // means something very different from "opened once and went quiet").
 export async function getQuoteContext(request, env, token) {
   const quote = await env.DB.prepare(
-    `SELECT q.*, pt.name AS tier_name, pt.multiplier, pt.perks AS tier_perks, l.name AS lead_name, l.event_type
-     FROM lead_quotes q LEFT JOIN pricing_tiers pt ON pt.id = q.pricing_tier_id
-     JOIN leads l ON l.id = q.lead_id WHERE q.token = ?`
+    `SELECT q.*, l.name AS lead_name, l.event_type
+     FROM lead_quotes q JOIN leads l ON l.id = q.lead_id WHERE q.token = ?`
   ).bind(token).first();
   if (!quote) return notFound("invalid or expired quote link");
 
   const nowStatus = quote.status === "Draft" || quote.status === "Sent" ? "Viewed" : quote.status;
+  const sessionKey=request.headers.get("x-quote-session")||null;
   await env.DB.batch([
     env.DB.prepare(`UPDATE lead_quotes SET view_count = view_count + 1, last_viewed_at = datetime('now'), status = ? WHERE id = ?`)
       .bind(nowStatus, quote.id),
-    env.DB.prepare(`INSERT INTO quote_views (quote_id) VALUES (?)`).bind(quote.id),
+    env.DB.prepare(`INSERT INTO quote_views (quote_id,session_key) VALUES (?,?)`).bind(quote.id,sessionKey),
+    env.DB.prepare(`INSERT INTO quote_engagement_events(quote_id,event_type,session_key) VALUES(?,'quote_opened',?)`).bind(quote.id,sessionKey),
   ]);
   // Only the transition INTO Viewed is worth a line on the lead's timeline —
   // every subsequent view still counts toward view_count/quote_views, but
@@ -129,7 +130,7 @@ export async function getQuoteContext(request, env, token) {
 
   const { results: items } = await env.DB.prepare(`SELECT id, label, price, is_addon, selected FROM quote_items WHERE quote_id = ?`).bind(quote.id).all();
   const subtotal = items.filter((i) => i.selected).reduce((s, i) => s + i.price, 0);
-  const total = Math.max(0, Math.round(subtotal * (quote.multiplier || 1)) - (quote.concession_amount || 0));
+  const total = Math.max(0, subtotal - Number(quote.concession_amount || 0));
   const { results: comments } = await env.DB.prepare(
     `SELECT author, message, created_at FROM quote_comments WHERE quote_id = ? ORDER BY created_at ASC`
   ).bind(quote.id).all();
@@ -137,9 +138,9 @@ export async function getQuoteContext(request, env, token) {
   return json({
     lead_name: quote.lead_name,
     event_type: quote.event_type,
-    tier_name: quote.tier_name,
-    tier_perks: quote.tier_perks,
-    multiplier: quote.multiplier || 1,
+    tier_name: null,
+    tier_perks: null,
+    multiplier: 1,
     valid_until: quote.valid_until,
     concession_amount: quote.concession_amount,
     concession_note: quote.concession_note,
@@ -179,9 +180,19 @@ export async function toggleQuoteItem(request, env, token) {
   if (!body || !body.item_id || body.selected === undefined) return badRequest("item_id and selected are required");
   const quote = await env.DB.prepare(`SELECT id FROM lead_quotes WHERE token = ?`).bind(token).first();
   if (!quote) return notFound("invalid or expired quote link");
+  if(["Accepted","Rejected","Expired","Cancelled"].includes(quote.status)) return badRequest("this Quote is no longer adjustable");
   const item = await env.DB.prepare(`SELECT * FROM quote_items WHERE id = ? AND quote_id = ?`).bind(body.item_id, quote.id).first();
   if (!item) return notFound("item not found on this quote");
   if (!item.is_addon) return badRequest("this item isn't adjustable");
-  await env.DB.prepare(`UPDATE quote_items SET selected = ? WHERE id = ?`).bind(body.selected ? 1 : 0, item.id).run();
+  const selected=body.selected ? 1 : 0;
+  const eventType=item.is_addon ? "addon_selected" : "service_selected";
+  await env.DB.batch([
+    env.DB.prepare(`UPDATE quote_items SET selected = ? WHERE id = ?`).bind(selected,item.id),
+    env.DB.prepare(`INSERT INTO quote_engagement_events(
+      quote_id,event_type,quote_item_id,package_id,service_id,session_key
+    ) VALUES(?,?,?,?,?,?)`).bind(
+      quote.id,eventType,item.id,item.package_id||null,item.service_id||null,body.session_key||null
+    )
+  ]);
   return json({ ok: true });
 }

@@ -8,10 +8,10 @@ import { syncCrmEvent, syncLeadFollowUp } from "../lib/googleCalendar.js";
 export async function dashboard(request, env) {
   const [today, overdue, newThisWeek, pendingPayments, upcomingEvents, dueInstallments] = await Promise.all([
     env.DB.prepare(
-      `SELECT * FROM leads WHERE next_follow_up_date = date('now') AND stage NOT IN ('Booked','Lost','Cancelled')`
+      `SELECT * FROM leads WHERE next_follow_up_date = date('now') AND stage NOT IN ('Won','Lost','Cancelled')`
     ).all(),
     env.DB.prepare(
-      `SELECT * FROM leads WHERE next_follow_up_date < date('now') AND stage NOT IN ('Booked','Lost','Cancelled') ORDER BY next_follow_up_date ASC`
+      `SELECT * FROM leads WHERE next_follow_up_date < date('now') AND stage NOT IN ('Won','Lost','Cancelled') ORDER BY next_follow_up_date ASC`
     ).all(),
     env.DB.prepare(
       `SELECT * FROM leads WHERE created_at >= datetime('now','-7 days') ORDER BY created_at DESC`
@@ -97,8 +97,10 @@ export async function createLeadManual(request, env, staff) {
     )
     .run();
   const id = result.meta.last_row_id;
-  await env.DB.prepare(`INSERT INTO lead_status_history (lead_id, to_stage, changed_by) VALUES (?, 'New', ?)`)
-    .bind(id, staff.email).run();
+  await env.DB.batch([
+    env.DB.prepare(`INSERT INTO lead_status_history (lead_id, to_stage, changed_by) VALUES (?, 'New', ?)`).bind(id, staff.email),
+    env.DB.prepare(`INSERT INTO lead_activities (lead_id, activity_type, description, created_by) VALUES (?, 'Lead Created', 'Lead created', ?)`).bind(id, staff.email)
+  ]);
   return json({ ok: true, id }, { status: 201 });
 }
 
@@ -212,8 +214,8 @@ export async function updateLeadDetails(request, env, id) {
   return json({ ok: true });
 }
 
-// Terminal stages: 'Booked' (Closed Won — the UI labels it that; the stored
-// value stays 'Booked' so every existing query/report keyed on it keeps
+// Terminal stages: 'Won' (Closed Won — the UI labels it that; the stored
+// value stays 'Won' so every existing query/report keyed on it keeps
 // working) and the two ways a lead dies: Lost and Cancelled. Both require a
 // reason — that's the only way "get feedback on what can be done better"
 // actually produces usable data instead of another blank field nobody fills.
@@ -391,7 +393,7 @@ export async function convertLead(request, env, id) {
   await env.DB.batch([
     env.DB.prepare(`INSERT INTO contacts (account_id, name, phone, email, is_primary) VALUES (?, ?, ?, ?, 1)`)
       .bind(accountId, name, phone, email),
-    env.DB.prepare(`UPDATE leads SET stage = 'Booked', updated_at = datetime('now') WHERE id = ?`).bind(id),
+    env.DB.prepare(`UPDATE leads SET stage = 'Won', updated_at = datetime('now') WHERE id = ?`).bind(id),
   ]);
   return json({ ok: true, account_id: accountId }, { status: 201 });
 }
@@ -404,11 +406,11 @@ export async function convertLead(request, env, id) {
 // how recently, has this actually been looked at.
 async function computeQuoteTotals(env, quoteId) {
   const quote = await env.DB.prepare(
-    `SELECT q.*, pt.multiplier FROM lead_quotes q LEFT JOIN pricing_tiers pt ON pt.id = q.pricing_tier_id WHERE q.id = ?`
+    `SELECT q.* FROM lead_quotes q WHERE q.id = ?`
   ).bind(quoteId).first();
   const { results: items } = await env.DB.prepare(`SELECT * FROM quote_items WHERE quote_id = ?`).bind(quoteId).all();
   const subtotal = items.filter((i) => i.selected).reduce((s, i) => s + i.price, 0);
-  const total = Math.max(0, Math.round(subtotal * (quote?.multiplier || 1)) - (quote?.concession_amount || 0));
+  const total = Math.max(0, subtotal - Number(quote?.concession_amount || 0));
   return { quote, items, subtotal, total };
 }
 
@@ -418,8 +420,8 @@ export async function createQuote(request, env, id) {
   if (!lead) return notFound("lead not found");
   const token = makeToken();
   const result = await env.DB.prepare(
-    `INSERT INTO lead_quotes (lead_id, token, pricing_tier_id) VALUES (?, ?, ?)`
-  ).bind(id, token, body.pricing_tier_id || 1).run();
+    `INSERT INTO lead_quotes (lead_id, token) VALUES (?, ?)`
+  ).bind(id, token).run();
   return json({ ok: true, id: result.meta.last_row_id, token }, { status: 201 });
 }
 
@@ -445,9 +447,34 @@ export async function getQuote(request, env, quoteId) {
   if (!quote) return notFound("quote not found");
   const lead = await env.DB.prepare(`SELECT name, event_type FROM leads WHERE id = ?`).bind(quote.lead_id).first();
   const { results: views } = await env.DB.prepare(`SELECT viewed_at FROM quote_views WHERE quote_id = ? ORDER BY viewed_at DESC LIMIT 20`).bind(quoteId).all();
-  const { results: comments } = await env.DB.prepare(`SELECT author, author_name, message, created_at FROM quote_comments WHERE quote_id = ? ORDER BY created_at ASC`).bind(quoteId).all();
+  const [commentsResult, engagement] = await Promise.all([
+    env.DB.prepare(`SELECT author, author_name, message, created_at FROM quote_comments WHERE quote_id = ? ORDER BY created_at ASC`).bind(quoteId).all(),
+    env.DB.prepare(`SELECT
+      COUNT(*) AS total_events,
+      COUNT(DISTINCT session_key) AS unique_sessions,
+      MAX(created_at) AS last_engaged_at,
+      SUM(CASE WHEN event_type LIKE 'package_%' THEN 1 ELSE 0 END) AS package_events,
+      SUM(CASE WHEN event_type LIKE '%service%' OR event_type LIKE 'addon_%' THEN 1 ELSE 0 END) AS service_events,
+      SUM(CASE WHEN event_type LIKE '%selected' THEN 1 ELSE 0 END) AS selections
+      FROM quote_engagement_events WHERE quote_id = ?`).bind(quoteId).first()
+  ]);
+  const comments=commentsResult.results;
   const url = new URL(request.url);
-  return json({ ...quote, lead_name: lead?.name, event_type: lead?.event_type, items, subtotal, total, view_log: views, comments, public_url: `${url.origin}/quote/${quote.token}` });
+  return json({
+    ...quote,
+    lead_name: lead?.name,
+    event_type: lead?.event_type,
+    items,
+    subtotal,
+    total,
+    view_log: views,
+    comments,
+    engagement_summary: engagement || {
+      total_events:0,unique_sessions:0,last_engaged_at:null,
+      package_events:0,service_events:0,selections:0
+    },
+    public_url: `${url.origin}/quote/${quote.token}`
+  });
 }
 
 // Staff reply on the quote's comment thread — visible to the customer next
@@ -470,13 +497,14 @@ export async function updateQuote(request, env, quoteId) {
   if (!body) return badRequest("no fields given");
   const quote = await env.DB.prepare(`SELECT * FROM lead_quotes WHERE id = ?`).bind(quoteId).first();
   if (!quote) return notFound("quote not found");
-  const pricing_tier_id = body.pricing_tier_id !== undefined ? body.pricing_tier_id : quote.pricing_tier_id;
+  if(["Accepted","Rejected","Expired","Cancelled"].includes(quote.status)) return badRequest("this Quote is locked and cannot be changed");
   const concession_amount = body.concession_amount !== undefined ? Number(body.concession_amount) : quote.concession_amount;
+  if(!Number.isFinite(concession_amount) || concession_amount<0) return badRequest("concession_amount must be a valid non-negative number");
   const concession_note = body.concession_note !== undefined ? body.concession_note || null : quote.concession_note;
   const valid_until = body.valid_until !== undefined ? body.valid_until || null : quote.valid_until;
   await env.DB.prepare(
-    `UPDATE lead_quotes SET pricing_tier_id = ?, concession_amount = ?, concession_note = ?, valid_until = ?, updated_at = datetime('now') WHERE id = ?`
-  ).bind(pricing_tier_id, concession_amount, concession_note, valid_until, quoteId).run();
+    `UPDATE lead_quotes SET concession_amount = ?, concession_note = ?, valid_until = ?, updated_at = datetime('now') WHERE id = ?`
+  ).bind(concession_amount, concession_note, valid_until, quoteId).run();
   return json({ ok: true });
 }
 
@@ -484,12 +512,14 @@ export async function updateQuote(request, env, quoteId) {
 // moment "we've actually sent this" becomes visible without staff having
 // to remember to note it themselves.
 export async function sendQuote(request, env, quoteId, staff) {
-  const quote = await env.DB.prepare(`SELECT * FROM lead_quotes WHERE id = ?`).bind(quoteId).first();
+  const quote = await env.DB.prepare(`SELECT q.*,l.phone,l.name FROM lead_quotes q JOIN leads l ON l.id=q.lead_id WHERE q.id = ?`).bind(quoteId).first();
   if (!quote) return notFound("quote not found");
-  await env.DB.prepare(`UPDATE lead_quotes SET status = 'Sent', updated_at = datetime('now') WHERE id = ?`).bind(quoteId).run();
-  await logActivity(env, quote.lead_id, "Quote sent", null, staff.email);
   const url = new URL(request.url);
-  return json({ ok: true, public_url: `${url.origin}/quote/${quote.token}` });
+  const publicUrl=`${url.origin}/quote/${quote.token}`;
+  const message=`Hi ${quote.name || "there"}, your Paperclip Studios quote is ready: ${publicUrl}`;
+  await env.DB.prepare(`UPDATE lead_quotes SET status = 'Sent', updated_at = datetime('now') WHERE id = ?`).bind(quoteId).run();
+  await logActivity(env, quote.lead_id, "Quote sent", publicUrl, staff.email);
+  return json({ ok: true, public_url: publicUrl, phone: quote.phone || null, whatsapp_message: message });
 }
 
 export async function deleteQuote(request, env, quoteId) {
@@ -504,6 +534,9 @@ export async function deleteQuote(request, env, quoteId) {
 export async function addQuoteItem(request, env, quoteId) {
   const body = await request.json().catch(() => null);
   if (!body || (!body.service_id && !body.package_id)) return badRequest("service_id or package_id is required");
+  const quoteState=await env.DB.prepare("SELECT status FROM lead_quotes WHERE id=?").bind(quoteId).first();
+  if(!quoteState) return notFound("quote not found");
+  if(["Accepted","Rejected","Expired","Cancelled"].includes(quoteState.status)) return badRequest("this Quote is locked and cannot be changed");
   let label, price;
   if (body.package_id) {
     const pkg = await env.DB.prepare(`SELECT name, base_price FROM packages WHERE id = ?`).bind(body.package_id).first();
@@ -521,6 +554,9 @@ export async function addQuoteItem(request, env, quoteId) {
 }
 
 export async function removeQuoteItem(request, env, itemId) {
+  const item=await env.DB.prepare("SELECT qi.quote_id,q.status FROM quote_items qi JOIN lead_quotes q ON q.id=qi.quote_id WHERE qi.id=?").bind(itemId).first();
+  if(!item) return notFound("quote item not found");
+  if(["Accepted","Rejected","Expired","Cancelled"].includes(item.status)) return badRequest("this Quote is locked and cannot be changed");
   await env.DB.prepare(`DELETE FROM quote_items WHERE id = ?`).bind(itemId).run();
   return json({ ok: true });
 }
@@ -643,9 +679,12 @@ export async function addContact(request, env, id) {
   if (!body || !body.name) return badRequest("name is required");
   const account = await env.DB.prepare(`SELECT id FROM accounts WHERE id = ?`).bind(id).first();
   if (!account) return notFound("account not found");
-  await env.DB.prepare(
-    `INSERT INTO contacts (account_id, name, role, phone, email, is_primary) VALUES (?, ?, ?, ?, ?, ?)`
-  ).bind(id, body.name, body.role || null, body.phone || null, body.email || null, body.is_primary ? 1 : 0).run();
+  const makePrimary = body.is_primary ? 1 : 0;
+  await env.DB.batch([
+    ...(makePrimary ? [env.DB.prepare(`UPDATE contacts SET is_primary=0 WHERE account_id=?`).bind(id)] : []),
+    env.DB.prepare(`INSERT INTO contacts (account_id, name, role, phone, email, is_primary) VALUES (?, ?, ?, ?, ?, ?)`)
+      .bind(id, body.name, body.role || null, body.phone || null, body.email || null, makePrimary)
+  ]);
   return json({ ok: true }, { status: 201 });
 }
 
@@ -659,8 +698,12 @@ export async function updateAccountDetails(request, env, id) {
   const name = body.name ?? account.name;
   const phone = body.phone !== undefined ? body.phone || null : account.phone;
   const email = body.email !== undefined ? body.email || null : account.email;
-  await env.DB.prepare(`UPDATE accounts SET name = ?, phone = ?, email = ? WHERE id = ?`)
-    .bind(name, phone, email, id).run();
+  const address = body.address !== undefined ? body.address || null : account.address;
+  const notes = body.notes !== undefined ? body.notes || null : account.notes;
+  const birth_date = body.birth_date !== undefined ? body.birth_date || null : account.birth_date;
+  const anniversary_date = body.anniversary_date !== undefined ? body.anniversary_date || null : account.anniversary_date;
+  await env.DB.prepare(`UPDATE accounts SET name = ?, phone = ?, email = ?, address = ?, notes = ?, birth_date = ?, anniversary_date = ? WHERE id = ?`)
+    .bind(name, phone, email, address, notes, birth_date, anniversary_date, id).run();
   return json({ ok: true });
 }
 
@@ -689,8 +732,13 @@ export async function updateContact(request, env, contactId) {
   const role = body.role !== undefined ? body.role || null : contact.role;
   const phone = body.phone !== undefined ? body.phone || null : contact.phone;
   const email = body.email !== undefined ? body.email || null : contact.email;
-  await env.DB.prepare(`UPDATE contacts SET name = ?, role = ?, phone = ?, email = ? WHERE id = ?`)
-    .bind(name, role, phone, email, contactId).run();
+  const is_primary = body.is_primary !== undefined ? (body.is_primary ? 1 : 0) : contact.is_primary;
+  const accountId = contact.account_id;
+  await env.DB.batch([
+    ...(is_primary ? [env.DB.prepare(`UPDATE contacts SET is_primary=0 WHERE account_id=?`).bind(accountId)] : []),
+    env.DB.prepare(`UPDATE contacts SET name = ?, role = ?, phone = ?, email = ?, is_primary = ? WHERE id = ?`)
+      .bind(name, role, phone, email, is_primary, contactId)
+  ]);
   return json({ ok: true });
 }
 
@@ -839,8 +887,19 @@ export async function updateEvent(request, env, id, ctx) {
   const end_time = body.end_time !== undefined ? body.end_time || null : event.end_time;
   const reporting_time = body.reporting_time !== undefined ? body.reporting_time || null : event.reporting_time;
   const status = body.status ?? event.status;
+  const allowedStatuses=["Pending","Planning","In-Progress","Completed","Overdue","Cancelled"];
+  if(!allowedStatuses.includes(status)) return badRequest("invalid event status");
+  if(status==="Completed" && event.status!=="Completed"){
+    const pending=await env.DB.prepare("SELECT COUNT(*) AS count FROM event_tasks WHERE event_id=? AND required=1 AND lower(status) NOT IN ('done','completed')").bind(id).first();
+    const rule=await env.DB.prepare("SELECT value_json FROM crm_business_rules WHERE rule_key='event.block_completion_pending' AND active=1 ORDER BY id DESC LIMIT 1").first();
+    let enabled=true; try{enabled=rule?JSON.parse(rule.value_json||"{}").enabled!==false:true;}catch{}
+    if(enabled && Number(pending?.count||0)>0) return badRequest("required Event tasks are still pending");
+  }
   await env.DB.prepare(`UPDATE events SET type = ?, venue = ?, event_date = ?, start_time = ?, end_time = ?, reporting_time = ?, status = ? WHERE id = ?`)
     .bind(type, venue, event_date, start_time, end_time, reporting_time, status, id).run();
+  if(status==="Completed"){
+    await env.DB.prepare("UPDATE invoices SET locked_at=COALESCE(locked_at,datetime('now')),updated_at=datetime('now') WHERE event_id=?").bind(id).run();
+  }
 
   // Calendar sync is deliberately non-critical to the CRM save.
   const account = await env.DB.prepare(`SELECT name FROM accounts WHERE id = ?`).bind(event.account_id).first();
@@ -859,7 +918,11 @@ export async function deleteEvent(request, env, id) {
   const { count } = await env.DB.prepare(`SELECT COUNT(*) AS count FROM payments WHERE event_id = ?`).bind(id).first();
   if (count > 0) return badRequest("This event has payment(s) recorded — remove those first before deleting the event.");
 
+  const lockedInvoice=await env.DB.prepare("SELECT id FROM invoices WHERE event_id=? AND locked_at IS NOT NULL LIMIT 1").bind(id).first();
+  if(lockedInvoice) return badRequest("This Event has a locked invoice and cannot be deleted.");
   await env.DB.batch([
+    env.DB.prepare(`DELETE FROM event_resource_allocations WHERE event_id = ?`).bind(id),
+    env.DB.prepare(`DELETE FROM event_equipment WHERE event_id = ?`).bind(id),
     env.DB.prepare(`DELETE FROM event_services WHERE event_id = ?`).bind(id),
     env.DB.prepare(`DELETE FROM event_staff_links WHERE event_id = ?`).bind(id),
     env.DB.prepare(`DELETE FROM event_vendors WHERE event_id = ?`).bind(id),
@@ -868,6 +931,8 @@ export async function deleteEvent(request, env, id) {
     env.DB.prepare(`DELETE FROM event_checklist WHERE event_id = ?`).bind(id),
     env.DB.prepare(`DELETE FROM event_tasks WHERE event_id = ?`).bind(id),
     env.DB.prepare(`DELETE FROM expenses WHERE event_id = ?`).bind(id),
+    env.DB.prepare(`DELETE FROM feedback WHERE event_id = ?`).bind(id),
+    env.DB.prepare(`DELETE FROM invoices WHERE event_id = ?`).bind(id),
     env.DB.prepare(`DELETE FROM support_requests WHERE event_id = ?`).bind(id),
     env.DB.prepare(`DELETE FROM events WHERE id = ?`).bind(id),
   ]);
@@ -946,21 +1011,27 @@ export async function getEvent(request, env, id) {
 export async function addEventService(request, env, id) {
   const body = await request.json().catch(() => null);
   if (!body || !body.service_id) return badRequest("service_id is required");
-  const service = await env.DB.prepare(`SELECT * FROM services WHERE id = ?`).bind(body.service_id).first();
-  if (!service) return notFound("service not found");
+  const service = await env.DB.prepare(`SELECT * FROM services WHERE id = ? AND active=1`).bind(body.service_id).first();
+  if (!service) return notFound("service not found or inactive");
+  const event = await env.DB.prepare("SELECT commercial_finalized_at FROM events WHERE id=?").bind(id).first();
+  if (!event) return notFound("event not found");
+  const addedAfterFinalization=event.commercial_finalized_at?1:0;
   await env.DB.prepare(
-    `INSERT INTO event_services (event_id, service_id, price_at_booking, is_crosssell) VALUES (?, ?, ?, ?)`
-  ).bind(id, body.service_id, service.base_price, body.is_crosssell ? 1 : 0).run();
+    `INSERT INTO event_services (event_id, service_id, price_at_booking, is_crosssell, source_type, added_after_finalization)
+     VALUES (?, ?, ?, ?, 'manual', ?)`
+  ).bind(id, body.service_id, service.base_price, body.is_crosssell ? 1 : 0, addedAfterFinalization).run();
 
   await recomputeQuote(env, id);
-  return json({ ok: true });
+  return json({ ok: true, added_after_finalization: !!addedAfterFinalization });
 }
 
 // Removes one line item (a service or an applied package) from an event —
 // the "Line items" list had no way back out before this.
 export async function removeEventService(request, env, eventServiceId) {
-  const row = await env.DB.prepare(`SELECT event_id FROM event_services WHERE id = ?`).bind(eventServiceId).first();
+  const row = await env.DB.prepare(`SELECT es.event_id,es.added_after_finalization,e.commercial_finalized_at
+    FROM event_services es JOIN events e ON e.id=es.event_id WHERE es.id=?`).bind(eventServiceId).first();
   if (!row) return notFound("line item not found");
+  if(row.commercial_finalized_at && !row.added_after_finalization) return badRequest("Finalized quote items cannot be removed. Add a separate post-finalization adjustment instead.");
   await env.DB.prepare(`DELETE FROM event_services WHERE id = ?`).bind(eventServiceId).run();
   await recomputeQuote(env, row.event_id);
   return json({ ok: true });
@@ -971,9 +1042,12 @@ export async function applyPackageToEvent(request, env, id) {
   if (!body || !body.package_id) return badRequest("package_id is required");
   const pkg = await env.DB.prepare(`SELECT * FROM packages WHERE id = ? AND active = 1`).bind(body.package_id).first();
   if (!pkg) return notFound("package not found");
+  const event=await env.DB.prepare("SELECT commercial_finalized_at FROM events WHERE id=?").bind(id).first();
+  if(!event) return notFound("event not found");
   await env.DB.prepare(
-    `INSERT INTO event_services (event_id, package_id, price_at_booking, is_crosssell) VALUES (?, ?, ?, 0)`
-  ).bind(id, pkg.id, pkg.base_price).run();
+    `INSERT INTO event_services (event_id, package_id, price_at_booking, is_crosssell, source_type, added_after_finalization)
+     VALUES (?, ?, ?, 0, 'manual', ?)`
+  ).bind(id, pkg.id, pkg.base_price, event.commercial_finalized_at?1:0).run();
 
   await recomputeQuote(env, id);
   return json({ ok: true });
@@ -988,15 +1062,17 @@ export async function setEventTier(request, env, id) {
 }
 
 async function recomputeQuote(env, eventId) {
-  const event = await env.DB.prepare(
-    `SELECT e.id, pt.multiplier FROM events e LEFT JOIN pricing_tiers pt ON pt.id = e.pricing_tier_id WHERE e.id = ?`
-  ).bind(eventId).first();
+  const event=await env.DB.prepare("SELECT quote_snapshot_json,commercial_finalized_at,finalized_quote_total FROM events WHERE id=?").bind(eventId).first();
   const { results } = await env.DB.prepare(
-    `SELECT price_at_booking FROM event_services WHERE event_id = ?`
+    `SELECT price_at_booking,added_after_finalization FROM event_services WHERE event_id = ?`
   ).bind(eventId).all();
-  const base = results.reduce((s, r) => s + r.price_at_booking, 0);
-  const total = Math.round(base * (event?.multiplier || 1));
-  await env.DB.prepare(`UPDATE events SET quote_total = ? WHERE id = ?`).bind(total, eventId).run();
+  const lineTotal=results.reduce((s,r)=>s+Number(r.price_at_booking||0),0);
+  let total=lineTotal;
+  if(event?.commercial_finalized_at){
+    const additions=results.filter(r=>Number(r.added_after_finalization)===1).reduce((s,r)=>s+Number(r.price_at_booking||0),0);
+    total=Number(event.finalized_quote_total ?? 0)+additions;
+  }
+  await env.DB.prepare(`UPDATE events SET quote_total = ? WHERE id = ?`).bind(Math.max(0,total),eventId).run();
 }
 
 export async function addPayment(request, env, id) {
@@ -1025,10 +1101,89 @@ export async function deletePayment(request, env, paymentId) {
   return json({ ok: true });
 }
 
+// ── Event invoices ──────────────────────────────────────────────────
+export async function getEventInvoice(request, env, eventId) {
+  const invoice=await env.DB.prepare("SELECT * FROM invoices WHERE event_id=? ORDER BY version DESC,id DESC LIMIT 1").bind(eventId).first();
+  return json(invoice||null);
+}
+
+export async function generateEventInvoice(request, env, eventId) {
+  const event=await env.DB.prepare(`SELECT e.*,a.name AS client_name,a.phone,a.email,a.address FROM events e JOIN accounts a ON a.id=e.account_id WHERE e.id=?`).bind(eventId).first();
+  if(!event) return notFound("event not found");
+  const existing=await env.DB.prepare("SELECT * FROM invoices WHERE event_id=? ORDER BY version DESC,id DESC LIMIT 1").bind(eventId).first();
+  if(existing?.locked_at) return badRequest("invoice is locked");
+  const items=(await env.DB.prepare(`SELECT es.id,COALESCE(s.name,p.name) AS label,es.price_at_booking,es.is_crosssell,es.added_after_finalization
+    FROM event_services es LEFT JOIN services s ON s.id=es.service_id LEFT JOIN packages p ON p.id=es.package_id
+    WHERE es.event_id=? ORDER BY es.id`).bind(eventId).all()).results;
+  const payments=(await env.DB.prepare("SELECT id,amount,method,date,note FROM payments WHERE event_id=? ORDER BY date,id").bind(eventId).all()).results;
+  const version=existing?Number(existing.version||1)+1:1;
+  const snapshot={event_id:eventId,client:{name:event.client_name,phone:event.phone,email:event.email,address:event.address},event:{type:event.type,date:event.event_date,venue:event.venue},items,total:Number(event.quote_total||0),payments,generated_at:new Date().toISOString()};
+  if(existing){
+    await env.DB.prepare("UPDATE invoices SET total_amount=?,snapshot_json=?,version=?,status='Draft',issued_at=NULL,paid_at=NULL,updated_at=datetime('now') WHERE id=?")
+      .bind(Number(event.quote_total||0),JSON.stringify(snapshot),version,existing.id).run();
+    return json({ok:true,id:existing.id,version});
+  }
+  const number=`INV-${String(eventId).padStart(4,"0")}`;
+  const r=await env.DB.prepare("INSERT INTO invoices(event_id,invoice_number,status,total_amount,snapshot_json,version) VALUES(?,?, 'Draft',?,?,?)")
+    .bind(eventId,number,Number(event.quote_total||0),JSON.stringify(snapshot),version).run();
+  return json({ok:true,id:r.meta.last_row_id,invoice_number:number,version});
+}
+
+export async function issueEventInvoice(request, env, invoiceId) {
+  const invoice=await env.DB.prepare("SELECT * FROM invoices WHERE id=?").bind(invoiceId).first();
+  if(!invoice) return notFound("invoice not found");
+  if(invoice.locked_at) return badRequest("invoice is locked");
+  if(invoice.status==="Cancelled") return badRequest("cancelled invoice cannot be issued");
+  await env.DB.prepare("UPDATE invoices SET status='Issued',issued_at=datetime('now'),updated_at=datetime('now') WHERE id=?").bind(invoiceId).run();
+  return json({ok:true});
+}
+
+export async function markInvoicePaid(request, env, invoiceId) {
+  const invoice=await env.DB.prepare("SELECT * FROM invoices WHERE id=?").bind(invoiceId).first();
+  if(!invoice) return notFound("invoice not found");
+  if(invoice.locked_at && invoice.status==="Paid") return json({ok:true});
+  await env.DB.prepare("UPDATE invoices SET status='Paid',paid_at=datetime('now'),updated_at=datetime('now') WHERE id=?").bind(invoiceId).run();
+  return json({ok:true});
+}
+
 // ── Catalogue ────────────────────────────────────────────────────────
 export async function listServices(request, env) {
-  const { results } = await env.DB.prepare(`SELECT * FROM services ORDER BY category, name`).all();
-  return json(results);
+  const { results } = await env.DB.prepare(
+    `SELECT s.*,
+      COALESCE(GROUP_CONCAT(DISTINCT sk.skill_id),'') AS skill_ids,
+      COALESCE(GROUP_CONCAT(DISTINCT k.label),'') AS skills
+     FROM services s
+     LEFT JOIN service_skills sk ON sk.service_id=s.id
+     LEFT JOIN skills k ON k.id=sk.skill_id AND k.active=1
+     GROUP BY s.id
+     ORDER BY s.sort_order,s.category,s.name`
+  ).all();
+  return json(results.map(s => ({...s, skill_ids:s.skill_ids?s.skill_ids.split(',').map(Number).filter(Number.isFinite):[]})));
+}
+
+export async function saveService(request, env, serviceId) {
+  const body=await request.json().catch(()=>null);
+  if(!body?.name) return badRequest("name is required");
+  const price=Number(body.base_price);
+  if(!Number.isFinite(price) || price<0) return badRequest("base_price must be a valid non-negative number");
+  const category=body.category||"Production";
+  let id=serviceId||body.id;
+  if(id){
+    const existing=await env.DB.prepare("SELECT id FROM services WHERE id=?").bind(id).first();
+    if(!existing) return notFound("service not found");
+    await env.DB.prepare(`UPDATE services SET name=?,base_price=?,category=?,internal_code=?,resource_required=?,description=?,active=?,sort_order=? WHERE id=?`)
+      .bind(body.name,Math.round(price),category,body.internal_code||null,body.resource_required?1:0,body.description||null,body.active===false?0:1,Number(body.sort_order||0),id).run();
+  } else {
+    const r=await env.DB.prepare(`INSERT INTO services(name,base_price,category,internal_code,resource_required,description,active,sort_order) VALUES(?,?,?,?,?,?,?,?)`)
+      .bind(body.name,Math.round(price),category,body.internal_code||null,body.resource_required?1:0,body.description||null,body.active===false?0:1,Number(body.sort_order||0)).run();
+    id=r.meta.last_row_id;
+  }
+  if(Array.isArray(body.skill_ids)){
+    await env.DB.prepare("DELETE FROM service_skills WHERE service_id=?").bind(id).run();
+    const skills=body.skill_ids.map(Number).filter(Number.isInteger);
+    if(skills.length) await env.DB.batch(skills.map(skillId=>env.DB.prepare("INSERT OR IGNORE INTO service_skills(service_id,skill_id) VALUES(?,?)").bind(id,skillId)));
+  }
+  return json({ok:true,id});
 }
 export async function listTiers(request, env) {
   const { results } = await env.DB.prepare(`SELECT * FROM pricing_tiers ORDER BY multiplier`).all();
@@ -1486,7 +1641,7 @@ export async function reportConversion(request, env) {
   const row = await env.DB.prepare(
     `SELECT
        COUNT(*) AS total,
-       SUM(CASE WHEN stage = 'Booked' THEN 1 ELSE 0 END) AS booked
+       SUM(CASE WHEN stage = 'Won' THEN 1 ELSE 0 END) AS booked
      FROM leads WHERE created_at >= datetime('now','-90 days')`
   ).first();
   const pct = row.total ? Math.round((row.booked / row.total) * 1000) / 10 : 0;
@@ -1498,8 +1653,8 @@ export async function reportSourceRoi(request, env) {
     `SELECT
        source,
        COUNT(*) AS leads,
-       SUM(CASE WHEN stage = 'Booked' THEN 1 ELSE 0 END) AS booked,
-       SUM(CASE WHEN stage = 'Booked' THEN budget_est ELSE 0 END) AS booked_value
+       SUM(CASE WHEN stage = 'Won' THEN 1 ELSE 0 END) AS booked,
+       SUM(CASE WHEN stage = 'Won' THEN budget_est ELSE 0 END) AS booked_value
      FROM leads GROUP BY source ORDER BY booked_value DESC`
   ).all();
   return json(results);
