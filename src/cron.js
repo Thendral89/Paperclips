@@ -10,7 +10,7 @@
 export async function handleScheduled(env) {
   const { results: stale } = await env.DB.prepare(
     `SELECT id FROM leads
-     WHERE stage NOT IN ('Booked','Lost')
+     WHERE stage NOT IN ('Won','Lost')
        AND updated_at < datetime('now','-48 hours')
        AND (next_follow_up_date IS NULL OR next_follow_up_date < date('now'))`
   ).all();
