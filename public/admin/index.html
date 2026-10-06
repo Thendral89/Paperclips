@@ -1755,81 +1755,48 @@ async function renderSettings(){
 }
 async function renderResources(){
   const cfg=await loadUiConfig(true);
-  const resources=await api("/resources");
+  const resources=await api('/resources');
   const skills=cfg.skills||[];
-  const phases=cfg.phases||[];
-  const types=cfg.resource_types||[{value_key:"person",value_label:"Person"},{value_key:"vendor",value_label:"Vendor"}];
-  const typeLabel = r => r.resource_type || "Person";
-  let filter="all";
-
-  const renderTable=()=>{
-    const rows=resources.filter(r=>filter==="all" || (filter==="people" ? typeLabel(r)==="Person" : typeLabel(r)==="Vendor"));
-    const body=rows.map(r=>`<tr>
-      <td><b>${escapeHtml(r.name)}</b><div class="meta">${escapeHtml(r.phone||"")}${r.email?` · ${escapeHtml(r.email)}`:""}</div></td>
-      <td><span class="pill">${escapeHtml(typeLabel(r))}</span></td>
-      <td>${escapeHtml(r.skills||"—")}</td>
-      <td>${escapeHtml(r.phases||"—")}</td>
-      <td>${escapeHtml(r.phone||"—")}</td>
-      <td class="row-actions"><button type="button" class="icon-btn edit" data-edit-resource="${r.id}" title="Edit">✎</button>${r.active?`<button type="button" class="icon-btn del" data-del-resource="${r.id}" title="Deactivate">Deactivate</button>`:`<span class="meta">Inactive</span>`}</td>
-    </tr>`).join("");
-    return body || `<tr><td colspan="6" class="empty">No resources in this filter.</td></tr>`;
+  const phases=['Production','Post-Production'];
+  const types=cfg.resource_types||[{value_label:'Internal'},{value_label:'External'},{value_label:'Equipment / Vendor'}];
+  let filter='all';
+  const typeLabel=r=>r.resource_type||'Internal';
+  const filtered=()=>resources.filter(r=>r.active && (filter==='all' || (filter==='people' && typeLabel(r)==='Internal') || (filter==='vendors' && typeLabel(r)!=='Internal')));
+  const phaseRows=(phase)=>filtered().filter(r=>String(r.phases||'').split(',').includes(phase));
+  const card=(r)=>`<div class='resource-card'><div style='display:flex;justify-content:space-between;gap:8px'><div><b>${escapeHtml(r.name)}</b><div class='meta'>${escapeHtml(typeLabel(r))}</div></div><div class='row-actions'><button type='button' class='icon-btn edit' data-edit-resource='${r.id}'>✎</button>${r.active?`<button type='button' class='icon-btn del' data-del-resource='${r.id}'>Deactivate</button>`:''}</div></div><div style='margin-top:8px'><span class='pill'>${escapeHtml(r.skills||'No skills')}</span></div><div class='meta' style='margin-top:6px'>${escapeHtml(r.phone||r.email||'No contact details')}</div></div>`;
+  const render=()=>{
+    const rows=filtered();
+    main.querySelector('#resourceCount')?.replaceChildren(document.createTextNode(String(rows.length)));
+    for(const phase of phases){ const el=document.getElementById('resourcePhase_'+phase.replace(/[^A-Za-z]/g,'')); if(el) el.innerHTML=phaseRows(phase).map(card).join('')||`<div class='empty'>No resources configured for ${phase}.</div>`; }
+    bindRows();
   };
-
-  main.innerHTML=`${pageHeader(L("nav.resources","Resources"),"+ Add Resource")}
-    <p class="empty" style="margin-top:-10px;margin-bottom:16px;">People and vendors used to plan and deliver events. Vendors are resources, not a separate module.</p>
-    <div class="segmented" id="resourceFilters">
-      <button type="button" class="active" data-resource-filter="all">All</button>
-      <button type="button" data-resource-filter="people">People</button>
-      <button type="button" data-resource-filter="vendors">Vendors</button>
-    </div>
-    <div class="card"><h2>Resource directory</h2>
-      <div style="overflow:auto"><table><thead><tr><th>Name</th><th>Category</th><th>Skills</th><th>Workflow</th><th>Phone</th><th></th></tr></thead>
-      <tbody id="resourcesBody">${renderTable()}</tbody></table></div>
-    </div>`;
-
-
-  // Rebind the modal submit separately so the form element is available in the callback.
+  main.innerHTML=`${pageHeader(L('nav.resources','Resources'),'+ Add Resource')}
+    <p class='empty' style='margin-top:-10px;margin-bottom:16px'>Resources are people and vendors. Assign one or both workflow phases; skills are reusable and multi-select.</p>
+    <div class='segbar'><button type='button' class='seg active' data-resource-filter='all'>All</button><button type='button' class='seg' data-resource-filter='people'>Internal</button><button type='button' class='seg' data-resource-filter='vendors'>External / Vendor</button></div>
+    <div class='card'><h2>Resource directory <span class='meta'><span id='resourceCount'>${filtered().length}</span> active resources</span></h2><div class='resource-phase-grid'><section class='resource-phase-column'><h2>Production</h2><div id='resourcePhase_Production'></div></section><section class='resource-phase-column'><h2>Post-Production</h2><div id='resourcePhase_PostProduction'></div></section></div></div>`;
   const openResourceForm=(resource)=>{
-    const skillIds=String(resource?.skill_ids||"").split(",").filter(Boolean).map(Number);
-    const currentPhases=String(resource?.phases||"").split(",").filter(Boolean);
-    openModal(resource?"Edit resource":"Add resource",`<form>
-      <div class="field"><label>Name</label><input name="name" value="${escapeHtml(resource?.name||"")}" required></div>
-      <div class="field"><label>Category</label><select name="resource_type">${types.map(t=>`<option value="${escapeHtml(t.value_label||t)}" ${(resource?.resource_type||"Person")===(t.value_label||t)?"selected":""}>${escapeHtml(t.value_label||t)}</option>`).join("")}</select></div>
-      <div class="field"><label>Phone</label><input name="phone" value="${escapeHtml(resource?.phone||"")}"></div>
-      <div class="field"><label>Email</label><input name="email" value="${escapeHtml(resource?.email||"")}"></div>
-      <div class="field"><label>Skills</label><select name="skill_ids" multiple size="7">${skills.map(s=>`<option value="${s.id}" ${skillIds.includes(Number(s.id))?"selected":""}>${escapeHtml(s.label)}</option>`).join("")}</select></div>
-      <div class="field"><label>Workflow phases</label>${phases.map(p=>`<label style="display:block;text-transform:none"><input type="checkbox" name="phases" value="${escapeHtml(p)}" ${currentPhases.includes(p)?"checked":""} style="width:auto"> ${escapeHtml(p)}</label>`).join("")}</div>
-      <div class="field"><label>Notes</label><textarea name="notes" rows="3">${escapeHtml(resource?.notes||"")}</textarea></div>
-      <button type="submit" style="width:100%">${resource?"Save changes":"Add resource"}</button>
-    </form>`,async(data,form)=>{
-      data.id=resource?.id;
-      data.skill_ids=[...form.querySelector('[name="skill_ids"]').selectedOptions].map(x=>Number(x.value));
-      data.phases=[...form.querySelectorAll('[name="phases"]:checked')].map(x=>x.value);
-      await api("/resources",{method:"POST",body:JSON.stringify(data)});
-      toast(resource?"Resource updated":"Resource added");
-      renderResources();
+    const skillIds=String(resource?.skill_ids||'').split(',').filter(Boolean).map(Number);
+    const currentPhases=String(resource?.phases||'').split(',').filter(Boolean);
+    openModal(resource?'Edit resource':'Add resource',`<form>
+      <div class='field'><label>Name</label><input name='name' value='${escapeHtml(resource?.name||'')}' required></div>
+      <div class='field'><label>Category</label><select name='resource_type'>${types.map(t=>`<option value='${escapeHtml(t.value_label||t)}' ${(resource?.resource_type||'Internal')===(t.value_label||t)?'selected':''}>${escapeHtml(t.value_label||t)}</option>`).join('')}</select></div>
+      <div class='row2'><div class='field'><label>Phone</label><input name='phone' value='${escapeHtml(resource?.phone||'')}'></div><div class='field'><label>Email</label><input name='email' value='${escapeHtml(resource?.email||'')}'></div></div>
+      <div class='field'><label>Skills (multi-select)</label><select name='skill_ids' multiple size='7'>${skills.map(k=>`<option value='${k.id}' ${skillIds.includes(Number(k.id))?'selected':''}>${escapeHtml(k.label)}</option>`).join('')}</select><div class='meta'>Manage skill values in Settings → Operations → Skills.</div></div>
+      <div class='field'><label>Workflow phases</label>${phases.map(p=>`<label style='display:block;text-transform:none'><input type='checkbox' name='phases' value='${p}' ${currentPhases.includes(p)?'checked':''} style='width:auto'> ${p}</label>`).join('')}</div>
+      <div class='field'><label>Notes</label><textarea name='notes' rows='3'>${escapeHtml(resource?.notes||'')}</textarea></div>
+      <button type='submit' style='width:100%'>${resource?'Save changes':'Add resource'}</button></form>`,async(data,form)=>{
+      data.id=resource?.id; data.skill_ids=[...form.querySelector('[name=skill_ids]').selectedOptions].map(x=>Number(x.value)); data.phases=[...form.querySelectorAll('[name=phases]:checked')].map(x=>x.value);
+      await api('/resources',{method:'POST',body:JSON.stringify(data)}); toast(resource?'Resource updated':'Resource added'); renderResources();
     });
   };
-
   setPrimaryAction(()=>openResourceForm(null));
-  main.querySelectorAll("[data-resource-filter]").forEach(btn=>btn.addEventListener("click",()=>{
-    filter=btn.dataset.resourceFilter;
-    main.querySelectorAll("[data-resource-filter]").forEach(x=>x.classList.toggle("active",x===btn));
-    document.getElementById("resourcesBody").innerHTML=renderTable();
-    bindRows();
-  }));
+  main.querySelectorAll('[data-resource-filter]').forEach(btn=>btn.addEventListener('click',()=>{filter=btn.dataset.resourceFilter;main.querySelectorAll('[data-resource-filter]').forEach(x=>x.classList.toggle('active',x===btn));render();}));
   const bindRows=()=>{
-    main.querySelectorAll("[data-edit-resource]").forEach(el=>el.addEventListener("click",()=>{
-      const r=resources.find(x=>String(x.id)===el.dataset.editResource); if(r) openResourceForm(r);
-    }));
-    main.querySelectorAll("[data-del-resource]").forEach(el=>el.addEventListener("click",async()=>{
-      await api(`/resources/${el.dataset.delResource}/delete`,{method:"POST",body:"{}"});
-      toast("Resource deactivated"); renderResources();
-    }));
+    main.querySelectorAll('[data-edit-resource]').forEach(el=>el.addEventListener('click',()=>{const rr=resources.find(x=>String(x.id)===el.dataset.editResource);if(rr)openResourceForm(rr);}));
+    main.querySelectorAll('[data-del-resource]').forEach(el=>el.addEventListener('click',async()=>{try{await api(`/resources/${el.dataset.delResource}/delete`,{method:'POST',body:'{}'});toast('Resource deactivated');await renderResources();}catch(e){toast(e.message,true);}}));
   };
-  bindRows();
+  render();
 }
-
 
 async function renderEquipment() {
   const equipment = await api("/equipment");
