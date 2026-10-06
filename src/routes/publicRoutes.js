@@ -182,6 +182,15 @@ export async function toggleQuoteItem(request, env, token) {
   const item = await env.DB.prepare(`SELECT * FROM quote_items WHERE id = ? AND quote_id = ?`).bind(body.item_id, quote.id).first();
   if (!item) return notFound("item not found on this quote");
   if (!item.is_addon) return badRequest("this item isn't adjustable");
-  await env.DB.prepare(`UPDATE quote_items SET selected = ? WHERE id = ?`).bind(body.selected ? 1 : 0, item.id).run();
+  const selected=body.selected ? 1 : 0;
+  const eventType=item.is_addon ? "addon_selected" : "service_selected";
+  await env.DB.batch([
+    env.DB.prepare(`UPDATE quote_items SET selected = ? WHERE id = ?`).bind(selected,item.id),
+    env.DB.prepare(`INSERT INTO quote_engagement_events(
+      quote_id,event_type,quote_item_id,package_id,service_id
+    ) VALUES(?,?,?,?,?)`).bind(
+      quote.id,eventType,item.id,item.package_id||null,item.service_id||null
+    )
+  ]);
   return json({ ok: true });
 }
