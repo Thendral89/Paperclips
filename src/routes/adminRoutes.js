@@ -670,9 +670,12 @@ export async function addContact(request, env, id) {
   if (!body || !body.name) return badRequest("name is required");
   const account = await env.DB.prepare(`SELECT id FROM accounts WHERE id = ?`).bind(id).first();
   if (!account) return notFound("account not found");
-  await env.DB.prepare(
-    `INSERT INTO contacts (account_id, name, role, phone, email, is_primary) VALUES (?, ?, ?, ?, ?, ?)`
-  ).bind(id, body.name, body.role || null, body.phone || null, body.email || null, body.is_primary ? 1 : 0).run();
+  const makePrimary = body.is_primary ? 1 : 0;
+  await env.DB.batch([
+    ...(makePrimary ? [env.DB.prepare(`UPDATE contacts SET is_primary=0 WHERE account_id=?`).bind(id)] : []),
+    env.DB.prepare(`INSERT INTO contacts (account_id, name, role, phone, email, is_primary) VALUES (?, ?, ?, ?, ?, ?)`)
+      .bind(id, body.name, body.role || null, body.phone || null, body.email || null, makePrimary)
+  ]);
   return json({ ok: true }, { status: 201 });
 }
 
@@ -686,8 +689,12 @@ export async function updateAccountDetails(request, env, id) {
   const name = body.name ?? account.name;
   const phone = body.phone !== undefined ? body.phone || null : account.phone;
   const email = body.email !== undefined ? body.email || null : account.email;
-  await env.DB.prepare(`UPDATE accounts SET name = ?, phone = ?, email = ? WHERE id = ?`)
-    .bind(name, phone, email, id).run();
+  const address = body.address !== undefined ? body.address || null : account.address;
+  const notes = body.notes !== undefined ? body.notes || null : account.notes;
+  const birth_date = body.birth_date !== undefined ? body.birth_date || null : account.birth_date;
+  const anniversary_date = body.anniversary_date !== undefined ? body.anniversary_date || null : account.anniversary_date;
+  await env.DB.prepare(`UPDATE accounts SET name = ?, phone = ?, email = ?, address = ?, notes = ?, birth_date = ?, anniversary_date = ? WHERE id = ?`)
+    .bind(name, phone, email, address, notes, birth_date, anniversary_date, id).run();
   return json({ ok: true });
 }
 
@@ -716,8 +723,13 @@ export async function updateContact(request, env, contactId) {
   const role = body.role !== undefined ? body.role || null : contact.role;
   const phone = body.phone !== undefined ? body.phone || null : contact.phone;
   const email = body.email !== undefined ? body.email || null : contact.email;
-  await env.DB.prepare(`UPDATE contacts SET name = ?, role = ?, phone = ?, email = ? WHERE id = ?`)
-    .bind(name, role, phone, email, contactId).run();
+  const is_primary = body.is_primary !== undefined ? (body.is_primary ? 1 : 0) : contact.is_primary;
+  const accountId = contact.account_id;
+  await env.DB.batch([
+    ...(is_primary ? [env.DB.prepare(`UPDATE contacts SET is_primary=0 WHERE account_id=?`).bind(accountId)] : []),
+    env.DB.prepare(`UPDATE contacts SET name = ?, role = ?, phone = ?, email = ?, is_primary = ? WHERE id = ?`)
+      .bind(name, role, phone, email, is_primary, contactId)
+  ]);
   return json({ ok: true });
 }
 
@@ -1054,8 +1066,42 @@ export async function deletePayment(request, env, paymentId) {
 
 // ── Catalogue ────────────────────────────────────────────────────────
 export async function listServices(request, env) {
-  const { results } = await env.DB.prepare(`SELECT * FROM services ORDER BY category, name`).all();
-  return json(results);
+  const { results } = await env.DB.prepare(
+    `SELECT s.*,
+      COALESCE(GROUP_CONCAT(DISTINCT sk.skill_id),'') AS skill_ids,
+      COALESCE(GROUP_CONCAT(DISTINCT k.label),'') AS skills
+     FROM services s
+     LEFT JOIN service_skills sk ON sk.service_id=s.id
+     LEFT JOIN skills k ON k.id=sk.skill_id AND k.active=1
+     GROUP BY s.id
+     ORDER BY s.sort_order,s.category,s.name`
+  ).all();
+  return json(results.map(s => ({...s, skill_ids:s.skill_ids?s.skill_ids.split(',').map(Number).filter(Number.isFinite):[]})));
+}
+
+export async function saveService(request, env, serviceId) {
+  const body=await request.json().catch(()=>null);
+  if(!body?.name) return badRequest("name is required");
+  const price=Number(body.base_price);
+  if(!Number.isFinite(price) || price<0) return badRequest("base_price must be a valid non-negative number");
+  const category=body.category||"Production";
+  let id=serviceId||body.id;
+  if(id){
+    const existing=await env.DB.prepare("SELECT id FROM services WHERE id=?").bind(id).first();
+    if(!existing) return notFound("service not found");
+    await env.DB.prepare(`UPDATE services SET name=?,base_price=?,category=?,internal_code=?,resource_required=?,description=?,active=?,sort_order=? WHERE id=?`)
+      .bind(body.name,Math.round(price),category,body.internal_code||null,body.resource_required?1:0,body.description||null,body.active===false?0:1,Number(body.sort_order||0),id).run();
+  } else {
+    const r=await env.DB.prepare(`INSERT INTO services(name,base_price,category,internal_code,resource_required,description,active,sort_order) VALUES(?,?,?,?,?,?,?,?)`)
+      .bind(body.name,Math.round(price),category,body.internal_code||null,body.resource_required?1:0,body.description||null,body.active===false?0:1,Number(body.sort_order||0)).run();
+    id=r.meta.last_row_id;
+  }
+  if(Array.isArray(body.skill_ids)){
+    await env.DB.prepare("DELETE FROM service_skills WHERE service_id=?").bind(id).run();
+    const skills=body.skill_ids.map(Number).filter(Number.isInteger);
+    if(skills.length) await env.DB.batch(skills.map(skillId=>env.DB.prepare("INSERT OR IGNORE INTO service_skills(service_id,skill_id) VALUES(?,?)").bind(id,skillId)));
+  }
+  return json({ok:true,id});
 }
 export async function listTiers(request, env) {
   const { results } = await env.DB.prepare(`SELECT * FROM pricing_tiers ORDER BY multiplier`).all();
