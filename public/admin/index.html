@@ -200,7 +200,7 @@
     <div class="navlink" data-view="dashboard"><svg width="17" height="17" viewBox="0 0 20 20" fill="none"><rect x="2.5" y="2.5" width="6.5" height="6.5" rx="1.5" stroke="currentColor" stroke-width="1.6"/><rect x="11" y="2.5" width="6.5" height="6.5" rx="1.5" stroke="currentColor" stroke-width="1.6"/><rect x="2.5" y="11" width="6.5" height="6.5" rx="1.5" stroke="currentColor" stroke-width="1.6"/><rect x="11" y="11" width="6.5" height="6.5" rx="1.5" stroke="currentColor" stroke-width="1.6"/></svg>Dashboard</div>
     <div class="navlink" data-view="leads"><svg width="17" height="17" viewBox="0 0 20 20" fill="none"><path d="M3 3.5h14l-5.2 6.4v5.6l-3.6 1.8v-7.4L3 3.5z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>Leads</div>
     <div class="navlink" data-view="quotes">Quotes</div>
-    <div class="navlink" data-view="accounts"><svg width="17" height="17" viewBox="0 0 20 20" fill="none"><circle cx="7" cy="7" r="3" stroke="currentColor" stroke-width="1.6"/><circle cx="14" cy="8.5" r="2.4" stroke="currentColor" stroke-width="1.6"/><path d="M2.2 16.5c.6-3 2.5-4.6 4.8-4.6s4.2 1.6 4.8 4.6M12 16.5c.4-2.1 1.7-3.4 3.4-3.4 1.5 0 2.7.9 3.3 2.6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>Customers / Accounts</div>
+    <div class="navlink" data-view="accounts"><svg width="17" height="17" viewBox="0 0 20 20" fill="none"><circle cx="7" cy="7" r="3" stroke="currentColor" stroke-width="1.6"/><circle cx="14" cy="8.5" r="2.4" stroke="currentColor" stroke-width="1.6"/><path d="M2.2 16.5c.6-3 2.5-4.6 4.8-4.6s4.2 1.6 4.8 4.6M12 16.5c.4-2.1 1.7-3.4 3.4-3.4 1.5 0 2.7.9 3.3 2.6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>Clients</div>
     <div class="navlink" data-view="calendar"><svg width="17" height="17" viewBox="0 0 20 20" fill="none"><rect x="3" y="4" width="14" height="13" rx="2" stroke="currentColor" stroke-width="1.6"/><path d="M3 8h14M6.5 2.5v3M13.5 2.5v3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>Calendar</div>
     <div class="navlink" data-view="events"><svg width="17" height="17" viewBox="0 0 20 20" fill="none"><rect x="2.5" y="4" width="15" height="13" rx="2" stroke="currentColor" stroke-width="1.6"/><path d="M2.5 8h15M6.5 2.5v3M13.5 2.5v3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>Events</div>
     <div class="navlink" data-view="packages"><svg width="17" height="17" viewBox="0 0 20 20" fill="none"><path d="M10 2.5l7 3.8v7.4L10 17.5 3 13.7V6.3L10 2.5z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M3 6.3L10 10l7-3.7M10 10v7.5" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>Packages</div>
@@ -629,8 +629,8 @@ async function renderLeads() {
 }
 
 const LEAD_STAGES = [
-  ["New", "New"], ["Contacted", "Contacted"], ["Quoted", "Quoted"], ["Follow-up", "Follow-up"],
-  ["Booked", "Closed Won"], ["Lost", "Lost"], ["Cancelled", "Cancelled"],
+  ["New", "New"], ["Qualified", "Qualified"], ["Quote", "Quote"], ["Negotiation", "Negotiation"],
+  ["Won", "Won"], ["Long Pending", "Long Pending"], ["Lost", "Lost"], ["Cancelled", "Cancelled"],
 ];
 const ACTIVITY_TYPES = ["Call", "WhatsApp", "Email", "Meeting", "Site visit", "Note", "Other"];
 const ACTIVITY_ICON = { Call: "📞", WhatsApp: "💬", Email: "✉️", Meeting: "🤝", "Site visit": "📍", "Quote sent": "📄", "Quote viewed": "👀", "Stage change": "↪", Note: "📝", Other: "•" };
@@ -639,7 +639,7 @@ async function openConvertModal(id, lead) {
   const p = await api(`/leads/${id}/convert-preview`);
   if (p.already_converted) { go("accountDetail", p.account_id); return; }
   openModal("Create account — review before converting", `
-    <p class="empty" style="margin-top:-6px;">This lead is Closed Won. Confirm the details below to create the customer account — catches the case where this is actually a repeat/referral for someone already in Accounts.</p>
+    <p class="empty" style="margin-top:-6px;">This lead is Closed Won. Confirm the details below to create the client record — catches the case where this is actually a repeat/referral for someone already in Accounts.</p>
     <form>
       <div class="field"><label>Name</label><input name="name" value="${p.name}" required></div>
       <div class="row2">
@@ -779,7 +779,7 @@ async function renderQuoteDetail(id) {
   const addonItems = q.items.filter(i => i.is_addon);
   main.innerHTML = `
     <span class="back" data-lead-back="${q.lead_id}">← ${q.lead_name || "Lead"}</span>
-    <h1>Quote ${statusPill(q.status)} <button type="button" class="icon-btn del" id="deleteQuoteBtn" title="Delete quote">✕ Delete</button>${["Accepted","Won"].includes(q.status) ? ' <button type="button" class="icon-btn" id="convertQuoteBtn">Convert to Booking + Event</button>' : ""}</h1>
+    <h1>Quote ${statusPill(q.status)} <button type="button" class="icon-btn del" id="deleteQuoteBtn" title="Delete quote">✕ Delete</button>${["Accepted","Won"].includes(q.status) ? ' <button type="button" class="icon-btn" id="convertQuoteBtn">Convert to Client + Event</button>' : ""}</h1>
     <div class="kpis">
       <div class="kpi"><div class="l">Subtotal</div><div class="v">${money(q.subtotal)}</div></div>
       <div class="kpi"><div class="l">Concession</div><div class="v" style="color:var(--success)">${q.concession_amount ? "−" + money(q.concession_amount) : "—"}</div></div>
@@ -788,6 +788,502 @@ async function renderQuoteDetail(id) {
     </div>
 
     ${q.status !== "Draft" ? `<div class="copybox">${q.public_url}</div>` : ""}
+
+    <div class="card"><h2>Pricing tier</h2>
+      <div style="display:flex;gap:8px;">${tiers.map(t => `<div class="tier ${t.id===q.pricing_tier_id?"sel":""}" data-tier="${t.id}"><b>${t.name}</b><div style="font-size:11px;color:var(--ink-soft)">${t.perks}</div></div>`).join("")}</div>
+    </div>
+
+    <div class="card"><h2>Included (base) <button class="icon-btn" id="addBaseBtn">+ Add</button></h2>
+      ${baseItems.map(i => `<div class="svc">${i.label} — ${money(i.price)} <button type="button" class="icon-btn del" data-del-qitem="${i.id}" title="Remove">✕</button></div>`).join("") || '<div class="empty">Nothing added yet.</div>'}
+    </div>
+    <div class="card"><h2>Optional add-ons <span class="meta">customer can toggle these on the public link</span> <button class="icon-btn" id="addAddonBtn">+ Add</button></h2>
+      ${addonItems.map(i => `<div class="svc">${i.label} — ${money(i.price)} ${i.selected ? '<span class="pill" style="background:var(--success-soft);color:var(--success)">selected</span>' : '<span class="pill">not selected</span>'} <button type="button" class="icon-btn del" data-del-qitem="${i.id}" title="Remove">✕</button></div>`).join("") || '<div class="empty">No optional add-ons offered on this quote.</div>'}
+    </div>
+
+    <div class="card"><h2>Conversation <span class="meta">questions or requests the customer sent from the quote page</span></h2>
+      ${commentThread(q.comments)}
+      <form id="quoteReplyForm" style="display:flex;gap:8px;">
+        <input name="message" placeholder="Reply to the customer…" style="flex:1;" required>
+        <button type="submit">Send</button>
+      </form>
+    </div>
+
+    <div class="card"><h2>Concession — admin only, read-only for the customer</h2>
+      <form id="concessionForm">
+        <div class="row2">
+          <div class="field"><label>Discount amount (₹)</label><input name="concession_amount" type="number" value="${q.concession_amount}"></div>
+          <div class="field"><label>Reason (shown to customer)</label><input name="concession_note" value="${q.concession_note || ""}" placeholder="e.g. Early booking discount"></div>
+        </div>
+        <button type="submit">Save concession</button>
+      </form>
+    </div>
+
+    <div class="card"><h2>View history <span class="meta">how many times the customer has actually opened this link</span></h2>
+      ${q.view_log.length ? `<table>${q.view_log.map(v => `<tr><td>${v.viewed_at}</td></tr>`).join("")}</table>` : '<div class="empty">Not viewed yet.</div>'}
+    </div>
+  `;
+  main.querySelector("[data-lead-back]").addEventListener("click", () => go("leadDetail", q.lead_id));
+  main.querySelector("#convertQuoteBtn")?.addEventListener("click", async () => {
+    if(!confirm("Convert this accepted quote into a booking and operational event?")) return;
+    const r=await api(`/quotes/${id}/convert`,{method:"POST",body:"{}"});
+    toast(r.already_exists?"Booking already exists":"Booking and Event created");
+    if(r.event_id) go("eventDetail",r.event_id); else renderQuoteDetail(id);
+  });
+  main.querySelector("#deleteQuoteBtn").addEventListener("click", () =>
+    confirmDelete("Delete this quote? This can't be undone.", `/quotes/${id}/delete`, () => go("leadDetail", q.lead_id))
+  );
+  main.querySelectorAll("[data-tier]").forEach(el => el.addEventListener("click", async () => {
+    await api(`/quotes/${id}`, { method: "POST", body: JSON.stringify({ pricing_tier_id: el.dataset.tier }) });
+    renderQuoteDetail(id);
+  }));
+  main.querySelectorAll("[data-del-qitem]").forEach(el => el.addEventListener("click", () =>
+    confirmDelete("Remove this line from the quote?", `/quote-items/${el.dataset.delQitem}/delete`, () => renderQuoteDetail(id))
+  ));
+  main.querySelector("#concessionForm").addEventListener("submit", async e => {
+    e.preventDefault();
+    await api(`/quotes/${id}`, { method: "POST", body: JSON.stringify(Object.fromEntries(new FormData(e.target).entries())) });
+    toast("Concession saved");
+    renderQuoteDetail(id);
+  });
+  main.querySelector("#quoteReplyForm").addEventListener("submit", async e => {
+    e.preventDefault();
+    const data = Object.fromEntries(new FormData(e.target).entries());
+    await api(`/quotes/${id}/comments`, { method: "POST", body: JSON.stringify(data) });
+    toast("Reply sent");
+    renderQuoteDetail(id);
+  });
+  const itemPicker = (isAddon) => `
+    <form>
+      <div class="field"><label>Service or package</label>
+        <select name="pick" required>
+          <optgroup label="Services">${services.map(s => `<option value="svc:${s.id}">${s.name} — ${money(s.base_price)}</option>`).join("")}</optgroup>
+          <optgroup label="Packages">${packages.map(p => `<option value="pkg:${p.id}">${p.name} — ${money(p.base_price)}</option>`).join("")}</optgroup>
+        </select>
+      </div>
+      <button type="submit" style="width:100%;">Add to quote</button>
+    </form>
+  `;
+  main.querySelector("#addBaseBtn").addEventListener("click", () => openModal("Add included item", itemPicker(false), async data => {
+    const [kind, itemId] = data.pick.split(":");
+    await api(`/quotes/${id}/items`, { method: "POST", body: JSON.stringify({ [kind === "svc" ? "service_id" : "package_id"]: itemId, is_addon: false }) });
+    toast("Added"); renderQuoteDetail(id);
+  }));
+  main.querySelector("#addAddonBtn").addEventListener("click", () => openModal("Add optional add-on", itemPicker(true), async data => {
+    const [kind, itemId] = data.pick.split(":");
+    await api(`/quotes/${id}/items`, { method: "POST", body: JSON.stringify({ [kind === "svc" ? "service_id" : "package_id"]: itemId, is_addon: true }) });
+    toast("Added"); renderQuoteDetail(id);
+  }));
+  if (q.status === "Draft") {
+    main.querySelector("h1").insertAdjacentHTML("beforeend", ` <button type="button" class="icon-btn" id="sendQuoteBtn">Send quote</button>`);
+    main.querySelector("#sendQuoteBtn").addEventListener("click", async () => {
+      const r = await api(`/quotes/${id}/send`, { method: "POST", body: "{}" });
+      toast("Quote sent");
+      const wa=waLink(r.phone,r.whatsapp_message);
+      if(wa) window.open(wa,"_blank","noopener");
+      else if(r.public_url) await navigator.clipboard?.writeText(r.public_url);
+      renderQuoteDetail(id);
+    });
+  }
+}
+
+// ── Quotes ──────────────────────────────────────────────────
+async function renderQuotes() {
+  const quotes = await api("/quotes");
+  main.innerHTML = `
+    ${pageHeader("Quotes")}
+    <div class="card"><h2>All quotes (${quotes.length})</h2>
+      <table><thead><tr><th>Quote</th><th>Lead</th><th>Status</th><th>Event</th><th>Date</th><th>Value</th></tr></thead>
+      <tbody>${quotes.map(q => `<tr class="clickable" data-quote="${q.id}">
+        <td><b>${escapeHtml(q.quote_number||("#"+q.id))}</b></td>
+        <td>${escapeHtml(q.lead_name||"—")}<div class="meta">${escapeHtml(q.lead_phone||"")}</div></td>
+        <td>${statusPill(q.status)}</td><td>${escapeHtml(q.event_type||"—")}</td>
+        <td>${escapeHtml(q.event_date||"TBD")}</td><td>${money(Math.max(0,Number(q.total||0)-Number(q.concession_amount||0)))}</td>
+      </tr>`).join("") || '<tr><td colspan="6" class="empty">No quotes yet.</td></tr>'}</tbody></table>
+    </div>`;
+  main.querySelectorAll("[data-quote]").forEach(el => el.addEventListener("click",()=>go("quoteDetail",el.dataset.quote)));
+}
+
+// ── Bookings ────────────────────────────────────────────────
+async function renderBookings() {
+  const bookings = await api("/bookings");
+  main.innerHTML = `
+    ${pageHeader("Bookings")}
+    <div class="card"><h2>All bookings (${bookings.length})</h2>
+      <table><thead><tr><th>Booking</th><th>Client</th><th>Status</th><th>Events</th><th>Booked value</th><th>Paid</th><th>Outstanding</th></tr></thead>
+      <tbody>${bookings.map(b => {
+        const value=Number(b.booked_value||0), paid=Number(b.paid_amount||0);
+        return `<tr class="clickable" data-booking="${b.id}">
+          <td><b>${escapeHtml(b.booking_number||("#"+b.id))}</b><div class="meta">${escapeHtml(b.quote_status||"")}</div></td>
+          <td>${escapeHtml(b.client_name||"—")}<div class="meta">${escapeHtml(b.client_phone||"")}</div></td>
+          <td>${statusPill(b.status)}</td><td>${Number(b.event_count||0)}</td><td>${money(value)}</td><td>${money(paid)}</td><td>${money(Math.max(0,value-paid))}</td>
+        </tr>`;
+      }).join("") || '<tr><td colspan="7" class="empty">No bookings yet. Convert an accepted quote to create one.</td></tr>'}</tbody></table>
+    </div>`;
+  main.querySelectorAll("[data-booking]").forEach(el=>el.addEventListener("click",()=>openBooking(el.dataset.booking)));
+}
+
+async function openBooking(id) {
+  const b=await api(`/bookings/${id}`);
+  const paid=(b.payments||[]).reduce((n,p)=>n+Number(p.amount||0),0);
+  openModal(`Booking ${escapeHtml(b.booking_number||("#"+b.id))}`,`
+    <div class="card" style="margin:0 0 12px"><b>${escapeHtml(b.client_name||"")}</b><div class="meta">${escapeHtml(b.client_email||"")} · ${escapeHtml(b.client_phone||"")}</div><div style="margin-top:8px">Booked: ${money(b.booked_value)} · Paid: ${money(paid)} · Outstanding: ${money(Math.max(0,Number(b.booked_value||0)-paid))}</div></div>
+    <div class="card" style="margin:0 0 12px"><h3>Payment schedule</h3>
+      ${(b.payment_schedule||[]).map(p=>`<div class="list-row"><span><b>${escapeHtml(p.label)}</b> · ${money(p.amount)} <span class="meta">${escapeHtml(p.due_date||"No due date")}</span></span>${statusPill(p.status)}</div>`).join("")||'<div class="empty">No payment schedule configured.</div>'}</div>
+    <div class="card" style="margin:0 0 12px"><h3>Events</h3>${(b.events||[]).map(e=>`<div class="list-row"><span><b>${escapeHtml(e.event_number||("#"+e.id))}</b> · ${escapeHtml(e.type||"")}</span><button type="button" class="icon-btn" data-open-event="${e.id}">Open</button></div>`).join("")||'<div class="empty">No events.</div>'}</div>
+    <div class="card" style="margin:0"><h3>Payments <button type="button" class="icon-btn" id="addBookingPayment">+ Add</button></h3>
+      ${(b.payments||[]).map(p=>`<div class="list-row"><span>${escapeHtml(p.payment_date)} · ${money(p.amount)} <span class="meta">${escapeHtml(p.method||"")} ${escapeHtml(p.reference||"")}</span></span></div>`).join("")||'<div class="empty">No payments recorded.</div>'}</div>
+  `,async()=>{});
+  document.querySelectorAll("[data-open-event]").forEach(el=>el.addEventListener("click",()=>{closeModal();go("eventDetail",el.dataset.openEvent);}));
+  document.querySelector("#addBookingPayment")?.addEventListener("click",()=>openModal("Add booking payment",`
+    <form>
+      <div class="field"><label>Amount (₹)</label><input name="amount" type="number" min="1" required></div>
+      <div class="field"><label>Payment date</label><input name="payment_date" type="date" value="${new Date().toISOString().slice(0,10)}" required></div>
+      <div class="field"><label>Method</label><input name="method" placeholder="UPI / Bank / Cash / Card"></div>
+      <div class="field"><label>Reference</label><input name="reference"></div>
+      <div class="field"><label>Notes</label><input name="notes"></div>
+      <button type="submit" style="width:100%">Record payment</button>
+    </form>`,async data=>{await api(`/bookings/${id}/payments`,{method:"POST",body:JSON.stringify(data)});toast("Payment recorded");closeModal();renderBookings();}));
+}
+
+// // ── Accounts ───────────────────────────────────────────────
+async function renderAccounts() {
+  const allAccts = await api("/accounts");
+  const balanceOnly = state.filter && state.filter.balance_due;
+  const accts = balanceOnly ? allAccts.filter(a => a.balance_due > 0) : allAccts;
+  const totalLtv = allAccts.reduce((s, a) => s + (a.lifetime_value || 0), 0);
+  const totalBalance = allAccts.reduce((s, a) => s + (a.balance_due || 0), 0);
+  const filterToggle = `<button type="button" class="btn ${balanceOnly ? "" : "ghost"}" id="balanceFilterBtn">${balanceOnly ? "✕ Clear filter" : "Balance due only"}</button>`;
+  main.innerHTML = `
+    ${pageHeader("Clients", null, filterToggle + csvToolbar("/api/admin/accounts/export.csv", "/accounts/import"))}
+    <div class="kpis" style="margin-bottom:16px;">
+      <div class="kpi"><div class="l">Customers</div><div class="v">${allAccts.length}</div></div>
+      <div class="kpi"><div class="l">Total lifetime value (booked)</div><div class="v">${money(totalLtv)}</div></div>
+      <div class="kpi"><div class="l">Total balance due</div><div class="v" style="color:${totalBalance > 0 ? "var(--critical)" : "inherit"}">${money(totalBalance)}</div></div>
+    </div>
+    ${balanceOnly ? `<div class="crit-banner">Showing ${accts.length} client(s) with money still owed — cleared automatically once a payment covers the balance.</div>` : ""}
+    <div class="card">
+    <table><thead><tr><th>Name</th><th>Phone</th><th>Bookings</th><th>Lifetime value</th><th>Balance due</th><th>Client since</th><th></th></tr></thead>
+    <tbody>${accts.map(a => `<tr class="clickable" data-acct="${a.id}"><td>${a.name}${a.is_signature ? ' <span class="pill" style="background:var(--warning-soft);color:var(--warning)">Signature</span>' : ""}${a.event_count >= 2 ? ' <span class="pill" style="background:var(--success-soft);color:var(--success)">Repeat client</span>' : ""}</td><td>${a.phone||"—"}</td><td>${a.event_count}</td><td>${money(a.lifetime_value)}</td><td${a.balance_due > 0 ? ' style="color:var(--critical);font-weight:600;"' : ""}>${a.balance_due > 0 ? money(a.balance_due) : "—"}</td><td>${a.client_since}</td><td class="row-actions"><button type="button" class="icon-btn edit" data-edit-acct="${a.id}" title="Edit">✎</button><button type="button" class="icon-btn del" data-del-acct="${a.id}" title="Delete">✕</button></td></tr>`).join("") || `<tr><td colspan="7" class="empty">${balanceOnly ? "No customers currently owe a balance." : "No customers yet — convert a lead first."}</td></tr>`}</tbody></table>
+  </div>`;
+  wireCsvImport("/accounts/import", "name*, phone, email, address, notes, is_signature", () => renderAccounts());
+  const balBtn = document.getElementById("balanceFilterBtn");
+  if (balBtn) balBtn.addEventListener("click", () => go("accounts", null, balanceOnly ? null : { balance_due: true }));
+  main.querySelectorAll("[data-acct]").forEach(el => el.addEventListener("click", () => go("accountDetail", el.dataset.acct)));
+  main.querySelectorAll("[data-edit-acct]").forEach(el => el.addEventListener("click", e => {
+    e.stopPropagation();
+    const a = accts.find(x => String(x.id) === el.dataset.editAcct);
+    openModal("Edit customer", `
+      <form>
+        <div class="field"><label>Name</label><input name="name" value="${a.name}" required></div>
+        <div class="field"><label>Phone</label><input name="phone" value="${a.phone || ""}"></div>
+        <div class="field"><label>Email</label><input name="email" value="${a.email || ""}"></div>
+        <button type="submit" style="width:100%;">Save</button>
+      </form>
+    `, async data => { await api(`/accounts/${a.id}/details`, { method: "POST", body: JSON.stringify(data) }); toast("Customer updated"); renderAccounts(); });
+  }));
+  main.querySelectorAll("[data-del-acct]").forEach(el => el.addEventListener("click", e => {
+    e.stopPropagation();
+    confirmDelete("Delete this customer? Only possible if they have no events.", `/accounts/${el.dataset.delAcct}/delete`, renderAccounts);
+  }));
+}
+
+async function renderAccountDetail(id) {
+  const a = await api(`/accounts/${id}`);
+  main.innerHTML = `
+    <span class="back" data-back>← Clients</span>
+    ${pageHeader(`${a.name} <span class="pill">LTV ₹${a.lifetime_value}</span> ${waButton(a.phone, `Hi ${a.name}, this is Paperclip Studios — thank you for booking with us!`)}`, "+ New event")}
+    <div class="card"><h2>Contacts <button class="icon-btn" id="addContactBtn">+ Add</button></h2>
+      ${a.contacts.map(c => `<div class="list-row"><span>${c.name}${c.role ? ` <span class="pill">${c.role}</span>` : ""}${c.is_primary ? ' <span class="pill" style="background:var(--success-soft);color:var(--success)">Primary</span>' : ""} <span class="meta">${[c.phone, c.email].filter(Boolean).join(" · ")}</span></span><span class="row-actions">${waButton(c.phone, `Hi ${c.name}, this is Paperclip Studios — reaching out about your upcoming event.`)}<button type="button" class="icon-btn edit" data-edit-contact="${c.id}" title="Edit">✎</button><button type="button" class="icon-btn del" data-del-contact="${c.id}" title="Delete">✕</button></span></div>`).join("") || '<div class="empty">No additional contacts yet — the customer\'s own phone/email above counts as the primary.</div>'}
+    </div>
+    <div class="card"><h2>Events</h2>
+      <table>${a.events.map(e => `<tr class="clickable" data-event="${e.id}"><td>${e.type}</td><td>${e.event_date||"TBD"}</td><td><span class="pill">${e.tier_name||"—"}</span></td><td>${money(e.quote_total)}</td></tr>`).join("") || `<tr><td class="empty">No events yet — use the + button to create one.</td></tr>`}</table>
+    </div>
+  `;
+  main.querySelector("[data-back]").addEventListener("click", () => go("accounts"));
+  main.querySelectorAll("[data-event]").forEach(el => el.addEventListener("click", () => go("eventDetail", el.dataset.event)));
+  main.querySelector("#addContactBtn").addEventListener("click", () => openModal("Add a contact", `
+    <form>
+      <div class="field"><label>Name</label><input name="name" required></div>
+      <div class="field"><label>Role</label>
+        <select name="role"><option>Bride</option><option>Groom</option><option>Planner</option><option>Parent</option><option>Other</option></select>
+      </div>
+      <div class="field"><label>Phone</label><input name="phone"></div>
+      <div class="field"><label>Email</label><input name="email"></div>
+      <button type="submit" style="width:100%;">Add contact</button>
+    </form>
+  `, async data => { await api(`/accounts/${id}/contacts`, { method: "POST", body: JSON.stringify(data) }); toast("Contact added"); renderAccountDetail(id); }));
+  main.querySelectorAll("[data-edit-contact]").forEach(el => el.addEventListener("click", () => {
+    const c = a.contacts.find(x => String(x.id) === el.dataset.editContact);
+    openModal("Edit contact", `
+      <form>
+        <div class="field"><label>Name</label><input name="name" value="${c.name}" required></div>
+        <div class="field"><label>Role</label>
+          <select name="role">${["Bride","Groom","Planner","Parent","Other"].map(r => `<option ${r===c.role?"selected":""}>${r}</option>`).join("")}</select>
+        </div>
+        <div class="field"><label>Phone</label><input name="phone" value="${c.phone || ""}"></div>
+        <div class="field"><label>Email</label><input name="email" value="${c.email || ""}"></div>
+        <button type="submit" style="width:100%;">Save</button>
+      </form>
+    `, async data => { await api(`/contacts/${c.id}`, { method: "POST", body: JSON.stringify(data) }); toast("Contact updated"); renderAccountDetail(id); });
+  }));
+  main.querySelectorAll("[data-del-contact]").forEach(el => el.addEventListener("click", () =>
+    confirmDelete("Remove this contact?", `/contacts/${el.dataset.delContact}/delete`, () => renderAccountDetail(id))
+  ));
+  setPrimaryAction(() => openModal("New event", `
+    <form>
+      <div class="field"><label>Type</label><input name="type" placeholder="Wedding" required></div>
+      <div class="field"><label>Date</label><input name="event_date" type="date"></div>
+      <div class="field"><label>Start time</label><input name="start_time" type="time"></div>
+      <div class="field"><label>End time</label><input name="end_time" type="time"></div>
+      <div class="field"><label>Reporting time</label><input name="reporting_time" type="time"></div>
+      <div class="field"><label>Venue</label><input name="venue"></div>
+      <button type="submit" style="width:100%;">Create event</button>
+    </form>
+  `, async data => {
+    data.account_id = id;
+    const r = await api("/events", { method: "POST", body: JSON.stringify(data) });
+    toast("Event created");
+    go("eventDetail", r.id);
+  }));
+}
+
+// ── Events ─────────────────────────────────────────────────
+// The gap this fills: previously an event existed only inside its Account's
+// drill-down, or unfiltered in Reports — there was nowhere to see "what's
+// on this week" across every customer at once. This is that view.
+const EVENT_RANGES = [
+  ["all", "All"], ["this_week", "This week"], ["last_week", "Last week"], ["next_week", "Next week"],
+  ["this_month", "This month"], ["next_month", "Next month"], ["custom", "Custom range"],
+];
+let eventsCustom = { from: "", to: "" };
+
+async function renderEvents(range) {
+  range = range || state.eventsRange || "all";
+  state.eventsRange = range;
+
+  let qs = "";
+  if (range === "custom") {
+    if (eventsCustom.from && eventsCustom.to) qs = `?range=custom&from=${eventsCustom.from}&to=${eventsCustom.to}`;
+  } else if (range !== "all") {
+    qs = `?range=${range}`;
+  }
+  const [data, accounts] = await Promise.all([
+    (range === "custom" && !qs) ? Promise.resolve({ events: [] }) : api(`/events${qs}`),
+    api("/accounts"),
+  ]);
+
+  const rangeLabel = EVENT_RANGES.find(r => r[0] === range)[1];
+  main.innerHTML = `
+    ${pageHeader("Events", "+ New event")}
+    <div class="segbar">${EVENT_RANGES.map(([key, label]) => `<button type="button" class="seg ${range === key ? "active" : ""}" data-range="${key}">${label}</button>`).join("")}</div>
+    ${range === "custom" ? `<div class="customrange">
+        <input type="date" id="customFrom" value="${eventsCustom.from}">
+        <span style="color:var(--ink-soft);font-size:12.5px;">to</span>
+        <input type="date" id="customTo" value="${eventsCustom.to}">
+        <button type="button" class="ghost" id="applyCustom">Apply</button>
+      </div>` : ""}
+    <div class="card"><h2>${range === "all" ? "All events" : rangeLabel} (${data.events.length})</h2>
+      <table><thead><tr><th>Customer</th><th>Type</th><th>Date</th><th>Status</th><th>Balance due</th><th></th></tr></thead>
+      <tbody>${data.events.map(e => `<tr class="clickable" data-event="${e.id}">
+          <td>${e.account_name}</td>
+          <td>${e.type}</td>
+          <td>${e.event_date || "TBD"}</td>
+          <td>${statusPill(e.status)}${e.payment_overdue ? ` <span class="pill" style="background:var(--critical-soft);color:var(--critical)">Payment overdue</span>` : ""}</td>
+          <td>${money(e.balance_due)}</td>
+          <td class="row-actions"><button type="button" class="icon-btn edit" data-edit-event="${e.id}" title="Edit">✎</button><button type="button" class="icon-btn del" data-del-event="${e.id}" title="Delete">✕</button></td>
+        </tr>`).join("") || `<tr><td colspan="6" class="empty">${range === "custom" && !qs ? "Pick a date range above." : "No events in this range."}</td></tr>`}</tbody></table>
+    </div>
+  `;
+  main.querySelectorAll("[data-event]").forEach(el => el.addEventListener("click", () => go("eventDetail", el.dataset.event)));
+  main.querySelectorAll("[data-range]").forEach(el => el.addEventListener("click", () => renderEvents(el.dataset.range)));
+  main.querySelectorAll("[data-edit-event]").forEach(el => el.addEventListener("click", e => {
+    e.stopPropagation();
+    const ev = data.events.find(x => String(x.id) === el.dataset.editEvent);
+    openModal("Edit event", `
+      <form>
+        <div class="field"><label>Type</label><input name="type" value="${ev.type}" required></div>
+        <div class="field"><label>Date</label><input name="event_date" type="date" value="${ev.event_date || ""}"></div>
+        <div class="field"><label>Start time</label><input name="start_time" type="time" value="${ev.start_time || ""}"></div>
+        <div class="field"><label>End time</label><input name="end_time" type="time" value="${ev.end_time || ""}"></div>
+        <div class="field"><label>Reporting time</label><input name="reporting_time" type="time" value="${ev.reporting_time || ""}"></div>
+        <div class="field"><label>Venue</label><input name="venue" value="${ev.venue || ""}"></div>
+        <div class="field"><label>Status</label>
+          <select name="status">${["Pending","Planning","In-Progress","Completed","Cancelled"].map(s => `<option ${s===ev.status?"selected":""}>${s}</option>`).join("")}</select>
+        </div>
+        <button type="submit" style="width:100%;">Save</button>
+      </form>
+    `, async data2 => { await api(`/events/${ev.id}/details`, { method: "POST", body: JSON.stringify(data2) }); toast("Event updated"); renderEvents(range); });
+  }));
+  main.querySelectorAll("[data-del-event]").forEach(el => el.addEventListener("click", e => {
+    e.stopPropagation();
+    confirmDelete("Delete this event? Only possible if it has no payments recorded.", `/events/${el.dataset.delEvent}/delete`, () => renderEvents(range));
+  }));
+  const applyBtn = main.querySelector("#applyCustom");
+  if (applyBtn) applyBtn.addEventListener("click", () => {
+    eventsCustom.from = main.querySelector("#customFrom").value;
+    eventsCustom.to = main.querySelector("#customTo").value;
+    if (!eventsCustom.from || !eventsCustom.to) { toast("Pick both dates", true); return; }
+    renderEvents("custom");
+  });
+  setPrimaryAction(() => openModal("New event", `
+    <form>
+      <div class="field"><label>Customer</label>
+        <select name="account_id" required>${accounts.map(a => `<option value="${a.id}">${a.name}</option>`).join("") || `<option value="" disabled>No customers yet</option>`}</select>
+      </div>
+      <div class="field"><label>Type</label><input name="type" placeholder="Wedding" required></div>
+      <div class="field"><label>Date</label><input name="event_date" type="date"></div>
+      <div class="field"><label>Start time</label><input name="start_time" type="time"></div>
+      <div class="field"><label>End time</label><input name="end_time" type="time"></div>
+      <div class="field"><label>Reporting time</label><input name="reporting_time" type="time"></div>
+      <div class="field"><label>Venue</label><input name="venue"></div>
+      <button type="submit" style="width:100%;">Create event</button>
+    </form>
+  `, async data => {
+    const r = await api("/events", { method: "POST", body: JSON.stringify(data) });
+    toast("Event created");
+    go("eventDetail", r.id);
+  }));
+}
+
+// ── Calendar ───────────────────────────────────────────────
+let calendarDate = new Date();
+function calendarIso(d) { return d.toISOString().slice(0,10); }
+function calendarWeekStart(d) {
+  const x = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+  const day = x.getUTCDay();
+  x.setUTCDate(x.getUTCDate() + (day === 0 ? -6 : 1 - day));
+  return x;
+}
+async function renderCalendar() {
+  const start = calendarWeekStart(calendarDate);
+  const end = new Date(start); end.setUTCDate(end.getUTCDate() + 6);
+  const from = calendarIso(start), to = calendarIso(end);
+  const data = await api(`/calendar?from=${from}&to=${to}`);
+  const days = Array.from({length:7}, (_, i) => { const d = new Date(start); d.setUTCDate(d.getUTCDate()+i); return d; });
+  const eventsByDay = Object.groupBy ? Object.groupBy(data.events, e => e.event_date) : data.events.reduce((m,e)=>((m[e.event_date] ||= []).push(e),m),{});
+  const followupsByDay = Object.groupBy ? Object.groupBy(data.followups, f => f.next_follow_up_date) : data.followups.reduce((m,f)=>((m[f.next_follow_up_date] ||= []).push(f),m),{});
+  main.innerHTML = `
+    ${pageHeader("Calendar", "+ New event")}
+    <div class="segbar" style="justify-content:space-between;align-items:center;">
+      <button type="button" class="seg" id="calPrev">← Previous week</button>
+      <b>${start.toLocaleDateString("en-IN",{day:"numeric",month:"short"})} – ${end.toLocaleDateString("en-IN",{day:"numeric",month:"short",year:"numeric"})}</b>
+      <button type="button" class="seg" id="calNext">Next week →</button>
+    </div>
+    <div class="row2">${days.map(d => {
+      const key=calendarIso(d); const es=eventsByDay[key]||[]; const fs=followupsByDay[key]||[];
+      return `<div class="card"><h2>${d.toLocaleDateString("en-IN",{weekday:"short",day:"numeric",month:"short"})}</h2>
+        ${es.map(e=>`<div class="svc clickable" data-event="${e.id}"><b>${e.type}</b><br><span class="meta">${e.account_name}${e.start_time?` · ${e.start_time}${e.end_time?`–${e.end_time}`:""}`:" · All day"}</span>${e.reporting_time?`<br><span class="meta">Report ${e.reporting_time}</span>`:""}${e.venue?`<br><span class="meta">${e.venue}</span>`:""}</div>`).join("")}
+        ${fs.map(f=>`<div class="svc" style="border-left:3px solid var(--warning);"><b>Follow-up</b><br><span class="meta">${f.name}${f.event_type?` · ${f.event_type}`:""}</span></div>`).join("")}
+        ${!es.length&&!fs.length?'<div class="empty">Nothing scheduled.</div>':''}
+      </div>`;
+    }).join("")}</div>`;
+  main.querySelector("#calPrev").addEventListener("click",()=>{ calendarDate.setDate(calendarDate.getDate()-7); renderCalendar(); });
+  main.querySelector("#calNext").addEventListener("click",()=>{ calendarDate.setDate(calendarDate.getDate()+7); renderCalendar(); });
+  main.querySelectorAll("[data-event]").forEach(el=>el.addEventListener("click",()=>go("eventDetail",el.dataset.event)));
+  const calendarCreateFields = `
+      <div class="field"><label>Start time</label><input name="start_time" type="time"></div>
+      <div class="field"><label>End time</label><input name="end_time" type="time"></div>
+      <div class="field"><label>Reporting time</label><input name="reporting_time" type="time"></div>`;
+  const calendarAccounts = await api("/accounts");
+  const calendarAccountOptions = calendarAccounts.map(a => `<option value="${a.id}">${escapeHtml(a.name)}</option>`).join("");
+  setPrimaryAction(() => openModal("New event", `
+    <form>
+      <div class="field"><label>Customer</label><select name="account_id" required>${calendarAccountOptions}</select></div>
+      <div class="field"><label>Type</label><input name="type" placeholder="Wedding" required></div>
+      <div class="field"><label>Date</label><input name="event_date" type="date" value="${from}"></div>
+      ${calendarCreateFields}<div class="field"><label>Venue</label><input name="venue"></div>
+      <button type="submit" style="width:100%;">Create event</button>
+    </form>
+  `, async form => { const r=await api("/events",{method:"POST",body:JSON.stringify(form)}); toast("Event created"); go("eventDetail",r.id); }));
+}
+
+// ── Packages ───────────────────────────────────────────────
+async function renderPackages() {
+  const [packages, services] = await Promise.all([api("/packages"), api("/services")]);
+  const svcCheckboxes = (checkedIds) => services.map(s => `<label style="display:inline-flex;align-items:center;gap:5px;margin:2px 12px 2px 0;font-weight:400;text-transform:none;font-size:13px;"><input type="checkbox" name="service_ids" value="${s.id}" ${checkedIds && checkedIds.has(s.id) ? "checked" : ""}> ${s.name}</label>`).join("");
+  main.innerHTML = `
+    ${pageHeader("Packages", "+ New package")}
+    <div class="card"><h2>Active packages</h2>
+      <table><thead><tr><th>Name</th><th>Price</th><th>Includes</th><th></th></tr></thead>
+      <tbody>${packages.map(p => `<tr><td><b>${p.name}</b><div class="meta">${p.description || ""}</div></td><td>${money(p.base_price)}</td><td class="meta">${p.items.map(i => i.name).join(", ") || "—"}</td><td class="row-actions"><button type="button" class="icon-btn edit" data-edit-pkg="${p.id}" title="Edit">✎</button><button type="button" class="icon-btn del" data-del-pkg="${p.id}" title="Delete">✕</button></td></tr>`).join("") || `<tr><td colspan="4" class="empty">No packages yet — use the + button to create one.</td></tr>`}</tbody></table>
+    </div>
+  `;
+  setPrimaryAction(() => openModal("Create a package", `
+    <form>
+      <div class="row2">
+        <div class="field"><label>Name</label><input name="name" placeholder="e.g. Gold Wedding Package" required></div>
+        <div class="field"><label>Bundle price (₹)</label><input name="base_price" type="number" required></div>
+      </div>
+      <div class="field"><label>Description</label><input name="description" placeholder="What's included, in plain words"></div>
+      <div class="field"><label>Included services (reference only — doesn't change the bundle price)</label>
+        ${svcCheckboxes()}
+      </div>
+      <button type="submit" style="width:100%;">Create package</button>
+    </form>
+  `, async (data, form) => {
+    data.service_ids = new FormData(form).getAll("service_ids");
+    await api("/packages", { method: "POST", body: JSON.stringify(data) });
+    toast("Package created");
+    renderPackages();
+  }));
+  main.querySelectorAll("[data-edit-pkg]").forEach(el => el.addEventListener("click", () => {
+    const p = packages.find(x => String(x.id) === el.dataset.editPkg);
+    // The package's items only come back as names, not service_ids — match
+    // by name against the loaded services list so the right boxes start checked.
+    const currentNames = new Set(p.items.map(i => i.name));
+    const checkedIds = new Set(services.filter(s => currentNames.has(s.name)).map(s => s.id));
+    openModal("Edit package", `
+      <form>
+        <div class="row2">
+          <div class="field"><label>Name</label><input name="name" value="${p.name}" required></div>
+          <div class="field"><label>Bundle price (₹)</label><input name="base_price" type="number" value="${p.base_price}" required></div>
+        </div>
+        <div class="field"><label>Description</label><input name="description" value="${p.description || ""}"></div>
+        <div class="field"><label>Included services (reference only — doesn't change the bundle price)</label>
+          ${svcCheckboxes(checkedIds)}
+        </div>
+        <button type="submit" style="width:100%;">Save</button>
+      </form>
+    `, async (data, form) => {
+      data.service_ids = new FormData(form).getAll("service_ids");
+      await api(`/packages/${p.id}`, { method: "POST", body: JSON.stringify(data) });
+      toast("Package updated");
+      renderPackages();
+    });
+  }));
+  main.querySelectorAll("[data-del-pkg]").forEach(el => el.addEventListener("click", () =>
+    confirmDelete("Remove this package? Events that already applied it keep their booked price.", `/packages/${el.dataset.delPkg}/delete`, renderPackages)
+  ));
+}
+
+// ── Event detail (pricing, resourcing, cost/profit, payments, ops) ─
+async function renderEventDetail(id) {
+  const [ev, services, packages, vendors] = await Promise.all([
+    api(`/events/${id}`), api("/services"), api("/packages"), api("/vendors"),
+  ]);
+  const bookedIds = new Set(ev.services.map(s => s.service_id));
+  const checklistDone = ev.checklist.filter(c => c.done).length;
+  main.innerHTML = `
+    <span class="back" data-back>← Back</span>
+    <h1>${ev.type} <span class="pill">${money(ev.quote_total)}</span> <button class="icon-btn" id="editEventBtn">✎ Edit</button> <button type="button" class="icon-btn del" id="deleteEventBtn" title="Delete event">✕ Delete</button></h1>
+    <div class="sub" style="margin:-10px 0 16px;font-size:12.5px;color:var(--ink-soft);">Customer: <a data-acct="${ev.account_id}" style="cursor:pointer;color:var(--accent-deep);font-weight:600;">${ev.account_name} →</a></div>
+    <div class="kpis">
+      <div class="kpi"><div class="l">Revenue</div><div class="v">${money(ev.quote_total)}</div></div>
+      <div class="kpi"><div class="l">Real cost</div><div class="v">${money(ev.cost_breakdown.total)}</div></div>
+      <div class="kpi"><div class="l">Profit</div><div class="v" style="color:${ev.profit >= 0 ? 'var(--success)' : 'var(--critical)'}">${money(ev.profit)}</div></div>
+      <div class="kpi"><div class="l">Received</div><div class="v">${money(ev.advance_paid)}</div></div>
+    </div>
+
+    <div class="card"><h2>Event checklist — ${checklistDone}/${ev.checklist.length} ready ${checklistDone < ev.checklist.length ? '<span class="pill" style="background:var(--critical-soft);color:var(--critical)">incomplete</span>' : '<span class="pill" style="background:var(--success-soft);color:var(--success)">all set</span>'}</h2>
+      ${ev.checklist.length ? `<div class="bar"><div class="bar-fill" style="width:${Math.round(checklistDone / ev.checklist.length * 100)}%;background:${checklistDone < ev.checklist.length ? 'var(--warning)' : 'var(--success)'}"></div></div>` : ""}
+      ${["Pre-Production","Production","Post-Production"].map(phase => {
+        const items = ev.checklist.filter(c => c.phase === phase);
+        return `<div style="margin-top:10px;">
+          <div style="display:flex;justify-content:space-between;align-items:center;"><b style="font-size:12px;color:var(--ink-soft);text-transform:uppercase;letter-spacing:.03em;">${phase}</b><button type="button" class="icon-btn" data-add-checklist="${phase}" title="Add item">+ Add</button></div>
+          ${items.map(c => `<div class="check-row ${c.done ? "done" : ""}"><input type="checkbox" data-check="${c.id}" ${c.done ? "checked" : ""}> <span style="flex:1;">${c.item}</span> <button type="button" class="icon-btn del" data-del-checklist="${c.id}" title="Remove">✕</button></div>`).join("") || '<div class="empty" style="padding:6px 0;">Nothing here yet.</div>'}
+        </div>`;
+      }).join("")}
+    </div>
 
     <div class="card"><h2>Line items — what this event is actually billed for</h2>
       ${ev.services.map(s => `<div class="svc">${s.name} ${s.is_package ? '<span class="pill" style="background:var(--warning-soft);color:var(--warning)">Package</span>' : ""} — ${money(s.price_at_booking)} <button type="button" class="icon-btn del" data-del-lineitem="${s.id}" title="Remove">✕</button></div>`).join("") || '<div class="empty">Nothing added yet — apply a package or add services below.</div>'}
@@ -887,24 +1383,7 @@ async function renderQuoteDetail(id) {
   </div>`);
   const er=await api(`/events/${id}/resources`).catch(()=>[]); document.getElementById('eventResourcesList').innerHTML=er.length?er.map(r=>`<div class="resource-card"><b>${escapeHtml(r.resource_name)}</b><div class="meta"><span class="pill">${escapeHtml(r.resource_type||"Person")}</span> · ${escapeHtml(r.phase)}${r.skill_label?` · ${escapeHtml(r.skill_label)}`:''}</div>${r.role_label?`<div>${escapeHtml(r.role_label)}</div>`:''}<div class="meta">${money(r.cost)} · ${escapeHtml(r.status||'Planned')}</div><button type="button" class="icon-btn del" data-del-event-resource="${r.id}">✕ Remove</button></div>`).join(''):'<div class="empty">No resources allocated to this event.</div>';
   main.querySelectorAll('[data-del-event-resource]').forEach(el=>el.addEventListener('click',async()=>{await api(`/event-resources/${el.dataset.delEventResource}/delete`,{method:'POST',body:'{}'});toast('Resource removed');renderEventDetail(id);}));
-  main.querySelector('#addResourceBtn').addEventListener('click',async()=>{
-    const cfg=await loadUiConfig(true), active=(cfg.resources||[]).filter(r=>r.active), skills=cfg.skills||[];
-    const resourceOptions=active.map(r=>`<option value="${r.id}">${escapeHtml(r.name)} (${escapeHtml(r.resource_type||"Person")})</option>`).join('');
-    const formHtml=`<form>
-      <div class="field"><label>Resource</label><select name="resource_id" id="allocResource" required>${resourceOptions}</select></div>
-      <div class="field"><label>Phase</label><select name="phase">${(cfg.phases||[]).map(x=>`<option>${escapeHtml(x)}</option>`).join('')}</select></div>
-      <div class="field"><label>Skill</label><select name="skill_id" id="allocSkill"><option value="">— none —</option></select></div>
-      <div class="row2"><div class="field"><label>Allocation date</label><input name="allocation_date" type="date" value="${ev.event_date||''}"></div><div class="field"><label>Role</label><input name="role_label"></div></div>
-      <div class="row2"><div class="field"><label>Start time</label><input name="start_time" type="time" value="${ev.start_time||''}"></div><div class="field"><label>End time</label><input name="end_time" type="time" value="${ev.end_time||''}"></div></div>
-      <div class="row2"><div class="field"><label>Original estimate (₹)</label><input name="original_estimate" type="number" value="0"></div><div class="field"><label>Revised estimate (₹)</label><input name="revised_estimate" type="number"></div></div>
-      <div class="field"><label>Status</label><select name="status"><option>Planned</option><option>Confirmed</option><option>In Progress</option><option>Completed</option><option>Cancelled</option></select></div>
-      <div class="field"><label>Notes</label><textarea name="notes" rows="2"></textarea></div>
-      <button type="submit" style="width:100%">Allocate</button></form>`;
-    openModal('Allocate resource',formHtml,async data=>{await api(`/events/${id}/resources`,{method:'POST',body:JSON.stringify(data)});toast('Resource allocated');renderEventDetail(id);});
-    const modal=document.getElementById('modal-body');
-    const refreshSkills=()=>{const r=active.find(x=>String(x.id)===String(modal.querySelector('#allocResource')?.value));const ids=String(r?.skill_ids||'').split(',').map(Number).filter(Number.isFinite);const list=skills.filter(s=>ids.includes(Number(s.id)));modal.querySelector('#allocSkill').innerHTML='<option value="">— none —</option>'+list.map(s=>`<option value="${s.id}">${escapeHtml(s.label)}</option>`).join('');};
-    modal?.querySelector('#allocResource')?.addEventListener('change',refreshSkills); refreshSkills();
-  });
+  main.querySelector('#addResourceBtn').addEventListener('click',async()=>{const cfg=await loadUiConfig(true), active=(cfg.resources||[]).filter(r=>r.active), skills=cfg.skills||[];openModal('Allocate resource',`<form><div class="field"><label>Resource</label><select name="resource_id" required>${active.map(r=>`<option value="${r.id}">${escapeHtml(r.name)} (${escapeHtml(r.resource_type||"Person")})</option>`).join('')}</select></div><div class="field"><label>Phase</label><select name="phase">${(cfg.phases||[]).map(x=>`<option>${escapeHtml(x)}</option>`).join('')}</select></div><div class="field"><label>Skill</label><select name="skill_id"><option value="">— optional —</option>${skills.map(x=>`<option value="${x.id}">${escapeHtml(x.label)}</option>`).join('')}</select></div><div class="field"><label>Role</label><input name="role_label"></div><div class="field"><label>Cost (₹)</label><input name="cost" type="number" value="0"></div><div class="field"><label>Status</label><select name="status"><option>Planned</option><option>Confirmed</option><option>Completed</option><option>Cancelled</option></select></div><div class="field"><label>Notes</label><input name="notes"></div><button type="submit" style="width:100%">Allocate</button></form>`,async data=>{await api(`/events/${id}/resources`,{method:'POST',body:JSON.stringify(data)});toast('Resource allocated');renderEventDetail(id);});});
   main.querySelector("[data-back]").addEventListener("click", () => goBack("events"));
   main.querySelector("#editEventBtn").addEventListener("click", () => openModal("Edit event", `
     <form>
@@ -915,7 +1394,7 @@ async function renderQuoteDetail(id) {
       <div class="field"><label>Reporting time</label><input name="reporting_time" type="time" value="${ev.reporting_time || ""}"></div>
       <div class="field"><label>Venue</label><input name="venue" value="${ev.venue || ""}"></div>
       <div class="field"><label>Status</label>
-        <select name="status">${["Pending","Planning","In-Progress","Completed","Cancelled"].map(s => `<option ${s===ev.status?"selected":""}>${s}</option>`).join("")}</select>
+        <select name="status">${["Planned","In progress","Delivered"].map(s => `<option ${s===ev.status?"selected":""}>${s}</option>`).join("")}</select>
       </div>
       <button type="submit" style="width:100%;">Save</button>
     </form>
@@ -1115,7 +1594,9 @@ async function renderQuoteDetail(id) {
 
 
 async function renderSettings(){
-  const [cfg,labels,picklists,skillsCfg]=await Promise.all([api("/product-config"),api("/labels"),api("/picklists"),api("/skills")]);
+  const cfg=await api("/product-config");
+  const labels=await api("/labels");
+  const picklists=await api("/picklists");
   let activeSection="company";
   const sectionNames=[
     ["company","Company"],["branding","Branding"],["crm","CRM Configuration"],
@@ -1179,20 +1660,13 @@ async function renderSettings(){
     }
     if(activeSection==="operations"){
       panel.innerHTML=`<div class="card"><h2>Business rules</h2><p class="empty">These are operational decisions the company can change without code.</p>${(cfg.rules||[]).map(r=>`<div class="list-row"><span style="flex:1"><b>${esc(r.label)}</b><br><span class="meta">${esc(r.description||"")}</span></span><button type="button" class="icon-btn edit" data-rule="${r.id}">Edit</button></div>`).join("")}</div>
-      <div class="card"><h2>Services</h2><p class="empty">Reusable services used by Packages, Quotes and Events. Resource requirements and required skills live here.</p><div class="list-row"><button type="button" class="btn primary-action" id="addServiceCfg">+ Add service</button></div><div id="serviceCfgList"></div></div>
+      <div class="card"><h2>Services</h2><p class="empty">Reusable services used by Packages, Quotes and Events. Configure category, price, resource requirement and required skills here.</p><div class="list-row"><button type="button" class="btn primary-action" id="addServiceCfg">+ Add service</button></div><div id="serviceCfgList"></div></div>
       <div class="card"><h2>Task templates</h2><p class="empty">Templates generate Pre-Production, Production and Post-Production work automatically.</p>${(cfg.task_templates||[]).map(t=>`<div class="list-row"><span style="flex:1"><b>${esc(t.default_title)}</b> <span class="pill">${esc(t.phase)}</span><br><span class="meta">${esc(t.event_type_key||"All event types")} · ${t.required?"Required":"Optional"}</span></span><button type="button" class="icon-btn edit" data-template="${t.id}">Edit</button></div>`).join("")}</div>`;
       const openRule=(r)=>{const value=typeof r?.value==="object"?JSON.stringify(r.value,null,2):"{}";openModal("Business rule",`<form>${input("label","Label",r?.label||"","text","required")}${input("category","Category",r?.category||"Operations")}${input("description","Description",r?.description||"")}<div class="field"><label>Value JSON</label><textarea name="value" rows="5">${esc(value)}</textarea></div><button type="submit">Save</button></form>`,async d=>{let value;try{value=JSON.parse(d.value||"{}")}catch{throw new Error("Value must be valid JSON")}await api("/product-config/rules",{method:"POST",body:JSON.stringify({...r,value,label:d.label,category:d.category,description:d.description})});toast("Rule saved");renderSettings();});};
-      const serviceList=await api("/services");
-      const serviceCfgList=panel.querySelector("#serviceCfgList");
-      serviceCfgList.innerHTML=serviceList.map(s=>`<div class="list-row"><span style="flex:1"><b>${esc(s.name)}</b> <span class="pill">${esc(s.category||"")}</span><span class="meta"> · ₹${Number(s.base_price||0).toLocaleString("en-IN")} · ${s.resource_required?"Resource required":"No resource"}</span><br><span class="meta">${esc(s.skills||"No required skills")}</span></span><button type="button" class="icon-btn edit" data-service-cfg="${s.id}">Edit</button></div>`).join("")||'<div class="empty">No services configured.</div>';
-      const openService=s=>openModal(s?"Edit service":"Add service",`<form>
-        ${input("name","Service name",s?.name||"","text","required")}${input("internal_code","Internal code",s?.internal_code||"")}${input("base_price","Default price",s?.base_price||0,"number","min=0")}${input("category","Category",s?.category||"Production")}${input("description","Description",s?.description||"")}
-        <div class="field"><label><input name="resource_required" type="checkbox" ${s?.resource_required?"checked":""}> Resource required</label></div>
-        <div class="field"><label>Required skills</label><select name="skill_ids" multiple size="6">${(skillsCfg||[]).map(k=>`<option value="${k.id}" ${String(s?.skill_ids||"").split(",").includes(String(k.id))?"selected":""}>${esc(k.label)}</option>`).join("")}</select></div>
-        ${input("sort_order","Sort order",s?.sort_order||0,"number")}<label><input name="active" type="checkbox" ${s?.active!==false?"checked":""}> Active</label>
-        <button type="submit">Save</button></form>`,async d=>{d.id=s?.id;d.resource_required=!!d.resource_required;d.active=!!d.active;d.skill_ids=[...document.getElementById("modal-body").querySelector('[name="skill_ids"]').selectedOptions].map(x=>x.value);await api(s?"/services/"+s.id:"/services",{method:"POST",body:JSON.stringify(d)});toast("Service saved");renderSettings();});
-      panel.querySelector("#addServiceCfg").addEventListener("click",()=>openService(null));
-      panel.querySelectorAll("[data-service-cfg]").forEach(el=>el.addEventListener("click",()=>openService(serviceList.find(s=>String(s.id)===el.dataset.serviceCfg))));
+      const serviceList=await api("/services"); const serviceSkills=await api("/skills");
+      panel.querySelector("#serviceCfgList").innerHTML=serviceList.map(s=>`<div class="list-row"><span style="flex:1"><b>${esc(s.name)}</b> <span class="pill">${esc(s.category||"")}</span><br><span class="meta">${money(s.base_price)} · ${s.resource_required?"Resource required":"No resource"} · ${esc(s.skills||"No required skills")}</span></span><button type="button" class="icon-btn edit" data-service-cfg="${s.id}">Edit</button></div>`).join("")||'<div class="empty">No services configured.</div>';
+      const openService=s=>openModal(s?"Edit service":"Add service",`<form>${input("name","Service name",s?.name||"","text","required")}${input("internal_code","Internal code",s?.internal_code||"")}${input("base_price","Default price",s?.base_price||0,"number","min=0")}${input("category","Category",s?.category||"Production")}${input("description","Description",s?.description||"")}<label><input name="resource_required" type="checkbox" ${s?.resource_required?"checked":""}> Resource required</label><div class="field"><label>Required skills</label><select name="skill_ids" multiple size="6">${serviceSkills.map(k=>`<option value="${k.id}" ${String(s?.skill_ids||"").split(",").includes(String(k.id))?"selected":""}>${esc(k.label)}</option>`).join("")}</select></div>${input("sort_order","Sort order",s?.sort_order||0,"number")}<label><input name="active" type="checkbox" ${s?.active!==false?"checked":""}> Active</label><button type="submit">Save</button></form>`,async d=>{d.id=s?.id;d.resource_required=!!d.resource_required;d.active=!!d.active;d.skill_ids=[...document.getElementById("modal-body").querySelector('[name="skill_ids"]').selectedOptions].map(x=>x.value);await api(s?"/services/"+s.id:"/services",{method:"POST",body:JSON.stringify(d)});toast("Service saved");renderSettings();});
+      panel.querySelector("#addServiceCfg").addEventListener("click",()=>openService(null)); panel.querySelectorAll("[data-service-cfg]").forEach(el=>el.addEventListener("click",()=>openService(serviceList.find(s=>String(s.id)===el.dataset.serviceCfg))));
       panel.querySelectorAll("[data-rule]").forEach(el=>el.addEventListener("click",()=>openRule((cfg.rules||[]).find(r=>r.id===Number(el.dataset.rule)))));
       const openTemplate=t=>openModal("Task template",`<form>${input("template_key","Template key",t?.template_key||"","text","required")}${input("name","Template name",t?.name||"Default")}${input("default_title","Task title",t?.default_title||"","text","required")}${input("default_description","Description",t?.default_description||"")}<div class="field"><label>Phase</label><select name="phase">${["Pre-Production","Production","Post-Production"].map(p=>`<option ${t?.phase===p?"selected":""}>${p}</option>`).join("")}</select></div><div class="field"><label>Task type</label><select name="task_type">${["Task","Resource"].map(p=>`<option ${t?.task_type===p?"selected":""}>${p}</option>`).join("")}</select></div>${input("event_type_key","Event type key",t?.event_type_key||"")}${input("sort_order","Sort order",t?.sort_order||0,"number")}<label><input name="required" type="checkbox" ${t?.required?"checked":""}> Required</label><label><input name="auto_create" type="checkbox" ${t?.auto_create!==false?"checked":""}> Auto-create</label><label><input name="active" type="checkbox" ${t?.active!==false?"checked":""}> Active</label><button type="submit">Save</button></form>`,async d=>{d.required=!!d.required;d.auto_create=!!d.auto_create;d.active=!!d.active;await api("/product-config/task-templates",{method:"POST",body:JSON.stringify({...t,...d})});toast("Task template saved");renderSettings();}); panel.querySelectorAll("[data-template]").forEach(el=>el.addEventListener("click",()=>openTemplate((cfg.task_templates||[]).find(t=>t.id===Number(el.dataset.template)))));
       return;
