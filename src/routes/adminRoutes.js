@@ -985,21 +985,27 @@ export async function getEvent(request, env, id) {
 export async function addEventService(request, env, id) {
   const body = await request.json().catch(() => null);
   if (!body || !body.service_id) return badRequest("service_id is required");
-  const service = await env.DB.prepare(`SELECT * FROM services WHERE id = ?`).bind(body.service_id).first();
-  if (!service) return notFound("service not found");
+  const service = await env.DB.prepare(`SELECT * FROM services WHERE id = ? AND active=1`).bind(body.service_id).first();
+  if (!service) return notFound("service not found or inactive");
+  const event = await env.DB.prepare("SELECT commercial_finalized_at FROM events WHERE id=?").bind(id).first();
+  if (!event) return notFound("event not found");
+  const addedAfterFinalization=event.commercial_finalized_at?1:0;
   await env.DB.prepare(
-    `INSERT INTO event_services (event_id, service_id, price_at_booking, is_crosssell) VALUES (?, ?, ?, ?)`
-  ).bind(id, body.service_id, service.base_price, body.is_crosssell ? 1 : 0).run();
+    `INSERT INTO event_services (event_id, service_id, price_at_booking, is_crosssell, source_type, added_after_finalization)
+     VALUES (?, ?, ?, ?, 'manual', ?)`
+  ).bind(id, body.service_id, service.base_price, body.is_crosssell ? 1 : 0, addedAfterFinalization).run();
 
   await recomputeQuote(env, id);
-  return json({ ok: true });
+  return json({ ok: true, added_after_finalization: !!addedAfterFinalization });
 }
 
 // Removes one line item (a service or an applied package) from an event —
 // the "Line items" list had no way back out before this.
 export async function removeEventService(request, env, eventServiceId) {
-  const row = await env.DB.prepare(`SELECT event_id FROM event_services WHERE id = ?`).bind(eventServiceId).first();
+  const row = await env.DB.prepare(`SELECT es.event_id,es.added_after_finalization,e.commercial_finalized_at
+    FROM event_services es JOIN events e ON e.id=es.event_id WHERE es.id=?`).bind(eventServiceId).first();
   if (!row) return notFound("line item not found");
+  if(row.commercial_finalized_at && !row.added_after_finalization) return badRequest("Finalized quote items cannot be removed. Add a separate post-finalization adjustment instead.");
   await env.DB.prepare(`DELETE FROM event_services WHERE id = ?`).bind(eventServiceId).run();
   await recomputeQuote(env, row.event_id);
   return json({ ok: true });
@@ -1010,9 +1016,12 @@ export async function applyPackageToEvent(request, env, id) {
   if (!body || !body.package_id) return badRequest("package_id is required");
   const pkg = await env.DB.prepare(`SELECT * FROM packages WHERE id = ? AND active = 1`).bind(body.package_id).first();
   if (!pkg) return notFound("package not found");
+  const event=await env.DB.prepare("SELECT commercial_finalized_at FROM events WHERE id=?").bind(id).first();
+  if(!event) return notFound("event not found");
   await env.DB.prepare(
-    `INSERT INTO event_services (event_id, package_id, price_at_booking, is_crosssell) VALUES (?, ?, ?, 0)`
-  ).bind(id, pkg.id, pkg.base_price).run();
+    `INSERT INTO event_services (event_id, package_id, price_at_booking, is_crosssell, source_type, added_after_finalization)
+     VALUES (?, ?, ?, 0, 'manual', ?)`
+  ).bind(id, pkg.id, pkg.base_price, event.commercial_finalized_at?1:0).run();
 
   await recomputeQuote(env, id);
   return json({ ok: true });
@@ -1027,14 +1036,10 @@ export async function setEventTier(request, env, id) {
 }
 
 async function recomputeQuote(env, eventId) {
-  const event = await env.DB.prepare(
-    `SELECT e.id, pt.multiplier FROM events e LEFT JOIN pricing_tiers pt ON pt.id = e.pricing_tier_id WHERE e.id = ?`
-  ).bind(eventId).first();
   const { results } = await env.DB.prepare(
     `SELECT price_at_booking FROM event_services WHERE event_id = ?`
   ).bind(eventId).all();
-  const base = results.reduce((s, r) => s + r.price_at_booking, 0);
-  const total = Math.round(base * (event?.multiplier || 1));
+  const total = Math.max(0, results.reduce((s, r) => s + Number(r.price_at_booking||0), 0));
   await env.DB.prepare(`UPDATE events SET quote_total = ? WHERE id = ?`).bind(total, eventId).run();
 }
 
