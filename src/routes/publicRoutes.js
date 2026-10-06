@@ -178,6 +178,7 @@ export async function toggleQuoteItem(request, env, token) {
   if (!body || !body.item_id || body.selected === undefined) return badRequest("item_id and selected are required");
   const quote = await env.DB.prepare(`SELECT id FROM lead_quotes WHERE token = ?`).bind(token).first();
   if (!quote) return notFound("invalid or expired quote link");
+  if(["Accepted","Rejected","Expired","Cancelled"].includes(quote.status)) return badRequest("this Quote is no longer adjustable");
   const item = await env.DB.prepare(`SELECT * FROM quote_items WHERE id = ? AND quote_id = ?`).bind(body.item_id, quote.id).first();
   if (!item) return notFound("item not found on this quote");
   if (!item.is_addon) return badRequest("this item isn't adjustable");
