@@ -173,33 +173,35 @@ export async function convertAcceptedQuote(request, env, quoteId) {
     ).run();
   const eventId=er.meta.last_row_id;
 
-  for(const item of items){
-    if(item.service_id){
+  // Keep conversion comfortably below D1 Free's per-invocation query ceiling.
+  // Bulk INSERTs are chunked by bound-parameter count rather than issuing one
+  // D1 statement per service/task/checklist row.
+  const bulkInsert=async(table,columns,rows,maxParams=90)=>{
+    if(!rows.length) return;
+    const width=columns.length;
+    const chunkSize=Math.max(1,Math.floor(maxParams/width));
+    for(let i=0;i<rows.length;i+=chunkSize){
+      const chunk=rows.slice(i,i+chunkSize);
+      const placeholders=chunk.map(()=>`(${columns.map(()=>"?").join(",")})`).join(",");
+      const binds=chunk.flat();
       await env.DB.prepare(
-        "INSERT INTO event_services(event_id,service_id,price_at_booking,is_crosssell) VALUES(?,?,?,?)"
-      ).bind(eventId,item.service_id,Number(item.price||0),item.is_addon?1:0).run();
-    } else if(item.package_id){
-      await env.DB.prepare(
-        "INSERT INTO event_services(event_id,package_id,price_at_booking,is_crosssell) VALUES(?,?,?,?)"
-      ).bind(eventId,item.package_id,Number(item.price||0),item.is_addon?1:0).run();
+        `INSERT INTO ${table}(${columns.join(",")}) VALUES ${placeholders}`
+      ).bind(...binds).run();
     }
-  }
+  };
 
-  if(total>0){
-    const advanceRule=await env.DB.prepare(
-      "SELECT value_json FROM crm_business_rules WHERE rule_key='booking.default_advance' AND active=1 ORDER BY id DESC LIMIT 1"
-    ).first();
-    const advancePercent=Math.min(100,Math.max(0,Number(parseRuleValue(advanceRule?.value_json).percent ?? 30)));
-    const advanceAmount=Math.round(total*advancePercent/100);
-    await env.DB.batch([
-      env.DB.prepare(
-        "INSERT INTO payment_schedule(event_id,label,due_date,amount,status) VALUES(?,?,?,?,?)"
-      ).bind(eventId,"Advance",new Date().toISOString().slice(0,10),advanceAmount,"Pending"),
-      env.DB.prepare(
-        "INSERT INTO payment_schedule(event_id,label,due_date,amount,status) VALUES(?,?,?,?,?)"
-      ).bind(eventId,"Balance",q.event_date||null,total-advanceAmount,"Pending")
-    ]);
-  }
+  const eventServiceRows=items.map(item=>[
+    eventId,
+    item.service_id||null,
+    item.package_id||null,
+    Number(item.price||0),
+    item.is_addon?1:0
+  ]);
+  await bulkInsert(
+    "event_services",
+    ["event_id","service_id","package_id","price_at_booking","is_crosssell"],
+    eventServiceRows
+  );
 
   const templates=autoCreateTasks
     ? (await env.DB.prepare(`SELECT * FROM crm_task_templates
@@ -207,7 +209,7 @@ export async function convertAcceptedQuote(request, env, quoteId) {
         ORDER BY phase,sort_order,id`).bind(q.event_type||"Wedding").all()).results
     : [];
 
-  let taskCount=0;
+  const taskRows=[];
   for(const t of templates){
     const matching=t.task_type==="Resource"
       ? items.filter(i=>resourceItemMatches(t.default_title,i.label))
@@ -223,35 +225,51 @@ export async function convertAcceptedQuote(request, env, quoteId) {
       const title=t.task_type==="Resource" && count>1
         ? `${t.default_title} #${n}`
         : t.default_title;
-
-      const tr=await env.DB.prepare(`INSERT INTO event_tasks(
-          event_id,task,status,phase,required,template_id,source_quote_item_id
-        ) VALUES(?,?,?,?,?,?,?)`).bind(
-          eventId,title,"Pending",t.phase,t.required?1:0,t.id,sourceItem?.id||null
-        ).run();
-      taskCount++;
-
-      if(t.task_type==="Resource"){
-        await env.DB.prepare(`INSERT INTO event_resource_requirements(
-            event_id,task_id,role_label,quantity,phase,allocation_date
-          ) VALUES(?,?,?,?,?,?)`).bind(
-            eventId,tr.meta.last_row_id,t.default_title,1,t.phase,q.event_date||null
-          ).run();
-      }
+      taskRows.push([
+        eventId,
+        title,
+        "Pending",
+        t.phase,
+        t.required?1:0,
+        t.id,
+        sourceItem?.id||null
+      ]);
     }
   }
+
+  await bulkInsert(
+    "event_tasks",
+    ["event_id","task","status","phase","required","template_id","source_quote_item_id"],
+    taskRows
+  );
+
+  // Resource requirements are derived from the created task rows, so we don't
+  // need one INSERT per task and don't need to depend on last_row_id ordering.
+  await env.DB.prepare(`INSERT INTO event_resource_requirements(
+      event_id,task_id,role_label,quantity,phase,allocation_date
+    )
+    SELECT et.event_id,et.id,t.default_title,1,et.phase,?
+    FROM event_tasks et
+    JOIN crm_task_templates t ON t.id=et.template_id
+    WHERE et.event_id=? AND t.task_type='Resource'`).bind(
+      q.event_date||null,eventId
+    ).run();
 
   const checklistTemplates=(await env.DB.prepare(
     "SELECT * FROM checklist_templates WHERE active=1 ORDER BY phase,sort_order,id"
   ).all()).results;
-  for(const item of checklistTemplates){
-    await env.DB.prepare(`INSERT INTO event_checklist(
-      event_id,item,done,phase,template_id
-    ) VALUES(?,?,0,?,?)`).bind(
-      eventId,item.item,item.phase||"Pre-Production",item.id
-    ).run();
-  }
-
+  const checklistRows=checklistTemplates.map(item=>[
+    eventId,
+    item.item,
+    0,
+    item.phase||"Pre-Production",
+    item.id
+  ]);
+  await bulkInsert(
+    "event_checklist",
+    ["event_id","item","done","phase","template_id"],
+    checklistRows
+  );
   await env.DB.prepare(
     "UPDATE lead_quotes SET status='Accepted',updated_at=datetime('now') WHERE id=?"
   ).bind(quoteId).run();
