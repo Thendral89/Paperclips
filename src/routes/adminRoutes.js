@@ -412,33 +412,32 @@ export async function convertLead(request, env, id) {
 // and the quote_views log are the engagement signal: how many times, and
 // how recently, has this actually been looked at.
 async function computeQuoteTotals(env, quoteId) {
-  const quote = await env.DB.prepare(
-    `SELECT q.* FROM lead_quotes q WHERE q.id = ?`
-  ).bind(quoteId).first();
-  const { results: items } = await env.DB.prepare(`SELECT * FROM quote_items WHERE quote_id = ?`).bind(quoteId).all();
-  const subtotal = items.filter((i) => i.selected).reduce((s, i) => s + i.price, 0);
-  const total = Math.max(0, subtotal - Number(quote?.concession_amount || 0));
-  return { quote, items, subtotal, total };
+  const quote = await env.DB.prepare(`SELECT q.* FROM lead_quotes q WHERE q.id = ?`).bind(quoteId).first();
+  const [{ results: items }, { results: options }] = await Promise.all([
+    env.DB.prepare(`SELECT * FROM quote_items WHERE quote_id = ? ORDER BY is_addon, id`).bind(quoteId).all(),
+    env.DB.prepare(`SELECT * FROM quote_package_options WHERE quote_id = ? ORDER BY sort_order,id`).bind(quoteId).all(),
+  ]);
+  const selectedOption=options.find(x=>Number(x.selected)===1);
+  const addonTotal=items.filter(i=>Number(i.is_addon)===1 && Number(i.selected)===1).reduce((s,i)=>s+Number(i.price||0),0);
+  const legacyBaseTotal=options.length ? 0 : items.filter(i=>Number(i.is_addon)===0 && Number(i.selected)===1).reduce((s,i)=>s+Number(i.price||0),0);
+  const subtotal=Number(selectedOption?.price||0)+addonTotal+legacyBaseTotal;
+  const total=Math.max(0,subtotal-Number(quote?.concession_amount||0));
+  return {quote,items,options,selectedOption,subtotal,total};
 }
 
 export async function createQuote(request, env, id) {
   const body = await request.json().catch(() => ({}));
   const lead = await env.DB.prepare(`SELECT id FROM leads WHERE id = ?`).bind(id).first();
   if (!lead) return notFound("lead not found");
-  let selectedPackage=null;
-  if(body.package_id){
-    selectedPackage=await env.DB.prepare(`SELECT id,name,base_price FROM packages WHERE id=? AND active=1`).bind(Number(body.package_id)).first();
-    if(!selectedPackage) return badRequest("selected package not found or inactive");
+  const packageIds=[...new Set((Array.isArray(body.package_ids)?body.package_ids:[body.package_id]).filter(Boolean).map(Number))];
+  for(const packageId of packageIds){
+    const pkg=await env.DB.prepare(`SELECT id FROM packages WHERE id=? AND active=1`).bind(packageId).first();
+    if(!pkg) return badRequest(`selected package ${packageId} not found or inactive`);
   }
   const token = makeToken();
-  const result = await env.DB.prepare(
-    `INSERT INTO lead_quotes (lead_id, token) VALUES (?, ?)`
-  ).bind(id, token).run();
-  const quoteId = result.meta.last_row_id;
-  if (selectedPackage) {
-    await env.DB.prepare(`INSERT INTO quote_items (quote_id,package_id,label,price,is_addon,selected) VALUES (?,?,?,?,0,1)`)
-      .bind(quoteId,selectedPackage.id,selectedPackage.name,Number(selectedPackage.base_price||0)).run();
-  }
+  const result = await env.DB.prepare(`INSERT INTO lead_quotes (lead_id, token) VALUES (?, ?)`).bind(id, token).run();
+  const quoteId=result.meta.last_row_id;
+  for(let i=0;i<packageIds.length;i++) await createQuotePackageOptionRecord(env,quoteId,packageIds[i],i,i===0?1:0);
   return json({ ok: true, id: quoteId, token }, { status: 201 });
 }
 
@@ -446,53 +445,47 @@ export async function listQuotes(request, env) {
   const { results } = await env.DB.prepare(`
     SELECT q.id,q.lead_id,q.status,q.concession_amount,q.created_at,q.updated_at,
            l.name AS lead_name,l.phone AS lead_phone,l.event_type,l.event_date,
-           COALESCE((SELECT SUM(i.price) FROM quote_items i WHERE i.quote_id=q.id AND i.selected=1),0) AS subtotal
-    FROM lead_quotes q
-    JOIN leads l ON l.id=q.lead_id
-    ORDER BY q.created_at DESC
-    LIMIT 300
+           CASE WHEN EXISTS(SELECT 1 FROM quote_package_options o WHERE o.quote_id=q.id)
+             THEN COALESCE((SELECT o.price FROM quote_package_options o WHERE o.quote_id=q.id AND o.selected=1 LIMIT 1),0)
+                + COALESCE((SELECT SUM(i.price) FROM quote_items i WHERE i.quote_id=q.id AND i.is_addon=1 AND i.selected=1),0)
+             ELSE COALESCE((SELECT SUM(i.price) FROM quote_items i WHERE i.quote_id=q.id AND i.selected=1),0)
+           END AS subtotal,
+           (SELECT COUNT(*) FROM quote_package_options o WHERE o.quote_id=q.id) AS package_option_count,
+           (SELECT o.label FROM quote_package_options o WHERE o.quote_id=q.id AND o.selected=1 LIMIT 1) AS selected_package
+    FROM lead_quotes q JOIN leads l ON l.id=q.lead_id
+    ORDER BY q.created_at DESC LIMIT 300
   `).all();
-  return json(results.map(q => ({
-    ...q,
-    quote_number:`QT-${String(q.id).padStart(4,"0")}`,
-    total:Math.max(0,Number(q.subtotal||0)-Number(q.concession_amount||0))
-  })));
+  return json(results.map(q=>({...q,quote_number:`QT-${String(q.id).padStart(4,"0")}`,total:Math.max(0,Number(q.subtotal||0)-Number(q.concession_amount||0))})));
 }
 
 export async function getQuote(request, env, quoteId) {
-  const { quote, items, subtotal, total } = await computeQuoteTotals(env, quoteId);
+  const { quote, items, options, subtotal, total } = await computeQuoteTotals(env, quoteId);
   if (!quote) return notFound("quote not found");
   const lead = await env.DB.prepare(`SELECT name, event_type FROM leads WHERE id = ?`).bind(quote.lead_id).first();
-  const { results: views } = await env.DB.prepare(`SELECT viewed_at FROM quote_views WHERE quote_id = ? ORDER BY viewed_at DESC LIMIT 20`).bind(quoteId).all();
-  const [commentsResult, engagement] = await Promise.all([
+  const [views,commentsResult,engagement,packageEngagement] = await Promise.all([
+    env.DB.prepare(`SELECT viewed_at FROM quote_views WHERE quote_id = ? ORDER BY viewed_at DESC LIMIT 20`).bind(quoteId).all(),
     env.DB.prepare(`SELECT author, author_name, message, created_at FROM quote_comments WHERE quote_id = ? ORDER BY created_at ASC`).bind(quoteId).all(),
-    env.DB.prepare(`SELECT
-      COUNT(*) AS total_events,
-      COUNT(DISTINCT session_key) AS unique_sessions,
-      MIN(created_at) AS first_engaged_at,
-      MAX(created_at) AS last_engaged_at,
+    env.DB.prepare(`SELECT COUNT(*) AS total_events,COUNT(DISTINCT session_key) AS unique_sessions,MIN(created_at) AS first_engaged_at,MAX(created_at) AS last_engaged_at,
       SUM(CASE WHEN event_type LIKE 'package_%' THEN 1 ELSE 0 END) AS package_events,
       SUM(CASE WHEN event_type LIKE 'service_%' THEN 1 ELSE 0 END) AS service_events,
       SUM(CASE WHEN event_type LIKE 'addon_%' THEN 1 ELSE 0 END) AS addon_events,
       SUM(CASE WHEN event_type LIKE '%selected' THEN 1 ELSE 0 END) AS selections
-      FROM quote_engagement_events WHERE quote_id = ?`).bind(quoteId).first()
+      FROM quote_engagement_events WHERE quote_id=?`).bind(quoteId).first(),
+    env.DB.prepare(`SELECT package_id,
+      SUM(CASE WHEN event_type='package_viewed' THEN 1 ELSE 0 END) AS views,
+      SUM(CASE WHEN event_type='package_expanded' THEN 1 ELSE 0 END) AS expansions,
+      SUM(CASE WHEN event_type='package_selected' THEN 1 ELSE 0 END) AS selections
+      FROM quote_engagement_events WHERE quote_id=? AND package_id IS NOT NULL GROUP BY package_id`).bind(quoteId).all()
   ]);
+  const engagementByPackage=Object.fromEntries(packageEngagement.results.map(x=>[x.package_id,{views:Number(x.views||0),expansions:Number(x.expansions||0),selections:Number(x.selections||0)}]));
+  const optionRows=options.map(o=>({...o,details:(()=>{try{return JSON.parse(o.details_json||"{}")}catch{return {}}})(),engagement:engagementByPackage[o.package_id]||{views:0,expansions:0,selections:0}}));
   const comments=commentsResult.results;
   const url = new URL(request.url);
   return json({
-    ...quote,
-    lead_name: lead?.name,
-    event_type: lead?.event_type,
-    items,
-    subtotal,
-    total,
-    view_log: views,
-    comments,
-    engagement_summary: engagement || {
-      total_events:0,unique_sessions:0,first_engaged_at:null,last_engaged_at:null,
-      package_events:0,service_events:0,addon_events:0,selections:0
-    },
-    public_url: `${url.origin}/quote/${quote.token}`
+    ...quote,lead_name:lead?.name,event_type:lead?.event_type,items,options:optionRows,subtotal,total,
+    selected_package_option_id:options.find(x=>Number(x.selected)===1)?.id||null,
+    view_log:views.results,comments,engagement_summary:engagement||{total_events:0,unique_sessions:0,first_engaged_at:null,last_engaged_at:null,package_events:0,service_events:0,addon_events:0,selections:0},
+    public_url:`${url.origin}/quote/${quote.token}`
   });
 }
 
@@ -556,20 +549,34 @@ export async function addQuoteItem(request, env, quoteId) {
   const quoteState=await env.DB.prepare("SELECT status FROM lead_quotes WHERE id=?").bind(quoteId).first();
   if(!quoteState) return notFound("quote not found");
   if(["Accepted","Rejected","Expired","Cancelled"].includes(quoteState.status)) return badRequest("this Quote is locked and cannot be changed");
+  if(body.package_id && !body.is_addon){
+    const count=await env.DB.prepare("SELECT COUNT(*) AS n FROM quote_package_options WHERE quote_id=?").bind(quoteId).first();
+    await createQuotePackageOptionRecord(env,quoteId,Number(body.package_id),Number(count?.n||0),Number(count?.n||0)===0?1:0);
+    return json({ok:true,option:true},{status:201});
+  }
   let label, price;
   if (body.package_id) {
     const pkg = await env.DB.prepare(`SELECT name, base_price FROM packages WHERE id = ?`).bind(body.package_id).first();
     if (!pkg) return notFound("package not found");
-    label = pkg.name; price = pkg.base_price;
+    label=pkg.name; price=pkg.base_price;
   } else {
     const svc = await env.DB.prepare(`SELECT name, base_price FROM services WHERE id = ?`).bind(body.service_id).first();
     if (!svc) return notFound("service not found");
-    label = svc.name; price = svc.base_price;
+    label=svc.name; price=svc.base_price;
   }
-  await env.DB.prepare(
-    `INSERT INTO quote_items (quote_id, service_id, package_id, label, price, is_addon, selected) VALUES (?, ?, ?, ?, ?, ?, 1)`
-  ).bind(quoteId, body.service_id || null, body.package_id || null, label, price, body.is_addon ? 1 : 0).run();
-  return json({ ok: true }, { status: 201 });
+  await env.DB.prepare(`INSERT INTO quote_items (quote_id, service_id, package_id, label, price, is_addon, selected) VALUES (?, ?, ?, ?, ?, ?, 1)`)
+    .bind(quoteId, body.service_id || null, body.package_id || null, label, price, body.is_addon ? 1 : 0).run();
+  return json({ok:true},{status:201});
+}
+export async function removeQuotePackageOption(request, env, optionId) {
+  const option=await env.DB.prepare(`SELECT o.id,o.quote_id,q.status FROM quote_package_options o JOIN lead_quotes q ON q.id=o.quote_id WHERE o.id=?`).bind(optionId).first();
+  if(!option) return notFound("package option not found");
+  if(["Accepted","Rejected","Expired","Cancelled"].includes(option.status)) return badRequest("this Quote is locked and cannot be changed");
+  await env.DB.prepare("DELETE FROM quote_package_options WHERE id=?").bind(optionId).run();
+  const remaining=await env.DB.prepare("SELECT id FROM quote_package_options WHERE quote_id=? ORDER BY sort_order,id").bind(option.quote_id).all();
+  if(remaining.results.length && !(await env.DB.prepare("SELECT id FROM quote_package_options WHERE quote_id=? AND selected=1").bind(option.quote_id).first()))
+    await env.DB.prepare("UPDATE quote_package_options SET selected=1 WHERE id=?").bind(remaining.results[0].id).run();
+  return json({ok:true});
 }
 
 export async function removeQuoteItem(request, env, itemId) {
@@ -1232,32 +1239,95 @@ export async function listTiers(request, env) {
   return json(results);
 }
 
-// ── Packages (fixed bundles you can still add a-la-carte extras on top of) ──
+// ── Packages (fixed bundles + source-of-truth details) ──
+function parseJsonArray(value) {
+  if (Array.isArray(value)) return value.map(x=>String(x).trim()).filter(Boolean);
+  if (value == null || value === "") return [];
+  try { const parsed=JSON.parse(value); return Array.isArray(parsed) ? parsed.map(x=>String(x).trim()).filter(Boolean) : []; } catch {
+    return String(value).split(/\\r?\\n|\\s*[,;]\\s*/).map(x=>x.trim()).filter(Boolean);
+  }
+}
+function packageDetailsFromRow(row) {
+  if(!row) return {sessions_text:null,crew:[],deliverables:[],complimentary:[]};
+  return {
+    sessions_text: row.sessions_text || null,
+    crew: parseJsonArray(row.crew_json),
+    deliverables: parseJsonArray(row.deliverables_json),
+    complimentary: parseJsonArray(row.complimentary_json)
+  };
+}
+async function upsertPackageDetails(env, packageId, details) {
+  if (!details) return;
+  const existing=await env.DB.prepare("SELECT * FROM package_details WHERE package_id=?").bind(packageId).first();
+  const d={
+    sessions_text: details.sessions_text ?? details.sessions ?? existing?.sessions_text ?? null,
+    crew: parseJsonArray(details.crew ?? existing?.crew_json),
+    deliverables: parseJsonArray(details.deliverables ?? existing?.deliverables_json),
+    complimentary: parseJsonArray(details.complimentary ?? existing?.complimentary_json)
+  };
+  await env.DB.prepare(`INSERT INTO package_details(package_id,sessions_text,crew_json,deliverables_json,complimentary_json,updated_at)
+    VALUES(?,?,?,?,?,datetime('now'))
+    ON CONFLICT(package_id) DO UPDATE SET
+      sessions_text=excluded.sessions_text,
+      crew_json=excluded.crew_json,
+      deliverables_json=excluded.deliverables_json,
+      complimentary_json=excluded.complimentary_json,
+      updated_at=datetime('now')`)
+    .bind(packageId,d.sessions_text,JSON.stringify(d.crew),JSON.stringify(d.deliverables),JSON.stringify(d.complimentary)).run();
+}
+async function snapshotPackageDetails(env, packageId) {
+  const [pkg,details,items]=await Promise.all([
+    env.DB.prepare("SELECT id,name,base_price,description FROM packages WHERE id=? AND active=1").bind(packageId).first(),
+    env.DB.prepare("SELECT * FROM package_details WHERE package_id=?").bind(packageId).first(),
+    env.DB.prepare(`SELECT pi.service_id,s.name,pi.quantity FROM package_items pi JOIN services s ON s.id=pi.service_id WHERE pi.package_id=? ORDER BY pi.id`).bind(packageId).all()
+  ]);
+  if(!pkg) return null;
+  const d=packageDetailsFromRow(details);
+  return {...d, services:items.results.map(x=>({service_id:x.service_id,name:x.name,quantity:Number(x.quantity||1)}))};
+}
+async function createQuotePackageOptionRecord(env, quoteId, packageId, sortOrder=0, selected=0) {
+  const pkg=await env.DB.prepare("SELECT id,name,base_price,active FROM packages WHERE id=?").bind(packageId).first();
+  if(!pkg || !pkg.active) throw new Error("package not found or inactive");
+  const details=await snapshotPackageDetails(env,packageId);
+  const detailsJson=JSON.stringify(details||{});
+  await env.DB.prepare(`INSERT INTO quote_package_options(quote_id,package_id,label,price,details_json,selected,sort_order)
+    VALUES(?,?,?,?,?,?,?)
+    ON CONFLICT(quote_id,package_id) DO UPDATE SET
+      label=excluded.label,price=excluded.price,details_json=excluded.details_json,
+      sort_order=excluded.sort_order,updated_at=datetime('now')`)
+    .bind(quoteId,pkg.id,pkg.name,Number(pkg.base_price||0),detailsJson,selected?1:0,sortOrder).run();
+}
+export async function listTiers(request, env) {
+  const { results } = await env.DB.prepare(`SELECT * FROM pricing_tiers ORDER BY multiplier`).all();
+  return json(results);
+}
+
 export async function listPackages(request, env) {
-  const [{ results: packages }, { results: items }] = await Promise.all([
-    env.DB.prepare(`SELECT * FROM packages WHERE active = 1 ORDER BY base_price`).all(),
+  const [{ results: packages }, { results: items }, { results: details }] = await Promise.all([
+    env.DB.prepare(`SELECT * FROM packages WHERE active = 1 ORDER BY base_price, sort_order, id`).all(),
     env.DB.prepare(
-      `SELECT pi.package_id, s.id AS service_id, s.name, pi.quantity FROM package_items pi JOIN services s ON s.id = pi.service_id`
+      `SELECT pi.package_id, s.id AS service_id, s.name, pi.quantity FROM package_items pi JOIN services s ON s.id = pi.service_id ORDER BY pi.id`
     ).all(),
+    env.DB.prepare(`SELECT * FROM package_details`).all(),
   ]);
   const byPackage = {};
-  for (const it of items) (byPackage[it.package_id] ||= []).push({ service_id:it.service_id, name: it.name, quantity: it.quantity });
-  return json(packages.map((p) => ({ ...p, items: byPackage[p.id] || [] })));
+  for (const it of items) (byPackage[it.package_id] ||= []).push({ service_id:it.service_id, name:it.name, quantity:Number(it.quantity||1) });
+  const detailMap = Object.fromEntries(details.map(d=>[d.package_id,packageDetailsFromRow(d)]));
+  return json(packages.map((p) => ({ ...p, items: byPackage[p.id] || [], details: detailMap[p.id] || {sessions_text:null,crew:[],deliverables:[],complimentary:[]} })));
 }
 
 export async function createPackage(request, env) {
   const body = await request.json().catch(() => null);
-  if (!body || !body.name || !body.base_price) return badRequest("name and base_price are required");
+  if (!body || !body.name || body.base_price === undefined) return badRequest("name and base_price are required");
   const result = await env.DB.prepare(`INSERT INTO packages (name, description, base_price) VALUES (?, ?, ?)`)
-    .bind(body.name, body.description || null, Number(body.base_price))
-    .run();
+    .bind(body.name, body.description || null, Number(body.base_price)).run();
   const packageId = result.meta.last_row_id;
   if (Array.isArray(body.service_ids)) {
-    for (const serviceId of body.service_ids) {
-      await env.DB.prepare(`INSERT OR IGNORE INTO package_items (package_id, service_id) VALUES (?, ?)`)
-        .bind(packageId, serviceId).run();
-    }
+    await env.DB.batch(body.service_ids.map(serviceId =>
+      env.DB.prepare(`INSERT OR IGNORE INTO package_items (package_id, service_id, quantity) VALUES (?, ?, ?)`).bind(packageId, Number(serviceId), 1)
+    ));
   }
+  await upsertPackageDetails(env, packageId, body.details);
   return json({ ok: true, id: packageId }, { status: 201 });
 }
 
@@ -1273,17 +1343,14 @@ export async function updatePackage(request, env, packageId) {
     .bind(name, description, base_price, packageId).run();
   if (Array.isArray(body.service_ids)) {
     await env.DB.prepare(`DELETE FROM package_items WHERE package_id = ?`).bind(packageId).run();
-    for (const serviceId of body.service_ids) {
-      await env.DB.prepare(`INSERT OR IGNORE INTO package_items (package_id, service_id) VALUES (?, ?)`)
-        .bind(packageId, serviceId).run();
-    }
+    if(body.service_ids.length) await env.DB.batch(body.service_ids.map(serviceId =>
+      env.DB.prepare(`INSERT OR IGNORE INTO package_items (package_id, service_id, quantity) VALUES (?, ?, ?)`).bind(packageId, Number(serviceId), 1)
+    ));
   }
+  await upsertPackageDetails(env, packageId, body.details);
   return json({ ok: true });
 }
 
-// Soft delete (active = 0, same flag listPackages already filters on) —
-// events that already applied this package keep their price_at_booking
-// snapshot untouched, so past quotes never change retroactively.
 export async function deletePackage(request, env, packageId) {
   await env.DB.prepare(`UPDATE packages SET active = 0 WHERE id = ?`).bind(packageId).run();
   return json({ ok: true });
