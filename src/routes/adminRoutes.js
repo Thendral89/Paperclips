@@ -575,6 +575,29 @@ export async function removeQuoteItem(request, env, itemId) {
   return json({ ok: true });
 }
 
+export async function listPayments(request, env) {
+  const p=new URL(request.url).searchParams;
+  const from=p.get("from");
+  const to=p.get("to");
+  const clauses=[];
+  const binds=[];
+  if(from){clauses.push("date(p.date) >= date(?)");binds.push(from);}
+  if(to){clauses.push("date(p.date) <= date(?)");binds.push(to);}
+  const where=clauses.length?"WHERE "+clauses.join(" AND "):"";
+  const {results}=await env.DB.prepare(`
+    SELECT p.id,p.amount,p.method,p.date,p.note,p.event_id,
+           e.event_number,e.type AS event_type,e.event_date,
+           a.name AS client_name
+    FROM payments p
+    JOIN events e ON e.id=p.event_id
+    JOIN accounts a ON a.id=e.account_id
+    ${where}
+    ORDER BY date(p.date) DESC,p.id DESC
+    LIMIT 500
+  `).bind(...binds).all();
+  return json(results);
+}
+
 // ── Accounts / Customer 360 ─────────────────────────────────────────
 // Lifetime value, booking count, and outstanding balance per account —
 // computed here (not stored) so it's always live, never a stale cached
