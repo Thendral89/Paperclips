@@ -911,7 +911,11 @@ export async function deleteEvent(request, env, id) {
   const { count } = await env.DB.prepare(`SELECT COUNT(*) AS count FROM payments WHERE event_id = ?`).bind(id).first();
   if (count > 0) return badRequest("This event has payment(s) recorded — remove those first before deleting the event.");
 
+  const lockedInvoice=await env.DB.prepare("SELECT id FROM invoices WHERE event_id=? AND locked_at IS NOT NULL LIMIT 1").bind(id).first();
+  if(lockedInvoice) return badRequest("This Event has a locked invoice and cannot be deleted.");
   await env.DB.batch([
+    env.DB.prepare(`DELETE FROM event_resource_allocations WHERE event_id = ?`).bind(id),
+    env.DB.prepare(`DELETE FROM event_equipment WHERE event_id = ?`).bind(id),
     env.DB.prepare(`DELETE FROM event_services WHERE event_id = ?`).bind(id),
     env.DB.prepare(`DELETE FROM event_staff_links WHERE event_id = ?`).bind(id),
     env.DB.prepare(`DELETE FROM event_vendors WHERE event_id = ?`).bind(id),
@@ -920,6 +924,8 @@ export async function deleteEvent(request, env, id) {
     env.DB.prepare(`DELETE FROM event_checklist WHERE event_id = ?`).bind(id),
     env.DB.prepare(`DELETE FROM event_tasks WHERE event_id = ?`).bind(id),
     env.DB.prepare(`DELETE FROM expenses WHERE event_id = ?`).bind(id),
+    env.DB.prepare(`DELETE FROM feedback WHERE event_id = ?`).bind(id),
+    env.DB.prepare(`DELETE FROM invoices WHERE event_id = ?`).bind(id),
     env.DB.prepare(`DELETE FROM support_requests WHERE event_id = ?`).bind(id),
     env.DB.prepare(`DELETE FROM events WHERE id = ?`).bind(id),
   ]);
