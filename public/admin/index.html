@@ -601,18 +601,41 @@ async function renderLeads() {
     ...(f.since_days ? { since_days: f.since_days } : {}),
     ...(f.follow_up ? { follow_up: f.follow_up } : {}),
     ...(f.stage ? { stage: f.stage } : {}),
+    ...(f.q ? { q: f.q } : {}),
   }).toString() : "";
   const leads = await api(`/leads${qs ? "?" + qs : ""}`);
   main.innerHTML = `
     ${pageHeader("Leads", "+ New lead", csvToolbar("/api/admin/leads/export.csv", "/leads/import"))}
-    ${f ? `<div class="filter-chip">${f.label} <span data-clear>✕</span></div>` : ""}
-    <div class="card"><h2>${f ? f.label : "All leads"} (${leads.length})</h2>
+    <form id="leadFilterForm" class="card" style="padding:12px 14px;">
+      <div style="display:grid;grid-template-columns:minmax(220px,2fr) minmax(180px,1fr) auto;gap:8px;align-items:end;">
+        <div class="field" style="margin:0"><label>Search leads</label><input id="leadSearch" placeholder="Name, phone, email, source or event" value="${escapeHtml(f?.q||"")}"></div>
+        <div class="field" style="margin:0"><label>Lead stage</label><select id="leadStageFilter"><option value="">All stages</option>${LEAD_STAGES.map(([v,label])=>`<option value="${v}" ${f?.stage===v?"selected":""}>${label}${v==="Won"?" / Booked":""}</option>`).join("")}</select></div>
+        <button type="submit" class="btn">Apply</button>
+      </div>
+      ${f ? `<div class="filter-chip" style="margin:10px 0 0;">${escapeHtml(f.label||"Filtered")} <span data-clear>✕</span></div>` : ""}
+    </form>
+    <div class="segbar" style="margin-bottom:12px;">
+      ${[["","All"],["New","New"],["Qualified","Qualified"],["Quote","Quote"],["Negotiation","Negotiation"],["Won","Booked / Won"],["Long Pending","Long Pending"],["Lost","Lost"],["Cancelled","Cancelled"]].map(([v,l])=>`<button type="button" class="seg ${String(f?.stage||"")===v&&!f?.q?"active":""}" data-lead-stage="${v}">${l}</button>`).join("")}
+    </div>
+    <div class="card"><h2>${f ? escapeHtml(f.label||"Filtered leads") : "All leads"} (${leads.length})</h2>
       <table><thead><tr><th>Name</th><th>Source</th><th>Stage</th><th>Follow-up</th><th>Budget</th><th></th></tr></thead>
       <tbody>${leads.map(l => `<tr class="clickable" data-lead="${l.id}"><td>${l.name}</td><td><span class="pill">${l.source}</span></td><td>${l.stage}</td><td>${followUpCell(l)}</td><td>${money(l.budget_est)}</td><td class="row-actions"><button type="button" class="icon-btn edit" data-edit-lead="${l.id}" title="Edit">✎</button><button type="button" class="icon-btn del" data-del-lead="${l.id}" title="Delete">✕</button></td></tr>`).join("") || `<tr><td colspan="6" class="empty">No leads match this filter.</td></tr>`}</tbody></table>
     </div>
   `;
   wireCsvImport("/leads/import", "name*, phone*, email, source, event_type, event_date, budget_est, referred_by, message", () => renderLeads());
   main.querySelectorAll("[data-lead]").forEach(el => el.addEventListener("click", () => go("leadDetail", el.dataset.lead)));
+  const filterForm=main.querySelector("#leadFilterForm");
+  if(filterForm) filterForm.addEventListener("submit",e=>{
+    e.preventDefault();
+    const q=main.querySelector("#leadSearch").value.trim();
+    const stage=main.querySelector("#leadStageFilter").value;
+    const label=[q?`Search: ${q}`:"",stage?(stage==="Won"?"Booked / Won":stage):""].filter(Boolean).join(" · ")||"All leads";
+    go("leads",null,{...(q?{q}:{}),...(stage?{stage}:{}),label});
+  });
+  main.querySelectorAll("[data-lead-stage]").forEach(btn=>btn.addEventListener("click",()=>{
+    const stage=btn.dataset.leadStage;
+    go("leads",null,stage?{stage,label:stage==="Won"?"Booked / Won":stage}:null);
+  }));
   const clear = main.querySelector("[data-clear]");
   if (clear) clear.addEventListener("click", () => go("leads"));
   main.querySelectorAll("[data-edit-lead]").forEach(el => el.addEventListener("click", async e => {
