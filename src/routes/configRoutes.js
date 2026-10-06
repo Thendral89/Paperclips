@@ -291,12 +291,13 @@ export async function saveEventResource(request, env, eventId) {
     if(conflict) return badRequest(`resource conflict: ${conflict.name} is already allocated during that time`);
   }
 
-  const original=Number(body.original_estimate ?? body.cost ?? 0);
+  const existingId=body.id?Number(body.id):null;
+  const existingAllocation=existingId?await env.DB.prepare("SELECT original_estimate FROM event_resource_allocations WHERE id=? AND event_id=?").bind(existingId,eventId).first():null;
+  const original=Number(body.original_estimate ?? existingAllocation?.original_estimate ?? body.cost ?? 0);
   const revised=body.revised_estimate===""||body.revised_estimate==null ? null : Number(body.revised_estimate);
   const actual=Number(body.actual_paid||0);
   if(!Number.isFinite(original)||original<0|| (revised!=null && (!Number.isFinite(revised)||revised<0)) || !Number.isFinite(actual)||actual<0) return badRequest("resource costs must be valid non-negative numbers");
 
-  const existingId=body.id?Number(body.id):null;
   if(existingId){
     const existing=await env.DB.prepare("SELECT * FROM event_resource_allocations WHERE id=? AND event_id=?").bind(existingId,eventId).first();
     if(!existing) return notFound("allocation not found");
