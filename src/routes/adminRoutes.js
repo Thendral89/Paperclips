@@ -447,9 +447,34 @@ export async function getQuote(request, env, quoteId) {
   if (!quote) return notFound("quote not found");
   const lead = await env.DB.prepare(`SELECT name, event_type FROM leads WHERE id = ?`).bind(quote.lead_id).first();
   const { results: views } = await env.DB.prepare(`SELECT viewed_at FROM quote_views WHERE quote_id = ? ORDER BY viewed_at DESC LIMIT 20`).bind(quoteId).all();
-  const { results: comments } = await env.DB.prepare(`SELECT author, author_name, message, created_at FROM quote_comments WHERE quote_id = ? ORDER BY created_at ASC`).bind(quoteId).all();
+  const [commentsResult, engagement] = await Promise.all([
+    env.DB.prepare(`SELECT author, author_name, message, created_at FROM quote_comments WHERE quote_id = ? ORDER BY created_at ASC`).bind(quoteId).all(),
+    env.DB.prepare(`SELECT
+      COUNT(*) AS total_events,
+      COUNT(DISTINCT session_key) AS unique_sessions,
+      MAX(created_at) AS last_engaged_at,
+      SUM(CASE WHEN event_type LIKE 'package_%' THEN 1 ELSE 0 END) AS package_events,
+      SUM(CASE WHEN event_type LIKE '%service%' OR event_type LIKE 'addon_%' THEN 1 ELSE 0 END) AS service_events,
+      SUM(CASE WHEN event_type LIKE '%selected' THEN 1 ELSE 0 END) AS selections
+      FROM quote_engagement_events WHERE quote_id = ?`).bind(quoteId).first()
+  ]);
+  const comments=commentsResult.results;
   const url = new URL(request.url);
-  return json({ ...quote, lead_name: lead?.name, event_type: lead?.event_type, items, subtotal, total, view_log: views, comments, public_url: `${url.origin}/quote/${quote.token}` });
+  return json({
+    ...quote,
+    lead_name: lead?.name,
+    event_type: lead?.event_type,
+    items,
+    subtotal,
+    total,
+    view_log: views,
+    comments,
+    engagement_summary: engagement || {
+      total_events:0,unique_sessions:0,last_engaged_at:null,
+      package_events:0,service_events:0,selections:0
+    },
+    public_url: `${url.origin}/quote/${quote.token}`
+  });
 }
 
 // Staff reply on the quote's comment thread — visible to the customer next
