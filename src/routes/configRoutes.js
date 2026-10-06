@@ -252,7 +252,7 @@ export async function saveEventResource(request, env, eventId) {
   const body = await request.json().catch(() => null);
   if (!body?.resource_id || !PHASES.includes(body.phase)) return badRequest("resource_id and valid phase are required");
 
-  const resource=await env.DB.prepare("SELECT id,name,active FROM resources WHERE id=?").bind(Number(body.resource_id)).first();
+  const resource=await env.DB.prepare("SELECT id,name,resource_type,active FROM resources WHERE id=?").bind(Number(body.resource_id)).first();
   if(!resource) return notFound("resource not found");
   if(!resource.active) return badRequest("resource is inactive");
 
