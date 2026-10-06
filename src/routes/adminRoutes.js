@@ -334,6 +334,8 @@ export async function deleteLead(request, env, id) {
   // same guard style as vendor/account deletes below.
   const account = await env.DB.prepare(`SELECT id FROM accounts WHERE lead_id = ?`).bind(id).first();
   if (account) return badRequest("This lead was converted to a customer account — it can't be deleted. Edit or remove the account instead.");
+  const booked = await env.DB.prepare(`SELECT e.id FROM events e JOIN lead_quotes q ON q.id=e.quote_id WHERE q.lead_id=? LIMIT 1`).bind(id).first();
+  if(booked) return badRequest("This lead already has a booked Event and cannot be deleted.");
 
   const { results: quoteIds } = await env.DB.prepare(`SELECT id FROM lead_quotes WHERE lead_id = ?`).bind(id).all();
   await env.DB.batch([
