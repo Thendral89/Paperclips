@@ -406,11 +406,11 @@ export async function convertLead(request, env, id) {
 // how recently, has this actually been looked at.
 async function computeQuoteTotals(env, quoteId) {
   const quote = await env.DB.prepare(
-    `SELECT q.*, pt.multiplier FROM lead_quotes q LEFT JOIN pricing_tiers pt ON pt.id = q.pricing_tier_id WHERE q.id = ?`
+    `SELECT q.* FROM lead_quotes q WHERE q.id = ?`
   ).bind(quoteId).first();
   const { results: items } = await env.DB.prepare(`SELECT * FROM quote_items WHERE quote_id = ?`).bind(quoteId).all();
   const subtotal = items.filter((i) => i.selected).reduce((s, i) => s + i.price, 0);
-  const total = Math.max(0, Math.round(subtotal * (quote?.multiplier || 1)) - (quote?.concession_amount || 0));
+  const total = Math.max(0, subtotal - Number(quote?.concession_amount || 0));
   return { quote, items, subtotal, total };
 }
 
@@ -420,8 +420,8 @@ export async function createQuote(request, env, id) {
   if (!lead) return notFound("lead not found");
   const token = makeToken();
   const result = await env.DB.prepare(
-    `INSERT INTO lead_quotes (lead_id, token, pricing_tier_id) VALUES (?, ?, ?)`
-  ).bind(id, token, body.pricing_tier_id || 1).run();
+    `INSERT INTO lead_quotes (lead_id, token) VALUES (?, ?)`
+  ).bind(id, token).run();
   return json({ ok: true, id: result.meta.last_row_id, token }, { status: 201 });
 }
 
@@ -497,13 +497,13 @@ export async function updateQuote(request, env, quoteId) {
   if (!body) return badRequest("no fields given");
   const quote = await env.DB.prepare(`SELECT * FROM lead_quotes WHERE id = ?`).bind(quoteId).first();
   if (!quote) return notFound("quote not found");
-  const pricing_tier_id = body.pricing_tier_id !== undefined ? body.pricing_tier_id : quote.pricing_tier_id;
   const concession_amount = body.concession_amount !== undefined ? Number(body.concession_amount) : quote.concession_amount;
+  if(!Number.isFinite(concession_amount) || concession_amount<0) return badRequest("concession_amount must be a valid non-negative number");
   const concession_note = body.concession_note !== undefined ? body.concession_note || null : quote.concession_note;
   const valid_until = body.valid_until !== undefined ? body.valid_until || null : quote.valid_until;
   await env.DB.prepare(
-    `UPDATE lead_quotes SET pricing_tier_id = ?, concession_amount = ?, concession_note = ?, valid_until = ?, updated_at = datetime('now') WHERE id = ?`
-  ).bind(pricing_tier_id, concession_amount, concession_note, valid_until, quoteId).run();
+    `UPDATE lead_quotes SET concession_amount = ?, concession_note = ?, valid_until = ?, updated_at = datetime('now') WHERE id = ?`
+  ).bind(concession_amount, concession_note, valid_until, quoteId).run();
   return json({ ok: true });
 }
 
