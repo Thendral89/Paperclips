@@ -826,8 +826,6 @@ async function renderQuoteDetail(id) {
   main.querySelector("#deleteQuoteBtn").addEventListener("click", () =>
     confirmDelete("Delete this quote? This can't be undone.", `/quotes/${id}/delete`, () => go("leadDetail", q.lead_id))
   );
-    renderQuoteDetail(id);
-  }));
   main.querySelectorAll("[data-del-qitem]").forEach(el => el.addEventListener("click", () =>
     confirmDelete("Remove this line from the quote?", `/quote-items/${el.dataset.delQitem}/delete`, () => renderQuoteDetail(id))
   ));
