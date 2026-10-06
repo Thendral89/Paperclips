@@ -70,12 +70,14 @@
 <script>
   const token = location.pathname.split("/")[2];
   let data = null;
+  const sessionKey = (() => { const k="paperclip_quote_session"; let v=localStorage.getItem(k); if(!v){v=(crypto.randomUUID?crypto.randomUUID():String(Date.now())+"-"+Math.random().toString(36).slice(2));localStorage.setItem(k,v);} return v; })();
+  async function engagement(event_type, quote_item_id){ try { await fetch(`/api/quote/${token}/engagement`,{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({event_type,quote_item_id,session_key:sessionKey})}); } catch (_) {} }
 
   function money(n) { return `₹${(n || 0).toLocaleString("en-IN")}`; }
   function escapeHtml(s) { return String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])); }
 
   async function load() {
-    const res = await fetch(`/api/quote/${token}`);
+    const res = await fetch(`/api/quote/${token}`, { headers: { "x-quote-session": sessionKey } });
     if (!res.ok) {
       document.getElementById("app").innerHTML =
         `<div class="error-screen"><div class="brandmark">Paperclip Studios</div><h1>Quote not found</h1><p>This link may have expired or been mistyped. Please check with the studio for a fresh link.</p></div>`;
@@ -105,7 +107,7 @@
 
       <div class="card">
         <h2>What's included</h2>
-        ${base.map(i => `<div class="item-row"><span class="label"><svg class="check" viewBox="0 0 20 20" fill="none"><path d="M4 10.5l4 4 8-9" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>${i.label}</span><span class="item-price">${money(i.price)}</span></div>`).join("") || `<div class="note">Nothing added yet.</div>`}
+        ${base.map(i => i.package_id ? `<div class="item-row package-row" data-package-item="${i.id}"><span class="label"><svg class="check" viewBox="0 0 20 20" fill="none"><path d="M4 10.5l4 4 8-9" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg><span><b>${escapeHtml(i.label)}</b><span class="included-tag" style="display:block">Package</span></span></span><span style="display:flex;align-items:center;gap:8px"><button type="button" class="info-btn" data-package-expand="${i.id}" aria-label="View package contents">i</button><span class="item-price">${money(i.price)}</span></span></div><div class="tier-detail" data-package-detail="${i.id}">${(i.package_services||[]).map(s=>`<div>${escapeHtml(s.name)}${s.quantity>1?` ×${s.quantity}`:""}</div>`).join("") || "Package contents configured by the studio."}</div>` : `<div class="item-row service-row" data-service-item="${i.id}"><span class="label"><svg class="check" viewBox="0 0 20 20" fill="none"><path d="M4 10.5l4 4 8-9" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>${escapeHtml(i.label)}</span><span class="item-price">${money(i.price)}</span></div>`).join("") || `<div class="note">Nothing added yet.</div>`}
       </div>
 
       ${addons.length ? `<div class="card">
@@ -156,6 +158,18 @@
       });
     }
 
+    document.querySelectorAll("[data-package-expand]").forEach(btn => {
+      btn.addEventListener("click", async e => {
+        e.stopPropagation();
+        const id=Number(btn.dataset.packageExpand);
+        const detail=document.querySelector(`[data-package-detail="${id}"]`);
+        const open=detail?.classList.toggle("open");
+        btn.classList.toggle("open",!!open);
+        if(open) await engagement("package_expanded",id);
+      });
+    });
+    document.querySelectorAll(".package-row").forEach(el => el.addEventListener("click",()=>engagement("package_viewed",Number(el.dataset.packageItem))));
+    document.querySelectorAll(".service-row").forEach(el => el.addEventListener("click",()=>engagement("service_viewed",Number(el.dataset.serviceItem))));
     document.querySelectorAll(".item-row.addon").forEach(el => {
       el.addEventListener("click", async () => {
         const itemId = el.dataset.item;
@@ -165,7 +179,7 @@
           const res = await fetch(`/api/quote/${token}/toggle`, {
             method: "POST",
             headers: { "content-type": "application/json" },
-            body: JSON.stringify({ item_id: Number(itemId), selected: nowSelected }),
+            body: JSON.stringify({ item_id: Number(itemId), selected: nowSelected, session_key: sessionKey }),
           });
           if (!res.ok) throw new Error();
           const item = data.items.find(i => i.id === Number(itemId));

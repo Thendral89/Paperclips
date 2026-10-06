@@ -39,6 +39,7 @@ export async function getConfig(request, env) {
       env.DB.prepare(`
         SELECT r.*,
           GROUP_CONCAT(DISTINCT s.label) AS skills,
+          GROUP_CONCAT(DISTINCT rs.skill_id) AS skill_ids,
           GROUP_CONCAT(DISTINCT rp.phase) AS phases
         FROM resources r
         LEFT JOIN resource_skills rs ON rs.resource_id=r.id
@@ -252,7 +253,7 @@ export async function saveEventResource(request, env, eventId) {
   const body = await request.json().catch(() => null);
   if (!body?.resource_id || !PHASES.includes(body.phase)) return badRequest("resource_id and valid phase are required");
 
-  const resource=await env.DB.prepare("SELECT id,name,active FROM resources WHERE id=?").bind(Number(body.resource_id)).first();
+  const resource=await env.DB.prepare("SELECT id,name,resource_type,active FROM resources WHERE id=?").bind(Number(body.resource_id)).first();
   if(!resource) return notFound("resource not found");
   if(!resource.active) return badRequest("resource is inactive");
 
@@ -267,34 +268,53 @@ export async function saveEventResource(request, env, eventId) {
   const event=await env.DB.prepare("SELECT event_date,start_time,end_time FROM events WHERE id=?").bind(eventId).first();
   if(!event) return notFound("event not found");
 
-  const allocationDate=body.allocation_date || event.event_date || null;
-  const startTime=body.start_time || event.start_time || null;
-  const endTime=body.end_time || event.end_time || null;
-  if(startTime && endTime && startTime>=endTime) return badRequest("end time must be after start time");
+  const phaseAssignment=await env.DB.prepare(
+    "SELECT COUNT(*) AS n FROM resource_phase_assignments WHERE resource_id=?"
+  ).bind(resource.id).first();
+  if(Number(phaseAssignment?.n||0)>0){
+    const phaseOk=await env.DB.prepare(
+      "SELECT 1 FROM resource_phase_assignments WHERE resource_id=? AND phase=?"
+    ).bind(resource.id,body.phase).first();
+    if(!phaseOk) return badRequest("resource is not configured for this workflow phase");
+  }
+
+  const existingId=body.id?Number(body.id):null;
+  const existingAllocation=existingId?await env.DB.prepare(
+    "SELECT original_estimate,start_at,end_at,allocation_date,start_time,end_time FROM event_resource_allocations WHERE id=? AND event_id=?"
+  ).bind(existingId,eventId).first():null;
+
+  const allocationDate=body.allocation_date || existingAllocation?.allocation_date || event.event_date || null;
+  const startAt=body.start_at || (allocationDate && body.start_time ? `${allocationDate}T${body.start_time}` : existingAllocation?.start_at || (event.event_date && event.start_time ? `${event.event_date}T${event.start_time}` : null));
+  const endAt=body.end_at || (allocationDate && body.end_time ? `${allocationDate}T${body.end_time}` : existingAllocation?.end_at || (event.event_date && event.end_time ? `${event.event_date}T${event.end_time}` : null));
+  if(startAt && endAt && startAt>=endAt) return badRequest("end date/time must be after start date/time");
+
+  const startDate=startAt ? String(startAt).slice(0,10) : allocationDate;
+  const endDate=endAt ? String(endAt).slice(0,10) : startDate;
+  const startTime=startAt ? String(startAt).slice(11,16) : null;
+  const endTime=endAt ? String(endAt).slice(11,16) : null;
 
   const conflictRule=await env.DB.prepare(
     "SELECT value_json FROM crm_business_rules WHERE rule_key='resource.block_conflict' AND active=1 ORDER BY id DESC LIMIT 1"
   ).first();
   const conflictEnabled=conflictRule ? parseRuleValue(conflictRule.value_json).enabled!==false : true;
-  if(conflictEnabled && allocationDate && startTime && endTime){
+  if(conflictEnabled && startAt && endAt){
     const conflict=await env.DB.prepare(`
       SELECT era.id,r.name
       FROM event_resource_allocations era
       JOIN resources r ON r.id=era.resource_id
-      WHERE era.resource_id=? AND era.allocation_date=?
-        AND era.event_id<>?
+      WHERE era.resource_id=? AND era.event_id<>?
         AND COALESCE(era.status,'Planned')<>'Cancelled'
-        AND era.start_time IS NOT NULL AND era.end_time IS NOT NULL
-        AND era.start_time < ? AND era.end_time > ?
+        AND COALESCE(era.start_at, CASE WHEN era.allocation_date IS NOT NULL AND era.start_time IS NOT NULL THEN era.allocation_date || 'T' || era.start_time END) < ?
+        AND COALESCE(era.end_at, CASE WHEN era.allocation_date IS NOT NULL AND era.end_time IS NOT NULL THEN era.allocation_date || 'T' || era.end_time END) > ?
       LIMIT 1
-    `).bind(resource.id,allocationDate,eventId,endTime,startTime).first();
+    `).bind(resource.id,eventId,endAt,startAt).first();
     if(conflict) return badRequest(`resource conflict: ${conflict.name} is already allocated during that time`);
   }
 
-  const existingId=body.id?Number(body.id):null;
-  const existingAllocation=existingId?await env.DB.prepare("SELECT original_estimate FROM event_resource_allocations WHERE id=? AND event_id=?").bind(existingId,eventId).first():null;
+  const resourceType=String(resource.resource_type||"Internal").toLowerCase();
+  const isExternal=resourceType.includes("external") || resourceType.includes("vendor") || resourceType.includes("equipment");
   const original=Number(body.original_estimate ?? existingAllocation?.original_estimate ?? body.cost ?? 0);
-  const revised=body.revised_estimate===""||body.revised_estimate==null ? null : Number(body.revised_estimate);
+  const revised=isExternal && body.revised_estimate!=="" && body.revised_estimate!=null ? Number(body.revised_estimate) : null;
   const actual=Number(body.actual_paid||0);
   if(!Number.isFinite(original)||original<0|| (revised!=null && (!Number.isFinite(revised)||revised<0)) || !Number.isFinite(actual)||actual<0) return badRequest("resource costs must be valid non-negative numbers");
 
@@ -304,18 +324,18 @@ export async function saveEventResource(request, env, eventId) {
     await env.DB.prepare(`
       UPDATE event_resource_allocations
       SET resource_id=?,phase=?,role_label=?,skill_id=?,cost=?,status=?,notes=?,
-          allocation_date=?,start_time=?,end_time=?,original_estimate=?,revised_estimate=?,actual_paid=?,payment_date=?,cost_notes=?
+          allocation_date=?,start_time=?,end_time=?,start_at=?,end_at=?,original_estimate=?,revised_estimate=?,actual_paid=?,payment_date=?,cost_notes=?
       WHERE id=? AND event_id=?
-    `).bind(resource.id,body.phase,body.role_label||null,skillId,revised??original,body.status||"Planned",body.notes||null,
-      allocationDate,startTime,endTime,original,revised,actual,body.payment_date||null,body.cost_notes||null,existingId,eventId).run();
+    `).bind(resource.id,body.phase,null,skillId,revised??original,body.status||"Planned",body.notes||null,
+      startDate,startTime,endTime,startAt,endAt,original,revised,actual,body.payment_date||null,body.cost_notes||null,existingId,eventId).run();
   } else {
     await env.DB.prepare(`
       INSERT INTO event_resource_allocations(
         event_id,resource_id,phase,role_label,skill_id,cost,status,notes,
-        allocation_date,start_time,end_time,original_estimate,revised_estimate,actual_paid,payment_date,cost_notes
-      ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-    `).bind(eventId,resource.id,body.phase,body.role_label||null,skillId,revised??original,body.status||"Planned",body.notes||null,
-      allocationDate,startTime,endTime,original,revised,actual,body.payment_date||null,body.cost_notes||null).run();
+        allocation_date,start_time,end_time,start_at,end_at,original_estimate,revised_estimate,actual_paid,payment_date,cost_notes
+      ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+    `).bind(eventId,resource.id,body.phase,null,skillId,revised??original,body.status||"Planned",body.notes||null,
+      startDate,startTime,endTime,startAt,endAt,original,revised,actual,body.payment_date||null,body.cost_notes||null).run();
   }
   return json({ok:true});
 }
