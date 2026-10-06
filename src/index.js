@@ -4,7 +4,7 @@
 
 import { json, unauthorized, notFound } from "./lib/util.js";
 import { requireStaff, requireEventLink } from "./lib/auth.js";
-import { captureLead, getFeedbackContext, submitFeedback, getQuoteContext, toggleQuoteItem, addQuoteComment, logQuoteEngagement } from "./routes/publicRoutes.js";
+import { captureLead, getFeedbackContext, submitFeedback, getQuoteContext, toggleQuoteItem, selectQuotePackage, addQuoteComment, logQuoteEngagement } from "./routes/publicRoutes.js";
 import * as admin from "./routes/adminRoutes.js";
 import * as portal from "./routes/portalRoutes.js";
 import * as config from "./routes/configRoutes.js";
@@ -71,6 +71,7 @@ const ADMIN_ROUTES = [
   ["POST", /^\/api\/admin\/quotes\/(\d+)\/delete$/, (req, env, staff, [id]) => admin.deleteQuote(req, env, id)],
   ["POST", /^\/api\/admin\/quotes\/(\d+)\/items$/, (req, env, staff, [id]) => admin.addQuoteItem(req, env, id)],
   ["POST", /^\/api\/admin\/quote-items\/(\d+)\/delete$/, (req, env, staff, [id]) => admin.removeQuoteItem(req, env, id)],
+  ["POST", /^\/api\/admin\/quote-options\/(\d+)\/delete$/, (req, env, staff, [id]) => admin.removeQuotePackageOption(req, env, id)],
   ["POST", /^\/api\/admin\/quotes\/(\d+)\/comments$/, (req, env, staff, [id]) => admin.addStaffQuoteComment(req, env, id, staff)],
 
   ["GET", /^\/api\/admin\/accounts$/, (req, env) => admin.listAccounts(req, env)],
@@ -215,6 +216,11 @@ export default {
     const quoteEngagementMatch = pathname.match(/^\/api\/quote\/([a-f0-9]+)\/engagement$/);
     if (quoteEngagementMatch && request.method === "POST") {
       return logQuoteEngagement(request, env, quoteEngagementMatch[1]).catch((e) => json({ error: String(e) }, { status: 500 }));
+    }
+
+    const quotePackageSelectMatch = pathname.match(/^\/api\/quote\/([a-f0-9]+)\/select-package$/);
+    if (quotePackageSelectMatch && request.method === "POST") {
+      return selectQuotePackage(request, env, quotePackageSelectMatch[1]).catch((e) => json({ error: String(e) }, { status: 500 }));
     }
 
     const quoteToggleMatch = pathname.match(/^\/api\/quote\/([a-f0-9]+)\/toggle$/);
