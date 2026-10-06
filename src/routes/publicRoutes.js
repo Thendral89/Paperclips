@@ -187,8 +187,8 @@ export async function toggleQuoteItem(request, env, token) {
   await env.DB.batch([
     env.DB.prepare(`UPDATE quote_items SET selected = ? WHERE id = ?`).bind(selected,item.id),
     env.DB.prepare(`INSERT INTO quote_engagement_events(
-      quote_id,event_type,quote_item_id,package_id,service_id
-    ) VALUES(?,?,?,?,?)`).bind(
+      quote_id,event_type,quote_item_id,package_id,service_id,session_key
+    ) VALUES(?,?,?,?,?,?)`).bind(
       quote.id,eventType,item.id,item.package_id||null,item.service_id||null,body.session_key||null
     )
   ]);
