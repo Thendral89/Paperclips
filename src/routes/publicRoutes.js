@@ -107,9 +107,8 @@ export async function submitFeedback(request, env, token) {
 // means something very different from "opened once and went quiet").
 export async function getQuoteContext(request, env, token) {
   const quote = await env.DB.prepare(
-    `SELECT q.*, pt.name AS tier_name, pt.multiplier, pt.perks AS tier_perks, l.name AS lead_name, l.event_type
-     FROM lead_quotes q LEFT JOIN pricing_tiers pt ON pt.id = q.pricing_tier_id
-     JOIN leads l ON l.id = q.lead_id WHERE q.token = ?`
+    `SELECT q.*, l.name AS lead_name, l.event_type
+     FROM lead_quotes q JOIN leads l ON l.id = q.lead_id WHERE q.token = ?`
   ).bind(token).first();
   if (!quote) return notFound("invalid or expired quote link");
 
@@ -129,7 +128,7 @@ export async function getQuoteContext(request, env, token) {
 
   const { results: items } = await env.DB.prepare(`SELECT id, label, price, is_addon, selected FROM quote_items WHERE quote_id = ?`).bind(quote.id).all();
   const subtotal = items.filter((i) => i.selected).reduce((s, i) => s + i.price, 0);
-  const total = Math.max(0, Math.round(subtotal * (quote.multiplier || 1)) - (quote.concession_amount || 0));
+  const total = Math.max(0, subtotal - Number(quote.concession_amount || 0));
   const { results: comments } = await env.DB.prepare(
     `SELECT author, message, created_at FROM quote_comments WHERE quote_id = ? ORDER BY created_at ASC`
   ).bind(quote.id).all();
@@ -137,9 +136,9 @@ export async function getQuoteContext(request, env, token) {
   return json({
     lead_name: quote.lead_name,
     event_type: quote.event_type,
-    tier_name: quote.tier_name,
-    tier_perks: quote.tier_perks,
-    multiplier: quote.multiplier || 1,
+    tier_name: null,
+    tier_perks: null,
+    multiplier: 1,
     valid_until: quote.valid_until,
     concession_amount: quote.concession_amount,
     concession_note: quote.concession_note,
