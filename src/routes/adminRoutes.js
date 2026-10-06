@@ -8,10 +8,10 @@ import { syncCrmEvent, syncLeadFollowUp } from "../lib/googleCalendar.js";
 export async function dashboard(request, env) {
   const [today, overdue, newThisWeek, pendingPayments, upcomingEvents, dueInstallments] = await Promise.all([
     env.DB.prepare(
-      `SELECT * FROM leads WHERE next_follow_up_date = date('now') AND stage NOT IN ('Booked','Lost','Cancelled')`
+      `SELECT * FROM leads WHERE next_follow_up_date = date('now') AND stage NOT IN ('Won','Lost','Cancelled')`
     ).all(),
     env.DB.prepare(
-      `SELECT * FROM leads WHERE next_follow_up_date < date('now') AND stage NOT IN ('Booked','Lost','Cancelled') ORDER BY next_follow_up_date ASC`
+      `SELECT * FROM leads WHERE next_follow_up_date < date('now') AND stage NOT IN ('Won','Lost','Cancelled') ORDER BY next_follow_up_date ASC`
     ).all(),
     env.DB.prepare(
       `SELECT * FROM leads WHERE created_at >= datetime('now','-7 days') ORDER BY created_at DESC`
