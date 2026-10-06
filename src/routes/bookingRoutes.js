@@ -159,15 +159,16 @@ export async function convertAcceptedQuote(request, env, quoteId) {
 
   const eventNumber=await nextNumber(env,"event");
   const er=await env.DB.prepare(`INSERT INTO events(
-      account_id,quote_id,event_number,type,event_date,status,quote_total,
+      account_id,quote_id,event_number,type,event_date,status,quote_total,finalized_quote_total,
       quote_snapshot_json,commercial_finalized_at
-    ) VALUES(?,?,?,?,?,?,?,?,datetime('now'))`).bind(
+    ) VALUES(?,?,?,?,?,?,?,?,?,datetime('now'))`).bind(
       accountId,
       quoteId,
       eventNumber||null,
       q.event_type||"Wedding",
       q.event_date||null,
       "Planning",
+      total,
       total,
       JSON.stringify(quoteSnapshot)
     ).run();
