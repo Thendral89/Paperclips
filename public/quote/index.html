@@ -114,8 +114,9 @@
   function render() {
     const options = data.options || [];
     const addons = data.items.filter(i => i.is_addon);
-    const includedServices = data.items.filter(i => !i.is_addon && !i.package_id);
     const selectedOption = options.find(o => Number(o.selected) === 1);
+    const packageServices = selectedOption ? data.items.filter(i => Number(i.quote_package_option_id) === Number(selectedOption.id) && !i.is_addon) : [];
+    const includedServices = data.items.filter(i => !i.is_addon && !i.package_id && !i.quote_package_option_id);
     const detailList=(items)=>items&&items.length?`<ul>${items.map(x=>`<li>${escapeHtml(x)}</li>`).join("")}</ul>`:`<div class="note">Not specified.</div>`;
     document.getElementById("app").innerHTML = `
       <div class="brandmark">Paperclip Studios</div>
@@ -131,7 +132,8 @@
         </div>`}).join("")}
       </div>` : ""}
 
-      ${includedServices.length ? `<div class="card"><h2>Additional included services</h2>${includedServices.map(i=>`<div class="item-row service-row" data-service-item="${i.id}"><span>${escapeHtml(i.label)}</span><span class="item-price">${money(i.price)}</span></div>`).join("")}</div>` : ""}
+      ${packageServices.length ? `<div class="card"><h2>Customized package services</h2><div class="hint" style="margin-bottom:10px;">These are the services included in your selected package and customized for this quotation.</div>${packageServices.map(i=>`<div class="item-row service-row" data-service-item="${i.id}"><span>${escapeHtml(i.label)}${i.quantity>1?` ×${i.quantity}`:""}</span><span class="item-price">${Number(i.price||0)>0?money(Number(i.price)*Number(i.quantity)):(Number(i.price||0)<0?"−"+money(Math.abs(Number(i.price)*Number(i.quantity))):"Included")}</span></div>`).join("")}</div>` : ""}
+      ${includedServices.length ? `<div class="card"><h2>Additional included services</h2>${includedServices.map(i=>`<div class="item-row service-row" data-service-item="${i.id}"><span>${escapeHtml(i.label)}</span><span class="item-price">${money(Number(i.price)*Number(i.quantity||1))}</span></div>`).join("")}</div>` : ""}
 
       ${addons.length ? `<div class="card"><h2>Optional add-ons <span class="hint">— tap to include or remove</span></h2>
         ${addons.map(i=>`<div class="item-row addon" data-item="${i.id}" data-selected="${i.selected?1:0}"><span>${escapeHtml(i.label)}</span><span style="display:flex;align-items:center;gap:10px;"><span class="item-price">${money(i.price)}</span><span class="toggle ${i.selected?"on":""}"></span></span></div>`).join("")}
@@ -161,7 +163,7 @@
         if(!res.ok) throw new Error();
         options.forEach(o=>o.selected=Number(o.id)===Number(btn.dataset.optionSelect));
         await engagement("package_selected",null,Number(btn.dataset.optionSelect));
-        data.subtotal=Number(options.find(o=>o.selected)?.price||0)+addons.filter(i=>i.selected).reduce((sum,i)=>sum+Number(i.price||0),0);
+        const chosen=options.find(o=>o.selected); data.subtotal=Number(chosen?.price||0)+data.items.filter(i=>Number(i.quote_package_option_id)===Number(chosen?.id||0)&&!i.is_addon&&i.selected).reduce((sum,i)=>sum+Number(i.price||0)*Number(i.quantity||1),0)+addons.filter(i=>i.selected).reduce((sum,i)=>sum+Number(i.price||0)*Number(i.quantity||1),0);
         data.total=Math.max(0,data.subtotal-Number(data.concession_amount||0)); render();
       }catch{btn.disabled=false;}
     }));
