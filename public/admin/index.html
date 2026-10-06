@@ -203,12 +203,10 @@
     <div class="navlink" data-view="accounts"><svg width="17" height="17" viewBox="0 0 20 20" fill="none"><circle cx="7" cy="7" r="3" stroke="currentColor" stroke-width="1.6"/><circle cx="14" cy="8.5" r="2.4" stroke="currentColor" stroke-width="1.6"/><path d="M2.2 16.5c.6-3 2.5-4.6 4.8-4.6s4.2 1.6 4.8 4.6M12 16.5c.4-2.1 1.7-3.4 3.4-3.4 1.5 0 2.7.9 3.3 2.6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>Clients</div>
     <div class="navlink" data-view="calendar"><svg width="17" height="17" viewBox="0 0 20 20" fill="none"><rect x="3" y="4" width="14" height="13" rx="2" stroke="currentColor" stroke-width="1.6"/><path d="M3 8h14M6.5 2.5v3M13.5 2.5v3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>Calendar</div>
     <div class="navlink" data-view="events"><svg width="17" height="17" viewBox="0 0 20 20" fill="none"><rect x="2.5" y="4" width="15" height="13" rx="2" stroke="currentColor" stroke-width="1.6"/><path d="M2.5 8h15M6.5 2.5v3M13.5 2.5v3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>Events</div>
-    <div class="navlink" data-view="packages"><svg width="17" height="17" viewBox="0 0 20 20" fill="none"><path d="M10 2.5l7 3.8v7.4L10 17.5 3 13.7V6.3L10 2.5z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M3 6.3L10 10l7-3.7M10 10v7.5" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>Packages</div>
     <div class="navlink" data-view="resources"><svg width="17" height="17" viewBox="0 0 20 20" fill="none"><path d="M10.8 2.5H4a1.5 1.5 0 00-1.5 1.5v6.8c0 .4.16.78.44 1.06l7.9 7.9a1.5 1.5 0 002.12 0l6.8-6.8a1.5 1.5 0 000-2.12l-7.9-7.9a1.5 1.5 0 00-1.06-.44z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><circle cx="6.8" cy="6.8" r="1.3" stroke="currentColor" stroke-width="1.6"/></svg>Resources</div>
-    <div class="navlink" data-view="equipment"><svg width="17" height="17" viewBox="0 0 20 20" fill="none"><path d="M2.5 7.2A1.5 1.5 0 014 5.7h2.1l.9-1.6h6l.9 1.6H16A1.5 1.5 0 0117.5 7.2v7.3A1.5 1.5 0 0116 16H4a1.5 1.5 0 01-1.5-1.5V7.2z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><circle cx="10" cy="10.8" r="3.1" stroke="currentColor" stroke-width="1.6"/></svg>Equipment</div>
-    <div class="navlink" data-view="expenses"><svg width="17" height="17" viewBox="0 0 20 20" fill="none"><path d="M5 2.5h10v15l-2-1.3-2 1.3-2-1.3-2 1.3-2-1.3v-15z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M7.2 6.5h5.6M7.2 9.5h5.6M7.2 12.5h3.4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>Expenses</div>
     <div class="navlink" data-view="financials"><svg width="17" height="17" viewBox="0 0 20 20" fill="none"><path d="M2.5 14.5l5-5.5 3.2 3 6.3-7.5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/><path d="M13.5 4.5h3.5v3.5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>Financials</div>
     <div class="navlink" data-view="reports"><svg width="17" height="17" viewBox="0 0 20 20" fill="none"><path d="M5 2.5h7l3.5 3.5v11.5H5v-15z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M12 2.5v3.5h3.5" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M7 11h6M7 14h6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>Reports</div>
+    <div class="navlink" data-view="marketing"><svg width="17" height="17" viewBox="0 0 20 20" fill="none"><path d="M3 5.5A2.5 2.5 0 015.5 3h9A2.5 2.5 0 0117 5.5v6A2.5 2.5 0 0114.5 14H9l-4.5 3v-3.5A2.5 2.5 0 013 11V5.5z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M6.5 8h7M6.5 10.5h4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>Marketing</div>
     <div class="navlink" data-view="settings">⚙ Settings</div>
   </aside>
   <main class="main" id="main">Loading…</main>
@@ -233,7 +231,8 @@ let uiConfig = null;
 async function loadUiConfig(force=false) { if (uiConfig && !force) return uiConfig; uiConfig = await api("/config"); uiLabels = uiConfig.labels || {}; return uiConfig; }
 function L(key, fallback) { return escapeHtml(uiLabels[key] || fallback); }
 function applyConfiguredLabels() {
-  const navMap={"nav.dashboard":"dashboard","nav.leads":"leads","nav.quotes":"quotes","nav.accounts":"accounts","nav.calendar":"calendar","nav.events":"events","nav.packages":"packages","nav.resources":"resources","nav.equipment":"equipment","nav.expenses":"expenses","nav.financials":"financials","nav.reports":"reports","nav.settings":"settings"};
+  const brand=document.querySelector(".brand"); if(brand && uiConfig?.company?.company_name) brand.textContent=uiConfig.company.company_name;
+  const navMap={"nav.dashboard":"dashboard","nav.leads":"leads","nav.quotes":"quotes","nav.accounts":"accounts","nav.calendar":"calendar","nav.events":"events","nav.resources":"resources","nav.financials":"financials","nav.reports":"reports","nav.marketing":"marketing","nav.settings":"settings"};
   for (const [key,view] of Object.entries(navMap)) { const el=document.querySelector(`.navlink[data-view="${view}"]`); if(!el||!uiLabels[key]) continue; const n=[...el.childNodes].find(x=>x.nodeType===Node.TEXT_NODE&&x.textContent.trim()); if(n) n.textContent=` ${uiLabels[key]}`; }
 }
 
@@ -414,6 +413,32 @@ async function syncFromHash() {
 }
 window.addEventListener("hashchange", syncFromHash);
 
+async function renderMarketing(){
+  const [accounts,cfg]=await Promise.all([api("/accounts"),api("/product-config")]);
+  const rules=(cfg.rules||[]).filter(r=>r.category==="Marketing" && r.value?.enabled!==false);
+  const defaultDays=rules.length ? Math.max(...rules.map(r=>Number(r.value?.days_before||30))) : 30;
+  const today=new Date(); today.setHours(0,0,0,0);
+  const rows=[];
+  const addOpportunity=(a,type,rawDate)=>{
+    if(!rawDate) return;
+    const src=new Date(rawDate+"T00:00:00");
+    if(Number.isNaN(src.getTime())) return;
+    const next=new Date(today.getFullYear(),src.getMonth(),src.getDate());
+    if(next<today) next.setFullYear(next.getFullYear()+1);
+    const days=Math.round((next-today)/86400000);
+    if(days<=defaultDays) rows.push({account:a,type,date:next,days});
+  };
+  for(const a of accounts){ addOpportunity(a,"Birthday",a.birth_date); addOpportunity(a,"Anniversary",a.anniversary_date); }
+  rows.sort((a,b)=>a.days-b.days || a.account.name.localeCompare(b.account.name));
+  main.innerHTML=`${pageHeader("Marketing")}
+    <p class="empty" style="margin-top:-10px;margin-bottom:16px;">Relationship opportunities derived from Client dates. Nothing is automatically sent to clients.</p>
+    <div class="kpis"><div class="kpi"><div class="l">Opportunities</div><div class="v">${rows.length}</div></div><div class="kpi"><div class="l">Rule window</div><div class="v">${defaultDays}d</div></div></div>
+    <div class="card"><h2>Upcoming opportunities</h2>
+      ${rows.map(x=>`<div class="list-row"><span style="flex:1"><b>${escapeHtml(x.account.name)}</b> <span class="pill">${x.type}</span><br><span class="meta">${x.date.toLocaleDateString("en-IN",{day:"numeric",month:"short",year:"numeric"})} · ${x.days===0?"Today":x.days+" days"}${x.account.phone?" · "+escapeHtml(x.account.phone):""}</span></span><button type="button" class="ghost" data-client="${x.account.id}">Open client</button></div>`).join("") || '<div class="empty">No marketing opportunities in the configured window.</div>'}
+    </div>`;
+  main.querySelectorAll("[data-client]").forEach(el=>el.addEventListener("click",()=>go("accountDetail",el.dataset.client)));
+}
+
 async function render() {
   main.innerHTML = "Loading…";
   closeModal();
@@ -435,6 +460,7 @@ async function render() {
     if (state.view === "expenses") return renderExpenses();
     if (state.view === "financials") return renderFinancials();
     if (state.view === "reports") return renderReports();
+    if (state.view === "marketing") return renderMarketing();
     if (state.view === "settings") return renderSettings();
   } catch (e) {
     main.innerHTML = `<div class="card">Error: ${e.message}</div>`;
@@ -1599,7 +1625,7 @@ async function renderSettings(){
     if(!panel) return;
     if(activeSection==="company"){
       const x=cfg.company||{};
-      panel.innerHTML=`<div class="card"><h2>Company profile</h2><p class="empty">Configure the business once. These values become the default identity for quotes, bookings, events and documents.</p>
+      panel.innerHTML=`<div class="card"><h2>Company profile</h2><p class="empty">Configure the business once. These values become the default identity for quotes, events and documents.</p>
         <form id="companyForm" class="row2">
           <div>${input("company_name","Company name",x.company_name,"text","required")}${input("legal_name","Legal name",x.legal_name)}${input("phone","Phone",x.phone)}${input("email","Email",x.email,"email")}${input("website","Website",x.website,"url")}</div>
           <div>${input("address","Address",x.address)}${input("tax_id","GST / Tax ID",x.tax_id)}${input("currency","Currency",x.currency||"INR")}${input("timezone","Timezone",x.timezone||"Asia/Kolkata")}${input("business_type","Business type",x.business_type)}</div>
@@ -1661,7 +1687,7 @@ async function renderSettings(){
     if(activeSection==="finance"){
       const nums=cfg.numbering||[];
       panel.innerHTML=`<div class="card"><h2>Numbering</h2><p class="empty">Configure human-friendly numbers for the business documents and records.</p>${nums.map(n=>`<form class="list-row" data-num="${esc(n.object_key)}"><span style="width:180px"><b>${esc(n.object_key)}</b></span><input name="prefix" value="${esc(n.prefix)}" style="width:100px"><label style="display:flex;align-items:center;gap:5px"><input name="include_year" type="checkbox" ${n.include_year?"checked":""}> Year</label><input name="padding" type="number" min="1" max="8" value="${n.padding}" style="width:70px"><button type="submit">Save</button></form>`).join("")}</div>
-      <div class="card"><h2>Default payment rule</h2><p class="empty">Change the advance percentage used when new bookings are created.</p>${(cfg.rules||[]).filter(r=>r.rule_key==="booking.default_advance").map(r=>`<button type="button" class="icon-btn edit" id="editAdvance">Edit current: ${esc(r.value?.percent||30)}%</button>`).join("")}</div>`;
+      <div class="card"><h2>Default event payment rule</h2><p class="empty">Change the default payment rule used when new events are created.</p>${(cfg.rules||[]).filter(r=>r.rule_key==="booking.default_advance").map(r=>`<button type="button" class="icon-btn edit" id="editAdvance">Edit current: ${esc(r.value?.percent||30)}%</button>`).join("")}</div>`;
       panel.querySelectorAll("[data-num]").forEach(form=>form.addEventListener("submit",async e=>{e.preventDefault();const d=Object.fromEntries(new FormData(form));await api("/product-config/numbering",{method:"POST",body:JSON.stringify({...d,object_key:form.dataset.num,include_year:form.querySelector('[name="include_year"]').checked})});toast("Numbering saved");renderSettings();}));
       const adv=(cfg.rules||[]).find(r=>r.rule_key==="booking.default_advance"); panel.querySelector("#editAdvance")?.addEventListener("click",()=>openModal("Default advance",`<form>${input("percent","Advance percentage",adv?.value?.percent||30,"number","min=0 max=100")}<button type="submit">Save</button></form>`,async d=>{await api("/product-config/rules",{method:"POST",body:JSON.stringify({...adv,value:{percent:Number(d.percent)}})});toast("Advance rule saved");renderSettings();}));
       return;
@@ -1672,7 +1698,7 @@ async function renderSettings(){
       return;
     }
     if(activeSection==="ai"){
-      const a=cfg.ai||{}; const allRead=["clients","leads","quotes","bookings","events","tasks","resources","payments","expenses"]; const allWrite=["followups","quotes","tasks","resource_allocations","marketing_opportunities"]; const confirm=["delete_records","financial_changes","send_external_messages","resource_allocations"];
+      const a=cfg.ai||{}; const allRead=["clients","leads","quotes","events","tasks","resources","payments","expenses"]; const allWrite=["followups","quotes","tasks","resource_allocations","marketing_opportunities"]; const confirm=["delete_records","financial_changes","send_external_messages","resource_allocations"];
       panel.innerHTML=`<div class="card"><h2>AI & MCP access</h2><p class="empty">The CRM can expose controlled business actions to ChatGPT through MCP. Permissions are explicit; the AI never receives direct database access.</p>
       <form id="aiForm"><label><input name="enabled" type="checkbox" ${a.enabled?"checked":""}> Enable AI features</label><br><label><input name="mcp_enabled" type="checkbox" ${a.mcp_enabled?"checked":""}> Enable MCP access</label>
       <div class="row2" style="margin-top:12px"><div><b>Read access</b>${allRead.map(x=>`<label style="display:block"><input type="checkbox" name="read" value="${x}" ${(a.allowed_read||[]).includes(x)?"checked":""}> ${x}</label>`).join("")}</div>
