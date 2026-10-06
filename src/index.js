@@ -133,6 +133,8 @@ const ADMIN_ROUTES = [
   ["POST", /^\/api\/admin\/settings$/, (req, env) => admin.updateSetting(req, env)],
 
   ["GET", /^\/api\/admin\/services$/, (req, env) => admin.listServices(req, env)],
+  ["POST", /^\/api\/admin\/services$/, (req, env, staff) => admin.saveService(req, env)],
+  ["POST", /^\/api\/admin\/services\/(\d+)$/, (req, env, staff, [id]) => admin.saveService(req, env, id)],
   ["GET", /^\/api\/admin\/tiers$/, (req, env) => admin.listTiers(req, env)],
   ["GET", /^\/api\/admin\/packages$/, (req, env) => admin.listPackages(req, env)],
   ["POST", /^\/api\/admin\/packages$/, (req, env) => admin.createPackage(req, env)],
