@@ -7,6 +7,10 @@ import { json, badRequest, notFound } from "../lib/util.js";
 const PHASES = ["Pre-Production", "Production", "Post-Production"];
 const RESOURCE_TYPES = ["Person", "Vendor"];
 
+function parseRuleValue(value) {
+  try { return value ? JSON.parse(value) : {}; } catch { return {}; }
+}
+
 function picklistObject(groupKey) {
   const key = String(groupKey || "").toLowerCase();
   if (key.startsWith("resource_")) return "resources";
