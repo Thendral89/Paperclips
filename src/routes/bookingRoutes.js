@@ -291,7 +291,7 @@ export async function convertAcceptedQuote(request, env, quoteId) {
     event_id:eventId,
     event_number:eventNumber,
     account_id:accountId,
-    task_count:taskCount,
+    task_count:taskRows.length,
     checklist_count:checklistTemplates.length
   });
 }
