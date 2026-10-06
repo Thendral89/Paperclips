@@ -739,7 +739,7 @@ async function renderLeadDetail(id) {
     }
     await api(`/leads/${id}/stage`, { method: "POST", body: JSON.stringify({ stage, lost_reason }) });
     toast("Stage updated");
-    if (stage === "Booked" && !l.account_id) { await openConvertModal(id, l); return; }
+    if (stage === "Won" && !l.account_id) { await openConvertModal(id, l); return; }
     renderLeadDetail(id);
   });
   main.querySelector("#fuDate").addEventListener("change", async e => { await api(`/leads/${id}/followup`, { method: "POST", body: JSON.stringify({ date: e.target.value }) }); toast("Follow-up date saved"); });
@@ -1392,7 +1392,6 @@ async function renderEventDetail(id) {
   main.querySelectorAll("[data-del-lineitem]").forEach(el => el.addEventListener("click", () =>
     confirmDelete("Remove this line item from the event?", `/event-services/${el.dataset.delLineitem}/delete`, () => renderEventDetail(id))
   ));
-  main.querySelectorAll("[data-tier]").forEach(el => el.addEventListener("click", async () => { await api(`/events/${id}/tier`, { method: "POST", body: JSON.stringify({ pricing_tier_id: el.dataset.tier }) }); renderEventDetail(id); }));
   main.querySelectorAll("[data-pkg]").forEach(el => el.addEventListener("click", async () => { await api(`/events/${id}/package`, { method: "POST", body: JSON.stringify({ package_id: el.dataset.pkg }) }); renderEventDetail(id); }));
   main.querySelectorAll("[data-svc]").forEach(el => el.addEventListener("click", async () => { await api(`/events/${id}/services`, { method: "POST", body: JSON.stringify({ service_id: el.dataset.svc, is_crosssell: true }) }); renderEventDetail(id); }));
   main.querySelectorAll("[data-check]").forEach(el => el.addEventListener("change", async () => { await api(`/checklist/${el.dataset.check}/toggle`, { method: "POST", body: "{}" }); renderEventDetail(id); }));
