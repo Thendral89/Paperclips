@@ -303,8 +303,9 @@ function closeModal() { modalBackdrop.classList.remove("show"); }
 // ── Delete with confirm — one helper reused by every row-action ✕ ──
 async function confirmDelete(message, path, onDone) {
   if (!confirm(message)) return;
+  if (!confirm("Final confirmation: this deletion cannot be undone. Continue?")) return;
   try {
-    await api(path, { method: "POST", body: "{}" });
+    await api(path, { method: "POST", headers: { "content-type":"application/json", "x-delete-confirmation":"DOUBLE" }, body: JSON.stringify({confirmation:"DOUBLE"}) });
     toast("Deleted");
     onDone();
   } catch (err) {
