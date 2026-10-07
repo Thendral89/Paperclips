@@ -665,6 +665,18 @@ export async function deleteQuote(request, env, quoteId) {
   return json({ ok: true });
 }
 
+export async function reviseEventQuote(request, env, eventId, staff) {
+  const event=await env.DB.prepare("SELECT id,quote_id FROM events WHERE id=?").bind(eventId).first();
+  if(!event) return notFound("event not found");
+  if(!event.quote_id) return badRequest("This event is not linked to a quote");
+  const {reviseQuote}=await import("./adminRoutes.js");
+  const result=await reviseQuote(request,env,event.quote_id,staff);
+  const payload=await result.json().catch(()=>({}));
+  if(!result.ok) return result;
+  await env.DB.prepare("UPDATE events SET quote_id=?,updated_at=datetime('now') WHERE id=?").bind(payload.id,eventId).run();
+  return json({ok:true,event_id:eventId,quote_id:payload.id,version:payload.version});
+}
+
 export async function addQuoteItem(request, env, quoteId) {
   const body = await request.json().catch(() => null);
   if (!body || (!body.service_id && !body.package_id)) return badRequest("service_id or package_id is required");
