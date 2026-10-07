@@ -1486,6 +1486,23 @@ async function renderEventDetail(id) {
     renderEventDetail(id);
   });
   const rp=document.createElement('div'); rp.className='card'; rp.innerHTML=`<h2>${L('event.resources','Resources')} <button type="button" class="icon-btn" id="addResourceBtn">+ Add</button></h2><div class="resource-phase-grid"><section class="resource-phase-column"><h2>Production</h2><div id="eventResourcesProduction"><div class="empty">Loading…</div></div></section><section class="resource-phase-column"><h2>Post-Production</h2><div id="eventResourcesPostProduction"><div class="empty">Loading…</div></div></section></div>`; panels.resources.prepend(rp);
+  const reqCard=document.createElement('div');
+  reqCard.className='card';
+  const reqs=Array.isArray(ev.resource_requirements)?ev.resource_requirements:[];
+  reqCard.innerHTML='<h2>Required Resources</h2><p class="meta">Generated from the services and skills on this Event. Assignments are constrained to resources that actually have the required skill.</p>'+
+    (reqs.map(req=>{
+      const assigned=(ev.resources||[]).filter(r=>Number(r.skill_id)===Number(req.skill_id)&&r.phase===req.phase);
+      return '<div class="list-row"><span><b>'+escapeHtml(req.skill_label||req.role_label||"Required skill")+'</b> <span class="pill">'+escapeHtml(req.phase)+'</span><br><span class="meta">Start '+escapeHtml(req.start_offset_days||0)+'d · Due '+escapeHtml(req.due_offset_days||0)+'d · Default '+money(req.default_cost||0)+' · '+assigned.length+'/'+(req.quantity||1)+' assigned</span></span><button type="button" class="icon-btn" data-assign-requirement="'+req.id+'">'+(assigned.length?'Assign another':'Assign resource')+'</button></div>';
+    }).join('') || '<div class="empty">No skill-based resource requirements have been generated yet.</div>');
+  panels.resources.insertBefore(reqCard,panels.resources.firstChild);
+  reqCard.querySelectorAll('[data-assign-requirement]').forEach(btn=>btn.addEventListener('click',async()=>{
+    const req=reqs.find(x=>String(x.id)===String(btn.dataset.assignRequirement)); if(!req) return;
+    const cfg=await loadUiConfig(true), skills=cfg.skills||[];
+    const active=(cfg.resources||[]).filter(r=>r.active && String(r.skill_ids||'').split(',').map(Number).includes(Number(req.skill_id)));
+    if(!active.length){toast("No active resource has this skill assigned",true);return;}
+    const form='<form><div class="field"><label>Resource</label><select name="resource_id" required>'+active.map(r=>'<option value="'+r.id+'">'+escapeHtml(r.name)+' ('+escapeHtml(r.resource_type||"Internal")+')</option>').join('')+'</select></div><div class="field"><label>Phase</label><select name="phase"><option>'+escapeHtml(req.phase)+'</option></select></div><input type="hidden" name="skill_id" value="'+req.skill_id+'"><div class="field"><label>Notes</label><textarea name="notes" rows="2"></textarea></div><button type="submit">Assign resource</button></form>';
+    openModal("Assign "+(req.skill_label||req.role_label),form,async data=>{await api(`/events/${id}/resources`,{method:"POST",body:JSON.stringify(data)});toast("Resource assigned");renderEventDetail(id);});
+  }));
   const taskList=Array.isArray(ev.tasks)?ev.tasks:[]; const taskDone=taskList.filter(t=>String(t.status||"").toLowerCase()==="done" || String(t.status||"").toLowerCase()==="completed").length;
   const taskPending=Math.max(0,taskList.length-taskDone);
   const eventSummary=document.createElement('div');
