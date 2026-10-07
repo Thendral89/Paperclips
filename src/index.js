@@ -100,6 +100,7 @@ const ADMIN_ROUTES = [
   ["POST", /^\/api\/admin\/invoices\/(\d+)\/paid$/, (req, env, staff, [id]) => admin.markInvoicePaid(req, env, id)],
   ["POST", /^\/api\/admin\/events\/(\d+)\/details$/, (req, env, staff, [id], ctx) => admin.updateEvent(req, env, id, ctx)],
   ["POST", /^\/api\/admin\/events\/(\d+)\/operations\/refresh$/, (req, env, staff, [id]) => admin.refreshEventOperations(req, env, id)],
+  ["POST", /^\/api\/admin\/events\/(\d+)\/revise-quote$/, (req, env, staff, [id]) => admin.reviseEventQuote(req, env, id, staff)],
   ["GET", /^\/api\/admin\/events\/(\d+)\/activity$/, (req, env, staff, [id]) => admin.getEventActivity(req, env, id)],
   ["POST", /^\/api\/admin\/events\/(\d+)\/delete$/, (req, env, staff, [id]) => admin.deleteEvent(req, env, id)],
   ["POST", /^\/api\/admin\/events\/(\d+)\/services$/, (req, env, staff, [id]) => admin.addEventService(req, env, id)],
