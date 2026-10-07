@@ -144,8 +144,7 @@ CREATE INDEX IF NOT EXISTS idx_service_work_mappings_lookup
 ALTER TABLE event_resource_allocations ADD COLUMN work_item_id INTEGER REFERENCES event_work_items(id) ON DELETE SET NULL;
 ALTER TABLE event_resource_allocations ADD COLUMN override_reason TEXT;
 ALTER TABLE event_resource_allocations ADD COLUMN override_note TEXT;
-ALTER TABLE event_resource_allocations ADD COLUMN start_at TEXT;
-ALTER TABLE event_resource_allocations ADD COLUMN end_at TEXT;
+-- start_at/end_at already exist from migration 0020_resource_allocation_datetime.sql.
 ALTER TABLE event_resource_allocations ADD COLUMN original_estimate INTEGER;
 UPDATE event_resource_allocations SET original_estimate=COALESCE(cost,0) WHERE original_estimate IS NULL;
 ALTER TABLE event_resource_allocations ADD COLUMN revised_estimate INTEGER;
