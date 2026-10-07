@@ -682,7 +682,7 @@ export async function addQuoteItem(request, env, quoteId) {
   if (!body || (!body.service_id && !body.package_id)) return badRequest("service_id or package_id is required");
   const quoteState=await env.DB.prepare("SELECT status FROM lead_quotes WHERE id=?").bind(quoteId).first();
   if(!quoteState) return notFound("quote not found");
-  if(["Accepted","Rejected","Expired","Cancelled"].includes(quoteState.status)) return badRequest("this Quote is locked and cannot be changed");
+  if(["Finalized","Accepted","Won","Rejected","Expired","Cancelled"].includes(quoteState.status)) return badRequest("this Quote is locked and cannot be changed");
   if(body.package_id && !body.is_addon){
     const count=await env.DB.prepare("SELECT COUNT(*) AS n FROM quote_package_options WHERE quote_id=?").bind(quoteId).first();
     await createQuotePackageOptionRecord(env,quoteId,Number(body.package_id),Number(count?.n||0),Number(count?.n||0)===0?1:0);
@@ -739,7 +739,7 @@ export async function updateQuoteItem(request, env, itemId) {
 export async function removeQuoteItem(request, env, itemId) {
   const item=await env.DB.prepare("SELECT qi.quote_id,q.status FROM quote_items qi JOIN lead_quotes q ON q.id=qi.quote_id WHERE qi.id=?").bind(itemId).first();
   if(!item) return notFound("quote item not found");
-  if(["Accepted","Rejected","Expired","Cancelled"].includes(item.status)) return badRequest("this Quote is locked and cannot be changed");
+  if(["Finalized","Accepted","Won","Rejected","Expired","Cancelled"].includes(item.status)) return badRequest("this Quote is locked and cannot be changed");
   await env.DB.prepare(`DELETE FROM quote_items WHERE id = ?`).bind(itemId).run();
   return json({ ok: true });
 }
