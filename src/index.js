@@ -94,6 +94,7 @@ const ADMIN_ROUTES = [
   ["GET", /^\/api\/admin\/events$/, (req, env) => admin.listEvents(req, env)],
   ["POST", /^\/api\/admin\/events$/, (req, env, staff, _captures, ctx) => admin.createEvent(req, env, ctx)],
   ["GET", /^\/api\/admin\/events\/(\d+)$/, (req, env, staff, [id]) => admin.getEvent(req, env, id)],
+  ["GET", /^\/api\/admin\/events\/(\d+)\/operations$/, (req, env, staff, [id]) => admin.getEventOperations(req, env, id)],
   ["GET", /^\/api\/admin\/events\/(\d+)\/invoice$/, (req, env, staff, [id]) => admin.getEventInvoice(req, env, id)],
   ["POST", /^\/api\/admin\/events\/(\d+)\/invoice$/, (req, env, staff, [id]) => admin.generateEventInvoice(req, env, id)],
   ["POST", /^\/api\/admin\/invoices\/(\d+)\/issue$/, (req, env, staff, [id]) => admin.issueEventInvoice(req, env, id)],
@@ -159,9 +160,11 @@ const ADMIN_ROUTES = [
   ["POST", /^\/api\/admin\/vendors$/, (req, env) => admin.createVendor(req, env)],
   ["POST", /^\/api\/admin\/vendors\/(\d+)$/, (req, env, staff, [id]) => admin.updateVendor(req, env, id)],
   ["POST", /^\/api\/admin\/vendors\/(\d+)\/delete$/, (req, env, staff, [id]) => admin.deleteVendor(req, env, id)],
-  ["GET", /^\/api\/admin\/equipment$/, (req, env) => admin.listEquipment(req, env)],
-  ["POST", /^\/api\/admin\/equipment$/, (req, env) => admin.createEquipment(req, env)],
-  ["POST", /^\/api\/admin\/equipment\/(\d+)$/, (req, env, staff, [id]) => admin.updateEquipment(req, env, id)],
+  ["GET", /^\/api\/admin\/equipment$/, (req, env) => admin.listInventoryEquipment(req, env)],
+  ["POST", /^\/api\/admin\/equipment$/, (req, env) => admin.createInventoryEquipment(req, env)],
+  ["POST", /^\/api\/admin\/equipment\/(\d+)$/, (req, env, staff, [id]) => admin.updateInventoryEquipment(req, env, id)],
+  ["POST", /^\/api\/admin\/equipment\/(\d+)\/maintenance$/, (req, env, staff, [id]) => admin.addEquipmentMaintenance(req, env, id)],
+  ["GET", /^\/api\/admin\/equipment\/(\d+)\/history$/, (req, env, staff, [id]) => admin.listEquipmentHistory(req, env, id)],
   ["POST", /^\/api\/admin\/equipment\/(\d+)\/delete$/, (req, env, staff, [id]) => admin.deleteEquipment(req, env, id)],
 
   ["GET", /^\/api\/admin\/expenses$/, (req, env) => admin.listExpenses(req, env)],
@@ -182,6 +185,14 @@ const ADMIN_ROUTES = [
   ["GET", /^\/api\/admin\/reports\/monthly$/, (req, env) => admin.reportMonthly(req, env)],
   ["GET", /^\/api\/admin\/reports\/quarterly$/, (req, env) => admin.reportQuarterly(req, env)],
   ["GET", /^\/api\/admin\/reports\/seasonality$/, (req, env) => admin.reportSeasonality(req, env)],
+  ["POST", /^\/api\/admin\/events\/(\d+)\/work$/, (req, env, staff, [id]) => admin.createEventWork(req, env, id)],
+  ["POST", /^\/api\/admin\/work-items\/(\d+)$/, (req, env, staff, [id]) => admin.updateEventWork(req, env, id)],
+  ["POST", /^\/api\/admin\/work-items\/(\d+)\/delete$/, (req, env, staff, [id]) => admin.deleteEventWork(req, env, id)],
+  ["POST", /^\/api\/admin\/work-items\/(\d+)\/resources$/, (req, env, staff, [id]) => admin.assignWorkResource(req, env, id)],
+  ["POST", /^\/api\/admin\/work-resources\/(\d+)\/delete$/, (req, env, staff, [id]) => admin.deleteWorkResource(req, env, id)],
+  ["POST", /^\/api\/admin\/work-items\/(\d+)\/equipment$/, (req, env, staff, [id]) => admin.assignWorkEquipment(req, env, id)],
+  ["POST", /^\/api\/admin\/event-equipment\/(\d+)\/return$/, (req, env, staff, [id]) => admin.returnEventEquipment(req, env, id)],
+
 ];
 
 const PORTAL_ROUTES = [
