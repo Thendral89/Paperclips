@@ -874,7 +874,7 @@ async function renderQuoteDetail(id) {
   const packageOptions = q.options || [];
   main.innerHTML = `
     <span class="back" data-lead-back="${q.lead_id}">← ${q.lead_name || "Lead"}</span>
-    <h1>Quote ${statusPill(q.status)} <button type="button" class="icon-btn del" id="deleteQuoteBtn" title="Delete quote">✕ Delete</button>${["Accepted","Won"].includes(q.status) ? ' <button type="button" class="icon-btn" id="convertQuoteBtn">Convert to Client + Event</button>' : ""}</h1>
+    <h1>Quote ${statusPill(q.status)} <span class="meta">v${q.version||1}</span>${["Draft","Sent","Viewed","Negotiation"].includes(q.status) ? ' <button type="button" class="icon-btn" id="finalizeQuoteBtn">Finalize Quote</button>' : ""}${["Finalized","Accepted","Won"].includes(q.status) ? ' <button type="button" class="icon-btn" id="reviseQuoteBtn">Revise Quote</button>' : ""}${["Accepted","Won"].includes(q.status) ? ' <button type="button" class="icon-btn" id="convertQuoteBtn">Create / Open Booking</button>' : ""} <button type="button" class="icon-btn del" id="deleteQuoteBtn" title="Delete quote">✕ Delete</button></h1>
     <div class="kpis">
       <div class="kpi"><div class="l">Subtotal</div><div class="v">${money(q.subtotal)}</div></div>
       <div class="kpi"><div class="l">Concession</div><div class="v" style="color:var(--success)">${q.concession_amount ? "−" + money(q.concession_amount) : "—"}</div></div>
@@ -932,6 +932,8 @@ async function renderQuoteDetail(id) {
     toast(r.already_exists?"Booking already exists":"Booking and Event created");
     if(r.event_id) go("eventDetail",r.event_id); else renderQuoteDetail(id);
   });
+  main.querySelector("#finalizeQuoteBtn")?.addEventListener("click", async () => { if(!confirm("Finalize this quote? It will become immutable. Future changes must use Revise Quote.")) return; await api(`/quotes/${id}/finalize`,{method:"POST",body:"{}"}); toast("Quote finalized"); renderQuoteDetail(id); });
+  main.querySelector("#reviseQuoteBtn")?.addEventListener("click", async () => { if(!confirm("Create a new draft revision from this quote? The current version will remain unchanged.")) return; const r=await api(`/quotes/${id}/revise`,{method:"POST",body:"{}"}); toast("New quote revision created"); go("quoteDetail",r.id); });
   main.querySelector("#deleteQuoteBtn").addEventListener("click", () =>
     confirmDelete("Delete this quote? This can't be undone.", `/quotes/${id}/delete`, () => go("leadDetail", q.lead_id))
   );
@@ -1008,7 +1010,7 @@ async function renderQuoteDetail(id) {
     const d=o.details||{};
     openModal(o.label, `<div class="package-detail-modal"><div><b>${escapeHtml(d.sessions_text||"")}</b></div><h4>Crew</h4><ul>${(d.crew||[]).map(x=>`<li>${escapeHtml(x)}</li>`).join("")}</ul><h4>Deliverables</h4><ul>${(d.deliverables||[]).map(x=>`<li>${escapeHtml(x)}</li>`).join("")}</ul>${(d.complimentary||[]).length?`<h4>Complimentary</h4><ul>${d.complimentary.map(x=>`<li>${escapeHtml(x)}</li>`).join("")}</ul>`:""}</div>`,()=>{});
   }));
-  if (q.status === "Draft") {
+  if (q.status === "Draft" || q.status === "Sent" || q.status === "Viewed" || q.status === "Negotiation") {
     main.querySelector("h1").insertAdjacentHTML("beforeend", ` <button type="button" class="icon-btn" id="sendQuoteBtn">Send quote</button>`);
     main.querySelector("#sendQuoteBtn").addEventListener("click", async () => {
       const r = await api(`/quotes/${id}/send`, { method: "POST", body: "{}" });
