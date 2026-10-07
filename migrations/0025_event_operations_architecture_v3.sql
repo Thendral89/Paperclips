@@ -66,6 +66,8 @@ CREATE INDEX IF NOT EXISTS idx_allocation_history_event
   ON event_resource_allocation_history(event_id,changed_at);
 
 -- 6) Checklist templates can optionally target a Service or Skill.
+ALTER TABLE event_checklist ADD COLUMN generated_source TEXT;
+CREATE INDEX IF NOT EXISTS idx_event_checklist_generated ON event_checklist(event_id,generated_source);
 ALTER TABLE checklist_templates ADD COLUMN service_id INTEGER REFERENCES services(id) ON DELETE SET NULL;
 ALTER TABLE checklist_templates ADD COLUMN skill_id INTEGER REFERENCES skills(id) ON DELETE SET NULL;
 CREATE INDEX IF NOT EXISTS idx_checklist_templates_service_skill
