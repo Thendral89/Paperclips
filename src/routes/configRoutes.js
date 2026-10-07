@@ -449,3 +449,18 @@ export async function listEventExpenses(request, env, eventId) {
   `).bind(eventId).all();
   return json(results);
 }
+
+export async function listServiceWorkMappings(request,env){
+  const {results}=await env.DB.prepare("SELECT m.*,s.name AS service_name FROM service_work_mappings m JOIN services s ON s.id=m.service_id WHERE m.active=1 ORDER BY s.name,m.sort_order,m.id").all();
+  return json(results);
+}
+export async function saveServiceWorkMapping(request,env){
+  const body=await request.json().catch(()=>null);
+  if(!body?.service_id||!body?.work_group||!body?.phase)return badRequest("service_id, work_group and phase are required");
+  await env.DB.prepare("INSERT INTO service_work_mappings(service_id,event_type_key,work_group,phase,auto_create,sort_order,active) VALUES(?,?,?,?,?,?,1) ON CONFLICT(service_id,event_type_key,work_group,phase) DO UPDATE SET auto_create=excluded.auto_create,sort_order=excluded.sort_order,active=1").bind(Number(body.service_id),body.event_type_key||null,body.work_group,body.phase,body.auto_create===false?0:1,Number(body.sort_order||0)).run();
+  return json({ok:true});
+}
+export async function deleteServiceWorkMapping(request,env,id){
+  await env.DB.prepare("UPDATE service_work_mappings SET active=0 WHERE id=?").bind(id).run();
+  return json({ok:true});
+}
