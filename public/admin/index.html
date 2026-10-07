@@ -1426,10 +1426,11 @@ async function renderEventDetail(id) {
   // Event identity and commercial KPIs remain above the tabs.
   const tabNames = [
     ["checklist", L("event.checklist", "Checklist")],
-    ["resources", L("event.resources", "Resource Mapping")],
-    ["services", L("event.services", "Service & Quote")],
-    ["payments", L("event.payments", "Payment")],
-    ["expenses", L("event.expenses", "Expenses")]
+    ["timeline", L("event.timeline", "Timeline")],
+    ["services", L("event.services", "Services")],
+    ["resources", L("event.resources", "Resources")],
+    ["finance", L("event.finance", "Finance")],
+    ["activity", L("event.activity", "Activity")]
   ];
   const direct=[...main.children], header=direct.filter(el=>el.matches('.back,h1,.sub,.kpis')), content=direct.filter(el=>!header.includes(el));
   const shell=document.createElement('div');
@@ -1437,7 +1438,7 @@ async function renderEventDetail(id) {
   shell.innerHTML=`<div class="event-tabs">${tabNames.map(([k,v])=>`<button type="button" class="event-tab ${k===activeEventTab?'active':''}" data-event-tab="${k}">${v}</button>`).join('')}</div>${tabNames.map(([k])=>`<section class="event-tab-panel ${k===activeEventTab?'active':''}" data-event-panel="${k}"></section>`).join('')}`;
   main.appendChild(shell);
   const panels=Object.fromEntries([...shell.querySelectorAll('[data-event-panel]')].map(x=>[x.dataset.eventPanel,x]));
-  const invoiceCard=document.createElement('div'); invoiceCard.className='card'; invoiceCard.id='eventInvoiceCard'; invoiceCard.innerHTML='<h2>Invoice</h2><div class="empty">Loading invoice…</div>'; panels.payments.appendChild(invoiceCard);
+  const invoiceCard=document.createElement('div'); invoiceCard.className='card'; invoiceCard.id='eventInvoiceCard'; invoiceCard.innerHTML='<h2>Invoice</h2><div class="empty">Loading invoice…</div>'; panels.finance.appendChild(invoiceCard);
   const invoice=await api(`/events/${id}/invoice`).catch(()=>null);
   const renderInvoice=inv=>{invoiceCard.innerHTML=inv?`<h2>Invoice <span class="pill">${escapeHtml(inv.invoice_number||"Draft")}</span></h2><div class="list-row"><span>Status</span>${statusPill(inv.status)}</div><div class="list-row"><span>Total</span><b>${money(inv.total_amount)}</b></div><div class="list-row"><span>Version</span><span>${inv.version||1}</span></div><div class="row-actions">${inv.locked_at?'<span class="meta">Locked on Event completion</span>':`<button type="button" class="icon-btn" id="refreshInvoice">Generate / Refresh</button>${inv.status==="Draft"?'<button type="button" class="icon-btn" id="issueInvoice">Issue</button>':""}${inv.status==="Issued"?'<button type="button" class="icon-btn" id="payInvoice">Mark paid</button>':""}`}</div>`: '<h2>Invoice</h2><button type="button" class="btn" id="generateInvoice">Generate invoice</button>';};
   renderInvoice(invoice);
@@ -1445,9 +1446,10 @@ async function renderEventDetail(id) {
 
   const classify=el=>{const t=(el.innerText||'').toLowerCase();
     if(t.includes('line items')||t.includes('apply a package')||t.startsWith('add-ons')||t.includes('pricing tier')) return 'services';
-    if(t.includes('payment schedule')||t.includes('payments received')||t.includes('invoice')) return 'payments';
-    if(t.includes('expenses on this event')) return 'expenses';
-    if(t.includes('deliverables')||t.includes('checklist')||t.includes('staff tasks')) return 'checklist';
+    if(t.includes('payment schedule')||t.includes('payments received')||t.includes('invoice')) return 'finance';
+    if(t.includes('expenses on this event')) return 'finance';
+    if(t.includes('deliverables')||t.includes('checklist')) return 'checklist';
+    if(t.includes('staff tasks')) return 'timeline';
     if(t.includes('internal staff')||t.includes('resource')||t.includes('outside vendors')||t.includes('equipment')) return 'resources';
     return 'checklist';
   };
@@ -1465,17 +1467,19 @@ async function renderEventDetail(id) {
   const taskPending=Math.max(0,taskList.length-taskDone);
   const eventSummary=document.createElement('div');
   eventSummary.className='card';
-  eventSummary.innerHTML=`<h2>Event overview</h2>
+  eventSummary.innerHTML=`<div style="display:flex;justify-content:space-between;align-items:center;gap:12px;"><h2 style="margin:0">Event details</h2><button type="button" class="icon-btn" id="editEventTopBtn">✎ Edit</button></div>
     <div class="row2">
       <div>
-        <div class="list-row"><span>Event date</span><b>${escapeHtml(ev.event_date||"Not scheduled")}</b></div>
-        <div class="list-row"><span>Time</span><b>${escapeHtml([ev.start_time,ev.end_time].filter(Boolean).join(" – ")||"Not scheduled")}</b></div>
-        <div class="list-row"><span>Venue</span><b>${escapeHtml(ev.venue||"Not set")}</b></div>
+        <div class="list-row"><span>Client</span><b><a data-acct="${ev.account_id}" style="cursor:pointer;color:var(--accent-deep);">${escapeHtml(ev.account_name||"—")} →</a></b></div>
+        <div class="list-row"><span>Event type</span><b>${escapeHtml(ev.type||"—")}</b></div>
+        <div class="list-row"><span>Location</span><b>${escapeHtml(ev.venue||"Not set")}</b></div>
+        <div class="list-row"><span>Quote</span><b>${money(ev.quote_total)}</b></div>
       </div>
       <div>
+        <div class="list-row"><span>Start</span><b>${escapeHtml(ev.start_date||ev.event_date||"Not scheduled")}</b></div>
+        <div class="list-row"><span>End</span><b>${escapeHtml(ev.end_date||ev.event_date||"Not scheduled")}</b></div>
         <div class="list-row"><span>Status</span>${statusPill(ev.status||"Planning")}</div>
-        <div class="list-row"><span>Tasks</span><b>${taskDone}/${taskList.length} complete</b></div>
-        <div class="list-row"><span>Next action</span><b>${escapeHtml(taskList.find(t=>!["done","completed"].includes(String(t.status||"").toLowerCase()))?.task||"No pending task")}</b></div>
+        <div class="list-row"><span>Checklist</span><b>${checklistDone}/${ev.checklist.length} complete</b></div>
       </div>
     </div>`;
   main.insertBefore(eventSummary,shell);
