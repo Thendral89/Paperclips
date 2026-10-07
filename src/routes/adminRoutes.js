@@ -641,6 +641,7 @@ export async function updateQuote(request, env, quoteId) {
 export async function sendQuote(request, env, quoteId, staff) {
   const quote = await env.DB.prepare(`SELECT q.*,l.phone,l.name FROM lead_quotes q JOIN leads l ON l.id=q.lead_id WHERE q.id = ?`).bind(quoteId).first();
   if (!quote) return notFound("quote not found");
+  if (["Finalized","Accepted","Won"].includes(quote.status)) return badRequest("this Quote is finalized and cannot be sent again");
   const url = new URL(request.url);
   const publicUrl=`${url.origin}/quote/${quote.token}`;
   const message=`Hi ${quote.name || "there"}, your Paperclip Studios quote is ready: ${publicUrl}`;
@@ -652,7 +653,7 @@ export async function sendQuote(request, env, quoteId, staff) {
 export async function deleteQuote(request, env, quoteId) {
   const quote=await env.DB.prepare(`SELECT id,status FROM lead_quotes WHERE id=?`).bind(quoteId).first();
   if(!quote) return notFound("quote not found");
-  if(["Accepted","Won"].includes(quote.status)) return badRequest("This Quote is finalized/accepted and cannot be deleted.");
+  if(["Finalized","Accepted","Won"].includes(quote.status)) return badRequest("This Quote is finalized/accepted and cannot be deleted.");
   if(request.headers.get("x-delete-confirmation")!=="DOUBLE") return badRequest("Delete requires double confirmation.");
   await env.DB.batch([
     env.DB.prepare(`DELETE FROM quote_comments WHERE quote_id = ?`).bind(quoteId),
