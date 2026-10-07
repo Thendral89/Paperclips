@@ -1469,6 +1469,22 @@ async function renderEventDetail(id) {
   ppCard.innerHTML=`<h2>${L('event.post_production','Post-Production Workflow')}</h2><div class="resource-grid">${(ppValues.length?ppValues:ppFallback).map(x=>`<div class="resource-card">${escapeHtml(x)}</div>`).join('')}</div>`;
   panels.checklist.appendChild(ppCard);
   shell.querySelectorAll('[data-event-tab]').forEach(btn=>btn.addEventListener('click',()=>{activeEventTab=btn.dataset.eventTab;shell.querySelectorAll('[data-event-tab]').forEach(b=>b.classList.toggle('active',b===btn));shell.querySelectorAll('[data-event-panel]').forEach(x=>x.classList.toggle('active',x.dataset.eventPanel===activeEventTab));}));
+  const quoteCard=document.createElement('div');
+  quoteCard.className='card';
+  const currentQuote=ev.quote_history?.find(q=>Number(q.id)===Number(ev.quote_id)) || ev.quote_history?.[0];
+  quoteCard.innerHTML='<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;"><div><h2 style="margin:0">Service & Quote</h2><div class="meta">Commercial snapshot carried from the selected quotation. Finalized versions are immutable.</div></div><button type="button" class="icon-btn" id="reviseEventQuoteBtn">Revise Quote</button></div>'+
+    '<div class="kpis" style="margin-top:12px;grid-template-columns:repeat(3,minmax(0,1fr));"><div class="kpi"><div class="l">Current quote</div><div class="v">v'+(currentQuote?.version||1)+'</div></div><div class="kpi"><div class="l">Status</div><div class="v">'+escapeHtml(currentQuote?.status||"—")+'</div></div><div class="kpi"><div class="l">Event value</div><div class="v">'+money(ev.quote_total)+'</div></div></div>'+
+    '<div class="list-row"><span><b>Quoted services</b><br><span class="meta">'+(ev.services||[]).map(s=>escapeHtml(s.name||"")).join(" · ")+'</span></span></div>'+
+    '<h3 style="margin-top:14px;">Quote history</h3>'+
+    ((ev.quote_history||[]).map(q=>'<div class="list-row"><span><b>v'+q.version+'</b> · '+escapeHtml(q.status||"")+'<br><span class="meta">'+(q.finalized_at?"Finalized "+escapeHtml(q.finalized_at):"Created "+escapeHtml(q.created_at||""))+'</span></span><span class="meta">'+money(q.concession_amount||0)+' concession</span></div>').join("")||'<div class="empty">No quote history.</div>');
+  panels.services.prepend(quoteCard);
+  quoteCard.querySelector('#reviseEventQuoteBtn').addEventListener('click',async()=>{
+    if(!ev.quote_id){toast("This event has no linked quote",true);return;}
+    if(!confirm("Create a new draft revision from the current quote? The existing quote remains unchanged.")) return;
+    const r=await api(`/events/${id}/revise-quote`,{method:"POST",body:"{}"});
+    toast("New quote revision created");
+    renderEventDetail(id);
+  });
   const rp=document.createElement('div'); rp.className='card'; rp.innerHTML=`<h2>${L('event.resources','Resources')} <button type="button" class="icon-btn" id="addResourceBtn">+ Add</button></h2><div class="resource-phase-grid"><section class="resource-phase-column"><h2>Production</h2><div id="eventResourcesProduction"><div class="empty">Loading…</div></div></section><section class="resource-phase-column"><h2>Post-Production</h2><div id="eventResourcesPostProduction"><div class="empty">Loading…</div></div></section></div>`; panels.resources.prepend(rp);
   const taskList=Array.isArray(ev.tasks)?ev.tasks:[]; const taskDone=taskList.filter(t=>String(t.status||"").toLowerCase()==="done" || String(t.status||"").toLowerCase()==="completed").length;
   const taskPending=Math.max(0,taskList.length-taskDone);
