@@ -926,12 +926,6 @@ async function renderQuoteDetail(id) {
     </div>
   `;
   main.querySelector("[data-lead-back]").addEventListener("click", () => go("leadDetail", q.lead_id));
-  main.querySelector("#convertQuoteBtn")?.addEventListener("click", async () => {
-    if(!confirm("Open the operational Event for this accepted quote?")) return;
-    const r=await api(`/quotes/${id}/convert`,{method:"POST",body:"{}"});
-    toast(r.updated_existing_event?"Event updated to accepted quote revision":r.already_exists?"Event already exists":"Event created");
-    if(r.event_id) go("eventDetail",r.event_id); else renderQuoteDetail(id);
-  });
   main.querySelector("#finalizeQuoteBtn")?.addEventListener("click", async () => { if(!confirm("Finalize this quote? It will become immutable. Future changes must use Revise Quote.")) return; await api(`/quotes/${id}/finalize`,{method:"POST",body:"{}"}); toast("Quote finalized"); renderQuoteDetail(id); });
   main.querySelector("#reviseQuoteBtn")?.addEventListener("click", async () => { if(!confirm("Create a new draft revision from this quote? The current version will remain unchanged.")) return; const r=await api(`/quotes/${id}/revise`,{method:"POST",body:"{}"}); toast("New quote revision created"); go("quoteDetail",r.id); });
   main.querySelector("#deleteQuoteBtn").addEventListener("click", () =>
