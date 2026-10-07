@@ -874,7 +874,7 @@ async function renderQuoteDetail(id) {
   const packageOptions = q.options || [];
   main.innerHTML = `
     <span class="back" data-lead-back="${q.lead_id}">← ${q.lead_name || "Lead"}</span>
-    <h1>Quote ${statusPill(q.status)} <span class="meta">v${q.version||1}</span>${["Draft","Sent","Viewed","Negotiation"].includes(q.status) ? ' <button type="button" class="icon-btn" id="finalizeQuoteBtn">Finalize Quote</button>' : ""}${["Finalized","Accepted","Won"].includes(q.status) ? ' <button type="button" class="icon-btn" id="reviseQuoteBtn">Revise Quote</button>' : ""}${["Accepted","Won"].includes(q.status) ? ' <button type="button" class="icon-btn" id="convertQuoteBtn">Create / Open Booking</button>' : ""} <button type="button" class="icon-btn del" id="deleteQuoteBtn" title="Delete quote">✕ Delete</button></h1>
+    <h1>Quote ${statusPill(q.status)} <span class="meta">v${q.version||1}</span>${["Draft","Sent","Viewed","Negotiation"].includes(q.status) ? ' <button type="button" class="icon-btn" id="finalizeQuoteBtn">Finalize Quote</button>' : ""}${["Finalized","Accepted","Won"].includes(q.status) ? ' <button type="button" class="icon-btn" id="reviseQuoteBtn">Revise Quote</button>' : ""}${["Accepted","Won"].includes(q.status) ? ' <button type="button" class="icon-btn" id="convertQuoteBtn">Open Event</button>' : ""} <button type="button" class="icon-btn del" id="deleteQuoteBtn" title="Delete quote">✕ Delete</button></h1>
     <div class="kpis">
       <div class="kpi"><div class="l">Subtotal</div><div class="v">${money(q.subtotal)}</div></div>
       <div class="kpi"><div class="l">Concession</div><div class="v" style="color:var(--success)">${q.concession_amount ? "−" + money(q.concession_amount) : "—"}</div></div>
@@ -927,9 +927,9 @@ async function renderQuoteDetail(id) {
   `;
   main.querySelector("[data-lead-back]").addEventListener("click", () => go("leadDetail", q.lead_id));
   main.querySelector("#convertQuoteBtn")?.addEventListener("click", async () => {
-    if(!confirm("Convert this accepted quote into a booking and operational event?")) return;
+    if(!confirm("Open the operational Event for this accepted quote?")) return;
     const r=await api(`/quotes/${id}/convert`,{method:"POST",body:"{}"});
-    toast(r.already_exists?"Booking already exists":"Booking and Event created");
+    toast(r.updated_existing_event?"Event updated to accepted quote revision":r.already_exists?"Event already exists":"Event created");
     if(r.event_id) go("eventDetail",r.event_id); else renderQuoteDetail(id);
   });
   main.querySelector("#finalizeQuoteBtn")?.addEventListener("click", async () => { if(!confirm("Finalize this quote? It will become immutable. Future changes must use Revise Quote.")) return; await api(`/quotes/${id}/finalize`,{method:"POST",body:"{}"}); toast("Quote finalized"); renderQuoteDetail(id); });
@@ -1058,7 +1058,7 @@ async function renderAccounts() {
     </div>
     ${balanceOnly ? `<div class="crit-banner">Showing ${accts.length} client(s) with money still owed — cleared automatically once a payment covers the balance.</div>` : ""}
     <div class="card">
-    <table><thead><tr><th>Name</th><th>Phone</th><th>Bookings</th><th>Lifetime value</th><th>Balance due</th><th>Client since</th><th></th></tr></thead>
+    <table><thead><tr><th>Name</th><th>Phone</th><th>Events</th><th>Lifetime value</th><th>Balance due</th><th>Client since</th><th></th></tr></thead>
     <tbody>${accts.map(a => `<tr class="clickable" data-acct="${a.id}"><td>${a.name}${a.is_signature ? ' <span class="pill" style="background:var(--warning-soft);color:var(--warning)">Signature</span>' : ""}${a.event_count >= 2 ? ' <span class="pill" style="background:var(--success-soft);color:var(--success)">Repeat client</span>' : ""}</td><td>${a.phone||"—"}</td><td>${a.event_count}</td><td>${money(a.lifetime_value)}</td><td${a.balance_due > 0 ? ' style="color:var(--critical);font-weight:600;"' : ""}>${a.balance_due > 0 ? money(a.balance_due) : "—"}</td><td>${a.client_since}</td><td class="row-actions"><button type="button" class="icon-btn edit" data-edit-acct="${a.id}" title="Edit">✎</button><button type="button" class="icon-btn del" data-del-acct="${a.id}" title="Delete">✕</button></td></tr>`).join("") || `<tr><td colspan="7" class="empty">${balanceOnly ? "No customers currently owe a balance." : "No customers yet — convert a lead first."}</td></tr>`}</tbody></table>
   </div>`;
   wireCsvImport("/accounts/import", "name*, phone, email, address, notes, is_signature", () => renderAccounts());
