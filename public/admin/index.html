@@ -1604,50 +1604,18 @@ async function renderResources(){
 }
 
 async function renderEquipment() {
-  const equipment = await api("/equipment");
-  main.innerHTML = `
-    ${pageHeader("Equipment", "+ New equipment")}
-    <p class="empty" style="margin-top:-10px;margin-bottom:16px;">Studio-owned gear you assign to events to plan resourcing — cameras, lenses, drones, lighting. Rented items get their cost tracked as an Outside vendor on the event; this catalog is about what exists and what's owned vs. always-rented.</p>
-    <div class="card"><h2>All equipment</h2>
-      <table><thead><tr><th>Name</th><th>Category</th><th>Ownership</th><th></th></tr></thead>
-      <tbody>${equipment.map(e => `<tr><td>${e.name}</td><td><span class="pill">${e.category||"—"}</span></td><td>${e.owned ? '<span class="pill" style="background:var(--success-soft);color:var(--success)">Owned</span>' : '<span class="pill" style="background:var(--warning-soft);color:var(--warning)">Always rented</span>'}</td><td class="row-actions"><button type="button" class="icon-btn edit" data-edit-equip="${e.id}" title="Edit">✎</button><button type="button" class="icon-btn del" data-del-equip="${e.id}" title="Delete">✕</button></td></tr>`).join("") || `<tr><td colspan="4" class="empty">No equipment yet — use the + button to add one.</td></tr>`}</tbody></table>
-    </div>
-  `;
-  const catOptions = (sel) => ["Camera","Lens","Drone","Lighting","Audio","Stabilizer","Other"].map(c => `<option ${c===sel?"selected":""}>${c}</option>`).join("");
-  setPrimaryAction(() => openModal("Add equipment", `
-    <form>
-      <div class="field"><label>Name</label><input name="name" required></div>
-      <div class="field"><label>Category</label><select name="category">${catOptions()}</select></div>
-      <div class="field"><label><input type="checkbox" name="owned" checked style="width:auto;"> Studio-owned (uncheck if this is always rented)</label></div>
-      <button type="submit" style="width:100%;">Add</button>
-    </form>
-  `, async (data, form) => {
-    data.owned = form.querySelector('[name="owned"]').checked;
-    await api("/equipment", { method: "POST", body: JSON.stringify(data) });
-    toast("Equipment added");
-    renderEquipment();
-  }));
-  main.querySelectorAll("[data-edit-equip]").forEach(el => el.addEventListener("click", () => {
-    const e = equipment.find(x => String(x.id) === el.dataset.editEquip);
-    openModal("Edit equipment", `
-      <form>
-        <div class="field"><label>Name</label><input name="name" value="${e.name}" required></div>
-        <div class="field"><label>Category</label><select name="category">${catOptions(e.category)}</select></div>
-        <div class="field"><label><input type="checkbox" name="owned" ${e.owned?"checked":""} style="width:auto;"> Studio-owned</label></div>
-        <button type="submit" style="width:100%;">Save</button>
-      </form>
-    `, async (data, form) => {
-      data.owned = form.querySelector('[name="owned"]').checked;
-      await api(`/equipment/${e.id}`, { method: "POST", body: JSON.stringify(data) });
-      toast("Updated");
-      renderEquipment();
-    });
-  }));
-  main.querySelectorAll("[data-del-equip]").forEach(el => el.addEventListener("click", () =>
-    confirmDelete("Delete this equipment? Only possible if it's not assigned to any event.", `/equipment/${el.dataset.delEquip}/delete`, renderEquipment)
-  ));
+  const equipment=await api('/equipment');
+  main.innerHTML=pageHeader('Equipment / Inventory','+ New equipment')+'<p class="empty" style="margin-top:-10px;margin-bottom:16px;">Owned equipment is the reusable inventory master. Procurement, maintenance, availability and event/rental history stay here; Event Work only allocates it.</p>'+
+    '<div class="card"><h2>Inventory</h2><table><thead><tr><th>Equipment</th><th>Category</th><th>Ownership</th><th>Status</th><th>Purchase</th><th>Active allocations</th><th></th></tr></thead><tbody>'+
+    equipment.map(x=>'<tr><td><b>'+escapeHtml(x.name)+'</b><br><span class="meta">'+escapeHtml(x.serial_number||'')+'</span></td><td>'+escapeHtml(x.category||'—')+'</td><td>'+(x.owned?'<span class="pill">Owned</span>':'<span class="pill">Rental / external</span>')+'</td><td>'+statusPill(x.status||'Available')+'</td><td>'+money(x.purchase_cost||0)+'</td><td>'+Number(x.active_allocations||0)+'</td><td class="row-actions"><button class="icon-btn edit" data-edit-equip="'+x.id+'">✎</button><button class="icon-btn" data-maint-equip="'+x.id+'">Maintenance</button><button class="icon-btn" data-history-equip="'+x.id+'">History</button><button class="icon-btn del" data-del-equip="'+x.id+'">✕</button></td></tr>').join('')||'<tr><td colspan="7" class="empty">No equipment yet.</td></tr>'+'</tbody></table></div>';
+  const catOptions=sel=>['Camera','Lens','Drone','Lighting','Audio','Stabilizer','Other'].map(c=>'<option '+(c===sel?'selected':'')+'>'+c+'</option>').join('');
+  const form=x=>'<form><div class="field"><label>Name</label><input name="name" value="'+escapeHtml(x?.name||'')+'" required></div><div class="field"><label>Category</label><select name="category">'+catOptions(x?.category)+'</select></div><div class="field"><label>Serial number</label><input name="serial_number" value="'+escapeHtml(x?.serial_number||'')+'"></div><div class="field"><label><input type="checkbox" name="owned" '+(x?.owned!==false?'checked':'')+' style="width:auto"> Owned inventory</label></div><div class="field"><label>Purchase date</label><input type="date" name="purchase_date" value="'+escapeHtml(x?.purchase_date||'')+'"></div><div class="field"><label>Purchase cost (₹)</label><input type="number" name="purchase_cost" value="'+Number(x?.purchase_cost||0)+'"></div><div class="field"><label>Vendor</label><input name="vendor_name" value="'+escapeHtml(x?.vendor_name||'')+'"></div><div class="field"><label>Bill number</label><input name="bill_number" value="'+escapeHtml(x?.bill_number||'')+'"></div><div class="field"><label>Notes</label><textarea name="notes">'+escapeHtml(x?.notes||'')+'</textarea></div><button type="submit">Save equipment</button></form>';
+  setPrimaryAction(()=>openModal('Add equipment',form(null),async(data,frm)=>{data.owned=frm.querySelector('[name=owned]').checked;await api('/equipment',{method:'POST',body:JSON.stringify(data)});toast('Equipment added');renderEquipment();}));
+  main.querySelectorAll('[data-edit-equip]').forEach(b=>b.addEventListener('click',()=>{const x=equipment.find(e=>String(e.id)===b.dataset.editEquip);openModal('Edit equipment',form(x),async(data,frm)=>{data.owned=frm.querySelector('[name=owned]').checked;await api('/equipment/'+x.id,{method:'POST',body:JSON.stringify(data)});toast('Equipment updated');renderEquipment();});}));
+  main.querySelectorAll('[data-maint-equip]').forEach(b=>b.addEventListener('click',()=>openModal('Record maintenance','<form><div class="field"><label>Maintenance date</label><input type="date" name="maintenance_date"></div><div class="field"><label>Vendor</label><input name="vendor_name"></div><div class="field"><label>Cost (₹)</label><input type="number" name="amount" value="0"></div><div class="field"><label>Next due date</label><input type="date" name="next_due_date"></div><div class="field"><label>Notes</label><textarea name="notes"></textarea></div><button type="submit">Save maintenance</button></form>',async data=>{await api('/equipment/'+b.dataset.maintEquip+'/maintenance',{method:'POST',body:JSON.stringify(data)});toast('Maintenance recorded');renderEquipment();})));
+  main.querySelectorAll('[data-history-equip]').forEach(b=>b.addEventListener('click',async()=>{const h=await api('/equipment/'+b.dataset.historyEquip+'/history');openModal('Equipment history','<div class="card"><h3>Procurement</h3>'+((h.procurements||[]).map(x=>'<div class="list-row"><span>'+escapeHtml(x.purchase_date||'')+' · '+escapeHtml(x.vendor_name||'')+'</span><b>'+money(x.amount)+'</b></div>').join('')||'<div class="empty">None</div>')+'</div><div class="card"><h3>Maintenance</h3>'+((h.maintenance||[]).map(x=>'<div class="list-row"><span>'+escapeHtml(x.maintenance_date||'')+' · '+escapeHtml(x.vendor_name||'')+'</span><b>'+money(x.amount)+'</b></div>').join('')||'<div class="empty">None</div>')+'</div><div class="card"><h3>Event allocations</h3>'+((h.allocations||[]).map(x=>'<div class="list-row"><span>'+escapeHtml(x.event_type||'Event')+' · '+escapeHtml(x.account_name||'')+' · '+escapeHtml(x.work_title||'')+'</span><span class="pill">'+escapeHtml(x.allocation_type||'Owned')+'</span></div>').join('')||'<div class="empty">None</div>')+'</div>',()=>{});}));
+  main.querySelectorAll('[data-del-equip]').forEach(b=>b.addEventListener('click',()=>confirmDelete('Delete this equipment? It cannot be deleted while allocated.',`/equipment/${b.dataset.delEquip}/delete`,renderEquipment)));
 }
-
 
 async function renderExpenses() {
   const [expenses, accounts] = await Promise.all([api("/expenses"), api("/accounts")]);
