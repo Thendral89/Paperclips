@@ -831,11 +831,13 @@ async function renderLeadDetail(id) {
     openModal("New quote", `
       <form>
         <p class="empty">Start the quote with a reusable package. You can add individual services or optional add-ons after creation.</p>
-        <div class="field"><label>Package</label><div class="package-choice-grid">${packages.map(p=>`<label class="package-choice"><input type="radio" name="package_id" value="${p.id}" style="width:auto;margin-right:6px;"><b>${escapeHtml(p.name)}</b><div class="meta">${money(p.base_price)} · ${(p.items||[]).map(i=>escapeHtml(i.name)).join(", ")}</div></label>`).join("") || `<div class="empty">No packages configured yet. Create one in Settings → Operations → Packages.</div>`}</div></div>
+        <div class="field"><label>Package</label><div class="package-choice-grid">${packages.map(p=>`<label class="package-choice"><input type="checkbox" name="package_id" value="${p.id}" style="width:auto;margin-right:6px;"><b>${escapeHtml(p.name)}</b><div class="meta">${money(p.base_price)} · ${(p.items||[]).map(i=>escapeHtml(i.name)).join(", ")}</div></label>`).join("") || `<div class="empty">No packages configured yet. Create one in Settings → Operations → Packages.</div>`}</div></div>
         <button type="submit" style="width:100%;">Create quote</button>
       </form>
     `, async data => {
-      const r=await api(`/leads/${id}/quotes`, { method:"POST", body:JSON.stringify({package_id:data.package_id||null}) });
+       const package_ids=[...document.querySelectorAll('#modal-body input[name="package_id"]:checked')].map(x=>Number(x.value));
+       const r=await api(`/leads/${id}/quotes`, { method:"POST", body:JSON.stringify({package_ids}) });
+       toast(package_ids.length?"Quote created with package option(s)":"Quote created — add a package or service next");
       toast(data.package_id?"Quote created with package":"Quote created — add a package or service next");
       go("quoteDetail",r.id);
     });
@@ -903,9 +905,9 @@ async function renderQuoteDetail(id) {
   `;
   main.querySelector("[data-lead-back]").addEventListener("click", () => go("leadDetail", q.lead_id));
   main.querySelector("#convertQuoteBtn")?.addEventListener("click", async () => {
-    if(!confirm("Convert this accepted quote into a booking and operational event?")) return;
+    if(!confirm("Convert this accepted quote into a Client and operational Event?")) return;
     const r=await api(`/quotes/${id}/convert`,{method:"POST",body:"{}"});
-    toast(r.already_exists?"Booking already exists":"Booking and Event created");
+    toast(r.already_exists?"Event already exists":"Client and Event created");
     if(r.event_id) go("eventDetail",r.event_id); else renderQuoteDetail(id);
   });
   main.querySelector("#deleteQuoteBtn").addEventListener("click", () =>
