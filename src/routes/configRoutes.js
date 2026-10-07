@@ -194,7 +194,8 @@ export async function saveResource(request, env) {
   if (!body?.name) return badRequest("name is required");
   const requestedType = String(body.resource_type || "Internal").trim();
   const typeRow = await env.DB.prepare(`SELECT value_label FROM picklist_values v JOIN picklist_groups g ON g.id=v.group_id WHERE g.group_key=? AND g.active=1 AND v.active=1 AND (v.value_label=? OR v.value_key=?)`).bind("resource_type",requestedType,requestedType.toLowerCase()).first();
-  if (!typeRow) return badRequest("invalid resource type");\n  const resourceType = typeRow.value_label;
+  if (!typeRow) return badRequest("invalid resource type");
+  const resourceType = typeRow.value_label;
 
   let id = body.id;
   if (id) {
