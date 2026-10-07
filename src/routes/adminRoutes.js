@@ -1138,7 +1138,7 @@ export async function getEvent(request, env, id) {
      JOIN accounts a ON a.id = e.account_id WHERE e.id = ?`
   ).bind(id).first();
   if (!event) return notFound("event not found");
-  const [services, payments, links, vendors, schedule, deliverables, checklist, tasks, feedback, expenseRowsFull, equipment, resources] = await Promise.all([
+  const [services, payments, links, vendors, schedule, deliverables, checklist, tasks, feedback, expenseRowsFull, equipment, resources, resourceRequirements] = await Promise.all([
     env.DB.prepare(
       `SELECT es.*, COALESCE(s.name, p.name) AS name, COALESCE(s.category, 'Package') AS category,
               CASE WHEN es.package_id IS NOT NULL THEN 1 ELSE 0 END AS is_package
@@ -1172,6 +1172,13 @@ export async function getEvent(request, env, id) {
        WHERE era.event_id = ?
        ORDER BY CASE era.phase WHEN 'Pre-Production' THEN 1 WHEN 'Production' THEN 2 WHEN 'Post-Production' THEN 3 ELSE 4 END, r.name`
     ).bind(id).all(),
+    env.DB.prepare(
+      `SELECT err.*, s.label AS skill_label, s.workflow_phase, s.start_offset_days, s.due_offset_days, s.default_cost
+       FROM event_resource_requirements err
+       LEFT JOIN skills s ON s.id=err.skill_id
+       WHERE err.event_id=?
+       ORDER BY CASE err.phase WHEN 'Production' THEN 1 WHEN 'Post-Production' THEN 2 ELSE 3 END, err.id`
+    ).bind(id).all(),
   ]);
   // Real cost of running this event — internal staff cost + external vendor
   // cost + ad-hoc reimbursed expenses — set against the quote to show profit.
@@ -1195,6 +1202,7 @@ export async function getEvent(request, env, id) {
     expenses: expenseRowsFull.results,
     equipment: equipment.results,
     resources: resources.results,
+    resource_requirements: resourceRequirements.results,
     cost_breakdown: { staff: staffCost, resources: resourceCost, vendors: vendorCost, expenses: expenseCost, total: total_cost },
     profit: event.quote_total - total_cost,
   });
