@@ -457,7 +457,12 @@ export async function listServiceWorkMappings(request,env){
 export async function saveServiceWorkMapping(request,env){
   const body=await request.json().catch(()=>null);
   if(!body?.service_id||!body?.work_group||!body?.phase)return badRequest("service_id, work_group and phase are required");
-  await env.DB.prepare("INSERT INTO service_work_mappings(service_id,event_type_key,work_group,phase,auto_create,sort_order,active) VALUES(?,?,?,?,?,?,1) ON CONFLICT(service_id,event_type_key,work_group,phase) DO UPDATE SET auto_create=excluded.auto_create,sort_order=excluded.sort_order,active=1").bind(Number(body.service_id),body.event_type_key||null,body.work_group,body.phase,body.auto_create===false?0:1,Number(body.sort_order||0)).run();
+  const existing=await env.DB.prepare("SELECT id FROM service_work_mappings WHERE service_id=? AND event_type_key IS ? AND work_group=? AND phase=? LIMIT 1").bind(Number(body.service_id),body.event_type_key||null,body.work_group,body.phase).first();
+  if(existing){
+    await env.DB.prepare("UPDATE service_work_mappings SET auto_create=?,sort_order=?,active=1 WHERE id=?").bind(body.auto_create===false?0:1,Number(body.sort_order||0),existing.id).run();
+  }else{
+    await env.DB.prepare("INSERT INTO service_work_mappings(service_id,event_type_key,work_group,phase,auto_create,sort_order,active) VALUES(?,?,?,?,?,?,1)").bind(Number(body.service_id),body.event_type_key||null,body.work_group,body.phase,body.auto_create===false?0:1,Number(body.sort_order||0)).run();
+  }
   return json({ok:true});
 }
 export async function deleteServiceWorkMapping(request,env,id){
