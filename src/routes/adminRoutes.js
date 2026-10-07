@@ -1721,8 +1721,12 @@ export async function addChecklistTemplateItem(request, env) {
   if (!body || !body.item) return badRequest("item is required");
   const phase = CHECKLIST_PHASES.includes(body.phase) ? body.phase : "Pre-Production";
   const { results } = await env.DB.prepare(`SELECT COALESCE(MAX(sort_order),0) AS m FROM checklist_templates`).all();
-  await env.DB.prepare(`INSERT INTO checklist_templates (item, sort_order, phase) VALUES (?, ?, ?)`)
-    .bind(body.item, (results[0]?.m || 0) + 1, phase).run();
+  const serviceId=body.service_id?Number(body.service_id):null;
+  const skillId=body.skill_id?Number(body.skill_id):null;
+  if(serviceId){const row=await env.DB.prepare("SELECT id FROM services WHERE id=? AND active=1").bind(serviceId).first();if(!row)return badRequest("invalid service");}
+  if(skillId){const row=await env.DB.prepare("SELECT id FROM skills WHERE id=? AND active=1").bind(skillId).first();if(!row)return badRequest("invalid skill");}
+  await env.DB.prepare(`INSERT INTO checklist_templates (item, sort_order, phase, service_id, skill_id, active) VALUES (?, ?, ?, ?, ?, 1)`)
+    .bind(body.item, (results[0]?.m || 0) + 1, phase, serviceId, skillId).run();
   return json({ ok: true }, { status: 201 });
 }
 
