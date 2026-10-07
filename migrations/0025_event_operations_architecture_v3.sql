@@ -21,10 +21,14 @@ ALTER TABLE skills ADD COLUMN default_cost INTEGER NOT NULL DEFAULT 0;
 
 UPDATE skills
 SET workflow_phase=CASE
-  WHEN lower(label) LIKE '%photograph%' OR lower(label) LIKE '%videograph%' OR lower(label) LIKE '%drone%' THEN 'Production'
+  WHEN lower(label) LIKE '%photograph%'
+    OR lower(label) LIKE '%videograph%'
+    OR lower(label) LIKE '%drone%'
+    OR lower(label) LIKE '%cinematograph%'
+    OR lower(label) LIKE '%production%'
+  THEN 'Production'
   ELSE 'Post-Production'
-END
-WHERE workflow_phase IS NULL OR workflow_phase='';
+END;
 
 -- 3) Resource-specific skill cost overrides.
 CREATE TABLE IF NOT EXISTS resource_skill_costs (
@@ -53,7 +57,7 @@ CREATE INDEX IF NOT EXISTS idx_event_allocations_window
 -- 5) Every meaningful allocation change gets an immutable history record.
 CREATE TABLE IF NOT EXISTS event_resource_allocation_history (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
-  allocation_id INTEGER NOT NULL REFERENCES event_resource_allocations(id) ON DELETE CASCADE,
+  allocation_id INTEGER REFERENCES event_resource_allocations(id) ON DELETE SET NULL,
   event_id INTEGER NOT NULL REFERENCES events(id) ON DELETE CASCADE,
   action TEXT NOT NULL,
   field_name TEXT,
