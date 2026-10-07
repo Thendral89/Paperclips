@@ -2311,3 +2311,95 @@ export async function updateFeedback(request, env, feedbackId) {
     .bind(status, action_taken, feedbackId).run();
   return json({ ok: true });
 }
+
+export async function initializeEventWork(env,eventId){
+  const event=await env.DB.prepare("SELECT id,type,start_date,end_date,event_date FROM events WHERE id=?").bind(eventId).first();
+  if(!event) return {created:0};
+  const items=(await env.DB.prepare("SELECT qi.service_id,COALESCE(s.name,qi.label) AS service_name FROM quote_items qi LEFT JOIN services s ON s.id=qi.service_id JOIN lead_quotes q ON q.id=qi.quote_id JOIN events e ON e.quote_id=q.id WHERE e.id=? AND qi.selected=1 AND qi.service_id IS NOT NULL ORDER BY qi.id").bind(eventId).all()).results;
+  if(!items.length) return {created:0};
+  const ids=[...new Set(items.map(x=>Number(x.service_id)).filter(Number.isInteger))];
+  const marks=ids.map(()=>"?").join(",");
+  const mappings=(await env.DB.prepare("SELECT m.service_id,m.event_type_key,m.work_group,m.phase,m.sort_order,s.name AS service_name FROM service_work_mappings m JOIN services s ON s.id=m.service_id WHERE m.active=1 AND m.auto_create=1 AND m.service_id IN ("+marks+") AND (m.event_type_key IS NULL OR lower(replace(m.event_type_key,' ','-'))=lower(replace(?,' ','-'))) ORDER BY m.sort_order,m.id").bind(...ids,event.type||"").all()).results;
+  const byService=new Map();
+  for(const m of mappings){const a=byService.get(Number(m.service_id))||[];a.push(m);byService.set(Number(m.service_id),a);}
+  const rows=[];
+  for(const item of items){
+    const maps=byService.get(Number(item.service_id))||[{service_id:item.service_id,work_group:"Wedding",phase:"Production",sort_order:50,service_name:item.service_name}];
+    for(const m of maps) rows.push([eventId,m.work_group,m.phase,item.service_id,item.service_name,event.start_date||event.event_date||null,event.end_date||event.event_date||event.start_date||event.event_date||null,"Not Started",null]);
+  }
+  const unique=new Map();
+  for(const r of rows) unique.set([r[0],r[3],r[1],r[2]].join("|"),r);
+  const statements=[...unique.values()].map(r=>env.DB.prepare("INSERT INTO event_work_items(event_id,work_group,phase,service_id,title,start_date,due_date,status,notes) VALUES(?,?,?,?,?,?,?,?,?)").bind(...r));
+  if(statements.length) await env.DB.batch(statements);
+  await env.DB.prepare("INSERT OR IGNORE INTO event_work_item_skills(work_item_id,skill_id) SELECT w.id,ss.skill_id FROM event_work_items w JOIN service_skills ss ON ss.service_id=w.service_id WHERE w.event_id=?").bind(eventId).run();
+  return {created:statements.length};
+}
+
+export async function getEventOperations(request,env,id){
+  const event=await env.DB.prepare("SELECT e.*,a.name AS account_name FROM events e JOIN accounts a ON a.id=e.account_id WHERE e.id=?").bind(id).first();
+  if(!event) return notFound("event not found");
+  const [checklist,services,work,resources,equipment,payments,schedule,expenses,history]=await Promise.all([
+    env.DB.prepare("SELECT * FROM event_checklist WHERE event_id=? ORDER BY phase,id").bind(id).all(),
+    env.DB.prepare("SELECT es.*,COALESCE(s.name,p.name) AS name FROM event_services es LEFT JOIN services s ON s.id=es.service_id LEFT JOIN packages p ON p.id=es.package_id WHERE es.event_id=? ORDER BY es.id").bind(id).all(),
+    env.DB.prepare("SELECT w.*,s.name AS service_name,COALESCE((SELECT GROUP_CONCAT(sk.label, ', ') FROM event_work_item_skills wis JOIN skills sk ON sk.id=wis.skill_id WHERE wis.work_item_id=w.id),'') AS skill_labels,(SELECT COUNT(*) FROM event_work_resource_allocations wr WHERE wr.work_item_id=w.id AND wr.status<>'Cancelled') AS resource_count,(SELECT COUNT(*) FROM event_equipment ee WHERE ee.work_item_id=w.id AND ee.allocation_status NOT IN ('Cancelled')) AS equipment_count FROM event_work_items w LEFT JOIN services s ON s.id=w.service_id WHERE w.event_id=? ORDER BY CASE w.work_group WHEN 'Pre-Wedding' THEN 1 WHEN 'Wedding' THEN 2 WHEN 'Reception' THEN 3 WHEN 'Post-Wedding' THEN 4 ELSE 5 END,w.phase,w.start_date,w.id").bind(id).all(),
+    env.DB.prepare("SELECT wr.*,r.name AS resource_name,r.resource_type,s.label AS skill_label FROM event_work_resource_allocations wr JOIN resources r ON r.id=wr.resource_id LEFT JOIN skills s ON s.id=wr.skill_id WHERE wr.event_id=? ORDER BY wr.start_at,wr.id").bind(id).all(),
+    env.DB.prepare("SELECT ee.*,eq.name AS equipment_name,eq.category,eq.serial_number,eq.status AS inventory_status FROM event_equipment ee LEFT JOIN equipment eq ON eq.id=ee.equipment_id WHERE ee.event_id=? ORDER BY ee.allocated_start,ee.id").bind(id).all(),
+    env.DB.prepare("SELECT * FROM payments WHERE event_id=? ORDER BY date DESC,id DESC").bind(id).all(),
+    env.DB.prepare("SELECT * FROM payment_schedule WHERE event_id=? ORDER BY due_date,id").bind(id).all(),
+    env.DB.prepare("SELECT * FROM expenses WHERE event_id=? ORDER BY submitted_at DESC,id DESC").bind(id).all(),
+    env.DB.prepare("SELECT h.*,r.name AS resource_name,s.label AS skill_label FROM event_work_resource_history h LEFT JOIN event_work_resource_allocations wr ON wr.id=h.allocation_id LEFT JOIN resources r ON r.id=wr.resource_id LEFT JOIN skills s ON s.id=wr.skill_id WHERE h.event_id=? ORDER BY h.changed_at DESC,h.id DESC LIMIT 100").bind(id).all()
+  ]);
+  const resourceCost=resources.results.reduce((n,r)=>n+Number(r.actual_paid||r.revised_estimate||r.original_estimate||0),0);
+  const rentalCost=equipment.results.reduce((n,e)=>n+Number(e.rental_cost||0),0);
+  const expenseCost=expenses.results.reduce((n,e)=>n+Number(e.amount||0),0);
+  const done=checklist.results.filter(x=>Number(x.done)===1).length;
+  return json({...event,checklist:checklist.results,services:services.results,work:work.results,resources:resources.results,equipment:equipment.results,payments:payments.results,payment_schedule:schedule.results,expenses:expenses.results,activity:history.results,preparation:{checklist_done:done,checklist_total:checklist.results.length,equipment_total:equipment.results.length,equipment_ready:equipment.results.filter(x=>Number(x.ready)===1||["Issued","In Use"].includes(x.allocation_status)).length,exceptions:[...resources.results.filter(x=>x.override_reason).map(x=>({type:"resource",reason:x.override_reason,note:x.override_note})),...equipment.results.filter(x=>x.override_reason).map(x=>({type:"equipment",reason:x.override_reason,note:x.override_note})),...equipment.results.filter(x=>x.allocation_status==="Return Due").map(x=>({type:"rental-return",reason:"Rental return due",note:x.rental_return_due}))]},cost_breakdown:{resources:resourceCost,equipment_rental:rentalCost,expenses:expenseCost,total:resourceCost+rentalCost+expenseCost}});
+}
+
+export async function createEventWork(request,env,eventId){
+  const body=await request.json().catch(()=>null); if(!body?.title) return badRequest("title is required");
+  const event=await env.DB.prepare("SELECT id,start_date,end_date,event_date FROM events WHERE id=?").bind(eventId).first(); if(!event) return notFound("event not found");
+  const phase=["Production","Post-Production"].includes(body.phase)?body.phase:"Production";
+  const start=body.start_date||event.start_date||event.event_date||null; const due=body.due_date||event.end_date||event.event_date||start;
+  if(start&&due&&start>due) return badRequest("due date cannot be before start date");
+  const serviceId=body.service_id?Number(body.service_id):null;
+  if(serviceId){const s=await env.DB.prepare("SELECT id,active FROM services WHERE id=?").bind(serviceId).first();if(!s||!s.active)return badRequest("service not found or inactive");}
+  const r=await env.DB.prepare("INSERT INTO event_work_items(event_id,work_group,phase,service_id,title,start_date,due_date,status,notes,override_reason,override_note) VALUES(?,?,?,?,?,?,?,?,?,?,?)").bind(eventId,String(body.work_group||"Wedding"),phase,serviceId,body.title,start,due,body.status||"Not Started",body.notes||null,body.override_reason||null,body.override_note||null).run();
+  const id=r.meta.last_row_id;
+  if(Array.isArray(body.skill_ids)){const ids=[...new Set(body.skill_ids.map(Number).filter(Number.isInteger).filter(x=>x>0))];await env.DB.prepare("DELETE FROM event_work_item_skills WHERE work_item_id=?").bind(id).run();if(ids.length)await env.DB.batch(ids.map(x=>env.DB.prepare("INSERT OR IGNORE INTO event_work_item_skills(work_item_id,skill_id) VALUES(?,?)").bind(id,x)));}else if(serviceId){await env.DB.prepare("INSERT OR IGNORE INTO event_work_item_skills(work_item_id,skill_id) SELECT ?,skill_id FROM service_skills WHERE service_id=?").bind(id,serviceId).run();}
+  return json({ok:true,id},{status:201});
+}
+
+export async function updateEventWork(request,env,workId){
+  const body=await request.json().catch(()=>null); const w=await env.DB.prepare("SELECT * FROM event_work_items WHERE id=?").bind(workId).first(); if(!w)return notFound("Work item not found");
+  const start=body.start_date??w.start_date,due=body.due_date??w.due_date;if(start&&due&&start>due)return badRequest("due date cannot be before start date");
+  await env.DB.prepare("UPDATE event_work_items SET work_group=?,phase=?,service_id=?,title=?,start_date=?,due_date=?,status=?,notes=?,override_reason=?,override_note=?,updated_at=datetime('now') WHERE id=?").bind(body.work_group??w.work_group,body.phase??w.phase,body.service_id?Number(body.service_id):w.service_id,body.title??w.title,start,due,body.status??w.status,body.notes??w.notes,body.override_reason??w.override_reason,body.override_note??w.override_note,workId).run();
+  if(Array.isArray(body.skill_ids)){const ids=[...new Set(body.skill_ids.map(Number).filter(Number.isInteger).filter(x=>x>0))];await env.DB.prepare("DELETE FROM event_work_item_skills WHERE work_item_id=?").bind(workId).run();if(ids.length)await env.DB.batch(ids.map(x=>env.DB.prepare("INSERT OR IGNORE INTO event_work_item_skills(work_item_id,skill_id) VALUES(?,?)").bind(workId,x)));}
+  return json({ok:true});
+}
+
+export async function deleteEventWork(request,env,workId){
+  const w=await env.DB.prepare("SELECT id,event_id FROM event_work_items WHERE id=?").bind(workId).first();if(!w)return notFound("Work item not found");
+  await env.DB.prepare("DELETE FROM event_work_items WHERE id=?").bind(workId).run();return json({ok:true,event_id:w.event_id});
+}
+
+export async function assignWorkResource(request,env,workId){
+  const body=await request.json().catch(()=>null);const w=await env.DB.prepare("SELECT * FROM event_work_items WHERE id=?").bind(workId).first();if(!w)return notFound("Work item not found");
+  const rid=Number(body?.resource_id);const r=await env.DB.prepare("SELECT id,name,resource_type,active FROM resources WHERE id=?").bind(rid).first();if(!r||!r.active)return badRequest("resource not found or inactive");
+  const sid=body?.skill_id?Number(body.skill_id):null;let skill=null;if(sid)skill=await env.DB.prepare("SELECT s.* FROM skills s JOIN resource_skills rs ON rs.skill_id=s.id WHERE rs.resource_id=? AND s.id=? AND s.active=1").bind(rid,sid).first();
+  const required=sid?await env.DB.prepare("SELECT 1 FROM event_work_item_skills WHERE work_item_id=? AND skill_id=?").bind(workId,sid).first():null;const reason=String(body?.override_reason||"").trim();
+  if(sid&&!skill&&!reason)return badRequest("Resource does not have the selected skill. Choose an override reason to continue.");
+  if(sid&&!required&&!reason)return badRequest("Selected skill is not required by this Work Item. Choose an override reason to continue.");
+  const start=body?.start_at||((w.start_date||"")+"T09:00"),end=body?.end_at||((w.due_date||w.start_date||"")+"T18:00");if(start>=end)return badRequest("due date/time must be after start date/time");
+  const conflict=await env.DB.prepare("SELECT wr.id,r.name FROM event_work_resource_allocations wr JOIN resources r ON r.id=wr.resource_id WHERE wr.resource_id=? AND wr.status<>'Cancelled' AND COALESCE(wr.start_at,'9999-12-31T23:59') < ? AND COALESCE(wr.end_at,'0000-01-01T00:00') > ? LIMIT 1").bind(rid,end,start).first();
+  if(conflict&&!reason)return badRequest("resource conflict: "+conflict.name+" is already allocated during that time. Choose an override reason to continue.");
+  const costRow=sid?await env.DB.prepare("SELECT cost FROM resource_skill_costs WHERE resource_id=? AND skill_id=?").bind(rid,sid).first():null;const skillRow=sid?await env.DB.prepare("SELECT default_cost FROM skills WHERE id=?").bind(sid).first():null;const cost=Math.max(0,Number(body?.original_estimate??costRow?.cost??skillRow?.default_cost??0));
+  const ins=await env.DB.prepare("INSERT INTO event_work_resource_allocations(work_item_id,event_id,resource_id,skill_id,start_at,end_at,original_estimate,status,override_reason,override_note,notes) VALUES(?,?,?,?,?,?,?,?,?,?,?)").bind(workId,w.event_id,rid,sid,start,end,cost,body?.status||"Planned",reason||null,body?.override_note||null,body?.notes||null).run();
+  await env.DB.prepare("INSERT INTO event_work_resource_history(allocation_id,work_item_id,event_id,action,new_value,reason,note,changed_by) VALUES(?,?,?,?,?,?,?,?)").bind(ins.meta.last_row_id,workId,w.event_id,"created",r.name+(skill?.label?" / "+skill.label:""),reason||"Initial allocation",body?.notes||null,body?.changed_by||"admin").run();
+  return json({ok:true,id:ins.meta.last_row_id},{status:201});
+}
+
+export async function deleteWorkResource(request,env,allocationId){
+  const row=await env.DB.prepare("SELECT * FROM event_work_resource_allocations WHERE id=?").bind(allocationId).first();if(!row)return notFound("resource allocation not found");
+  await env.DB.batch([env.DB.prepare("INSERT INTO event_work_resource_history(allocation_id,work_item_id,event_id,action,old_value,reason,changed_by) VALUES(?,?,?,?,?,?,?)").bind(allocationId,row.work_item_id,row.event_id,"deleted","resource_id="+row.resource_id+"; skill_id="+(row.skill_id||""),"Allocation removed","admin"),env.DB.prepare("DELETE FROM event_work_resource_allocations WHERE id=?").bind(allocationId)]);return json({ok:true});
+}
