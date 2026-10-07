@@ -37,6 +37,10 @@ CREATE TABLE IF NOT EXISTS resource_skill_costs (
 CREATE INDEX IF NOT EXISTS idx_resource_skill_costs_skill
   ON resource_skill_costs(skill_id);
 
+-- 3b) Generated operational requirements are distinguishable from manual requirements.
+ALTER TABLE event_resource_requirements ADD COLUMN generated_by_system INTEGER NOT NULL DEFAULT 0;
+CREATE INDEX IF NOT EXISTS idx_resource_requirements_generated ON event_resource_requirements(event_id,generated_by_system,skill_id);
+
 -- 4) Allocation records are the canonical operational work records.
 ALTER TABLE event_resource_allocations ADD COLUMN updated_at TEXT NOT NULL DEFAULT (datetime('now'));
 ALTER TABLE event_resource_allocations ADD COLUMN start_source TEXT NOT NULL DEFAULT 'manual';
