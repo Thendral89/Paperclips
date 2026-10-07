@@ -28,11 +28,8 @@ CREATE INDEX IF NOT EXISTS idx_lead_quotes_revision ON lead_quotes(revision_of_q
 CREATE INDEX IF NOT EXISTS idx_lead_quotes_lifecycle ON lead_quotes(lead_id,status,version);
 
 -- 4. Accepted quotes create a Booking; Events remain operational children of Booking.
--- Existing booking records are preserved. This index makes idempotent conversion safe.
-CREATE UNIQUE INDEX IF NOT EXISTS idx_bookings_quote_unique
-  ON bookings(quote_id)
-  WHERE quote_id IS NOT NULL;
-
+-- Idempotency is enforced in the conversion service so legacy duplicate
+-- quote links, if any, remain untouched.
 -- 5. Booking-level commercial snapshot.
 ALTER TABLE bookings ADD COLUMN quote_snapshot_json TEXT;
 ALTER TABLE bookings ADD COLUMN finalized_quote_total INTEGER NOT NULL DEFAULT 0;
