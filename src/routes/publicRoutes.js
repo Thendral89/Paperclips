@@ -168,7 +168,7 @@ export async function selectQuotePackage(request, env, token) {
   if(!optionId) return badRequest("option_id is required");
   const quote=await env.DB.prepare(`SELECT id,status FROM lead_quotes WHERE token=?`).bind(token).first();
   if(!quote) return notFound("invalid or expired quote link");
-  if(["Accepted","Rejected","Expired","Cancelled"].includes(quote.status)) return badRequest("this Quote is no longer adjustable");
+  if(["Finalized","Accepted","Rejected","Expired","Cancelled","Won"].includes(quote.status)) return badRequest("this Quote is no longer adjustable");
   const option=await env.DB.prepare(`SELECT id,package_id FROM quote_package_options WHERE id=? AND quote_id=?`).bind(optionId,quote.id).first();
   if(!option) return notFound("package option not found");
   const sessionKey=String(body?.session_key||"").slice(0,120)||null;
