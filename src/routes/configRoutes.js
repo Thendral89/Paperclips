@@ -410,6 +410,12 @@ export async function saveEventResource(request, env, eventId) {
 
 
 export async function deleteEventResource(request, env, allocationId) {
+  const current=await env.DB.prepare(`SELECT * FROM event_resource_allocations WHERE id=?`).bind(allocationId).first();
+  if(!current) return notFound("allocation not found");
+  await env.DB.prepare(`
+    INSERT INTO event_resource_allocation_history(allocation_id,event_id,action,field_name,old_value,reason,changed_by)
+    VALUES(?,?,?,?,?,?,?)
+  `).bind(allocationId,current.event_id,'deleted','allocation',`resource_id=${current.resource_id}; skill_id=${current.skill_id||''}`, 'Allocation removed', request.headers.get('x-staff-email')||'admin').run();
   await env.DB.prepare(`DELETE FROM event_resource_allocations WHERE id=?`).bind(allocationId).run();
   return json({ok:true});
 }
