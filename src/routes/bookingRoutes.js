@@ -91,7 +91,7 @@ export async function addBookingPayment(request, env, bookingId, staff) {
 }
 
 export async function convertAcceptedQuote(request, env, quoteId) {
-  const q=await env.DB.prepare(`SELECT q.*,l.name AS lead_name,l.phone,l.email,l.event_type,l.event_date,l.source,l.id AS lead_id,
+  const q=await env.DB.prepare(`SELECT q.*,l.name AS lead_name,l.phone,l.email,l.event_type,l.event_date,l.venue,l.source,l.id AS lead_id,
     a.id AS existing_account_id
     FROM lead_quotes q JOIN leads l ON l.id=q.lead_id
     LEFT JOIN accounts a ON a.lead_id=l.id
@@ -177,9 +177,9 @@ export async function convertAcceptedQuote(request, env, quoteId) {
 
   const eventNumber=await nextNumber(env,"event");
   const er=await env.DB.prepare(`INSERT INTO events(
-      account_id,booking_id,quote_id,event_number,type,event_date,start_date,end_date,status,quote_total,finalized_quote_total,
+      account_id,booking_id,quote_id,event_number,type,event_date,start_date,end_date,venue,status,quote_total,finalized_quote_total,
       quote_snapshot_json,commercial_finalized_at
-     ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,datetime('now'))`).bind(
+     ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,datetime('now'))`).bind(
       accountId,
       booking.id,
       quoteId,
@@ -188,6 +188,7 @@ export async function convertAcceptedQuote(request, env, quoteId) {
       q.event_date||null,
       q.event_date||null,
       q.event_date||null,
+      q.venue||null,
       "Planning",
       total,
       total,
