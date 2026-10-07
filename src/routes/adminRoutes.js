@@ -2403,3 +2403,59 @@ export async function deleteWorkResource(request,env,allocationId){
   const row=await env.DB.prepare("SELECT * FROM event_work_resource_allocations WHERE id=?").bind(allocationId).first();if(!row)return notFound("resource allocation not found");
   await env.DB.batch([env.DB.prepare("INSERT INTO event_work_resource_history(allocation_id,work_item_id,event_id,action,old_value,reason,changed_by) VALUES(?,?,?,?,?,?,?)").bind(allocationId,row.work_item_id,row.event_id,"deleted","resource_id="+row.resource_id+"; skill_id="+(row.skill_id||""),"Allocation removed","admin"),env.DB.prepare("DELETE FROM event_work_resource_allocations WHERE id=?").bind(allocationId)]);return json({ok:true});
 }
+
+export async function assignWorkEquipment(request,env,workId){
+  const body=await request.json().catch(()=>null);const w=await env.DB.prepare("SELECT * FROM event_work_items WHERE id=?").bind(workId).first();if(!w)return notFound("Work item not found");
+  const type=String(body?.allocation_type||"Owned");if(!["Owned","Rented","External / Other"].includes(type))return badRequest("invalid equipment allocation type");
+  const eid=body?.equipment_id?Number(body.equipment_id):null;
+  if(type==="Owned"&&!eid)return badRequest("owned allocation requires an inventory item");
+  const eq=eid?await env.DB.prepare("SELECT id,name,category,owned,status FROM equipment WHERE id=?").bind(eid).first():null;
+  if(type==="Owned"&&(!eq||Number(eq.owned)!==1||String(eq.status||"Available")!=="Available"))return badRequest("equipment is not available for owned allocation");
+  const start=body?.allocated_start||w.start_date||null,end=body?.allocated_end||w.due_date||w.start_date||null;if(start&&end&&start>end)return badRequest("equipment end date cannot be before start date");
+  const reason=String(body?.override_reason||"").trim();
+  if(eid){
+    const conflict=await env.DB.prepare("SELECT ee.id,COALESCE(eq.name,ee.custom_label) AS name FROM event_equipment ee LEFT JOIN equipment eq ON eq.id=ee.equipment_id WHERE ee.equipment_id=? AND ee.allocation_status NOT IN ('Returned','Cancelled') AND COALESCE(ee.allocated_start,ee.rental_start_date) < COALESCE(?, '9999-12-31') AND COALESCE(ee.allocated_end,ee.rental_return_due) > COALESCE(?, '0000-01-01') LIMIT 1").bind(eid,end,start).first();
+    if(conflict&&!reason)return badRequest("equipment conflict: "+conflict.name+" is already allocated during that period. Choose an override reason to continue.");
+  }
+  const rentalCost=Math.max(0,Number(body?.rental_cost||0));if(type==="Rented"&&!body?.vendor_name&&!body?.custom_label)return badRequest("rented equipment needs a vendor or equipment name");
+  const ins=await env.DB.prepare("INSERT INTO event_equipment(event_id,work_item_id,equipment_id,custom_label,needs_rental,ready,notes,allocation_type,vendor_name,rental_cost,rental_start_date,rental_return_due,allocation_status,override_reason,override_note,allocated_start,allocated_end) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)").bind(w.event_id,workId,eid,body?.custom_label||null,type==="Rented"?1:0,0,body?.notes||null,type,body?.vendor_name||null,rentalCost,type==="Rented"?(body?.rental_start_date||start):null,type==="Rented"?(body?.rental_return_due||end):null,"Reserved",reason||null,body?.override_note||null,start,end).run();
+  const id=ins.meta.last_row_id;let expenseId=null;
+  if(type==="Rented"&&rentalCost>0){
+    const ex=await env.DB.prepare("INSERT INTO expenses(event_id,category,amount,note,submitted_at) VALUES(?,?,?,?,datetime('now'))").bind(w.event_id,"Equipment rental",rentalCost,"Rental for "+(body?.custom_label||eq?.name||"equipment")+(body?.vendor_name?" — "+body.vendor_name:"")).run();
+    expenseId=ex.meta.last_row_id;await env.DB.prepare("UPDATE event_equipment SET expense_id=? WHERE id=?").bind(expenseId,id).run();
+  }
+  return json({ok:true,id,expense_id:expenseId},{status:201});
+}
+
+export async function returnEventEquipment(request,env,eventEquipmentId){
+  const body=await request.json().catch(()=>({}));const row=await env.DB.prepare("SELECT * FROM event_equipment WHERE id=?").bind(eventEquipmentId).first();if(!row)return notFound("equipment allocation not found");
+  if(row.allocation_type!=="Rented")return badRequest("only rented equipment has a rental return workflow");
+  await env.DB.prepare("UPDATE event_equipment SET returned_at=?,return_condition=?,allocation_status='Returned',ready=1,notes=COALESCE(?,notes) WHERE id=?").bind(body.returned_at||new Date().toISOString().slice(0,10),body.return_condition||"Good",body.notes||null,eventEquipmentId).run();
+  return json({ok:true});
+}
+
+export async function listInventoryEquipment(request,env){
+  const {results}=await env.DB.prepare("SELECT e.*,(SELECT COUNT(*) FROM event_equipment ee WHERE ee.equipment_id=e.id AND ee.allocation_status NOT IN ('Returned','Cancelled')) AS active_allocations,(SELECT MAX(em.maintenance_date) FROM equipment_maintenance em WHERE em.equipment_id=e.id) AS last_service FROM equipment e ORDER BY e.category,e.name").all();return json(results);
+}
+
+export async function createInventoryEquipment(request,env){
+  const body=await request.json().catch(()=>null);if(!body?.name)return badRequest("name is required");
+  const cost=Math.max(0,Number(body?.purchase_cost||0));const r=await env.DB.prepare("INSERT INTO equipment(name,category,owned,notes,serial_number,status,purchase_date,purchase_cost) VALUES(?,?,?,?,?,?,?,?)").bind(body.name,body.category||null,body.owned===false?0:1,body.notes||null,body.serial_number||null,body.status||"Available",body.purchase_date||null,cost).run();const id=r.meta.last_row_id;
+  if(cost>0){const ex=await env.DB.prepare("INSERT INTO expenses(event_id,category,amount,note,submitted_at) VALUES(NULL,'Equipment procurement',?,?,datetime('now'))").bind(cost,"Procurement: "+body.name+(body.vendor_name?" — "+body.vendor_name:"")).run();await env.DB.prepare("INSERT INTO equipment_procurements(equipment_id,vendor_name,bill_number,purchase_date,amount,payment_status,expense_id,notes) VALUES(?,?,?,?,?,?,?,?)").bind(id,body.vendor_name||null,body.bill_number||null,body.purchase_date||null,cost,body.payment_status||"Unpaid",ex.meta.last_row_id,body.notes||null).run();}
+  return json({ok:true,id},{status:201});
+}
+
+export async function updateInventoryEquipment(request,env,id){
+  const body=await request.json().catch(()=>null);const eq=await env.DB.prepare("SELECT * FROM equipment WHERE id=?").bind(id).first();if(!eq)return notFound("equipment not found");
+  await env.DB.prepare("UPDATE equipment SET name=?,category=?,owned=?,notes=?,serial_number=?,status=?,purchase_date=?,purchase_cost=?,last_maintenance_date=?,next_maintenance_date=? WHERE id=?").bind(body?.name??eq.name,body?.category!==undefined?body.category:eq.category,body?.owned!==undefined?(body.owned?1:0):eq.owned,body?.notes!==undefined?body.notes:eq.notes,body?.serial_number!==undefined?body.serial_number:eq.serial_number,body?.status||eq.status,body?.purchase_date!==undefined?body.purchase_date:eq.purchase_date,body?.purchase_cost!==undefined?Number(body.purchase_cost):eq.purchase_cost,body?.last_maintenance_date!==undefined?body.last_maintenance_date:eq.last_maintenance_date,body?.next_maintenance_date!==undefined?body.next_maintenance_date:eq.next_maintenance_date,id).run();return json({ok:true});
+}
+
+export async function addEquipmentMaintenance(request,env,id){
+  const body=await request.json().catch(()=>null);const eq=await env.DB.prepare("SELECT id,name FROM equipment WHERE id=?").bind(id).first();if(!eq)return notFound("equipment not found");const amount=Math.max(0,Number(body?.amount||0));let expenseId=null;
+  if(amount>0){const ex=await env.DB.prepare("INSERT INTO expenses(event_id,category,amount,note,submitted_at) VALUES(NULL,'Equipment maintenance',?,?,datetime('now'))").bind(amount,"Maintenance: "+eq.name+(body?.vendor_name?" — "+body.vendor_name:"")).run();expenseId=ex.meta.last_row_id;}
+  const date=body?.maintenance_date||new Date().toISOString().slice(0,10);await env.DB.prepare("INSERT INTO equipment_maintenance(equipment_id,maintenance_date,vendor_name,amount,next_due_date,expense_id,notes) VALUES(?,?,?,?,?,?,?)").bind(id,date,body?.vendor_name||null,amount,body?.next_due_date||null,expenseId,body?.notes||null).run();await env.DB.prepare("UPDATE equipment SET status='Available',last_maintenance_date=?,next_maintenance_date=? WHERE id=?").bind(date,body?.next_due_date||null,id).run();return json({ok:true},{status:201});
+}
+
+export async function listEquipmentHistory(request,env,id){
+  const [proc,maint,alloc]=await Promise.all([env.DB.prepare("SELECT * FROM equipment_procurements WHERE equipment_id=? ORDER BY purchase_date DESC,id DESC").bind(id).all(),env.DB.prepare("SELECT * FROM equipment_maintenance WHERE equipment_id=? ORDER BY maintenance_date DESC,id DESC").bind(id).all(),env.DB.prepare("SELECT ee.*,e.type AS event_type,a.name AS account_name,w.title AS work_title FROM event_equipment ee JOIN events e ON e.id=ee.event_id JOIN accounts a ON a.id=e.account_id LEFT JOIN event_work_items w ON w.id=ee.work_item_id WHERE ee.equipment_id=? ORDER BY ee.allocated_start DESC,ee.id DESC LIMIT 100").bind(id).all()]);return json({procurements:proc.results,maintenance:maint.results,allocations:alloc.results});
+}
