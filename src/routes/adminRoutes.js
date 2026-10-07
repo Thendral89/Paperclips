@@ -935,10 +935,13 @@ export async function listEvents(request, env) {
 export async function createEvent(request, env, ctx) {
   const body = await request.json().catch(() => null);
   if (!body || !body.account_id || !body.type) return badRequest("account_id and type are required");
+  const startDate=body.start_date || body.event_date || null;
+  const endDate=body.end_date || body.event_date || startDate;
+  if(startDate && endDate && startDate>endDate) return badRequest("event end date must be on or after start date");
   const result = await env.DB.prepare(
-    `INSERT INTO events (account_id, type, event_date, start_time, end_time, reporting_time, venue, pricing_tier_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+    `INSERT INTO events (account_id, type, event_date, start_date, end_date, start_time, end_time, reporting_time, venue, pricing_tier_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   )
-    .bind(body.account_id, body.type, body.event_date || null, body.start_time || null, body.end_time || null, body.reporting_time || null, body.venue || null, body.pricing_tier_id || 1)
+    .bind(body.account_id, body.type, startDate, startDate, endDate, body.start_time || null, body.end_time || null, body.reporting_time || null, body.venue || null, body.pricing_tier_id || 1)
     .run();
   const eventId = result.meta.last_row_id;
 
@@ -949,18 +952,7 @@ export async function createEvent(request, env, ctx) {
     if (account && event) ctx?.waitUntil(syncCrmEvent(env, event, account));
   }
 
-  // Snapshot the shared checklist template onto this event — later template
-  // edits shouldn't retroactively change events already in progress. Phase
-  // (Pre-wedding/Wedding day/Post-wedding) comes along so the event's own
-  // checklist is grouped the same way from the moment it's created.
-  const { results: template } = await env.DB.prepare(`SELECT item, phase FROM checklist_templates ORDER BY sort_order`).all();
-  if (template.length) {
-    await env.DB.batch(
-      template.map((t) =>
-        env.DB.prepare(`INSERT INTO event_checklist (event_id, item, phase) VALUES (?, ?, ?)`).bind(eventId, t.item, t.phase)
-      )
-    );
-  }
+  await refreshEventOperations(env,eventId);
   return json({ ok: true, id: eventId }, { status: 201 });
 }
 
@@ -974,6 +966,9 @@ export async function updateEvent(request, env, id, ctx) {
   const type = body.type ?? event.type;
   const venue = body.venue !== undefined ? body.venue || null : event.venue;
   const event_date = body.event_date !== undefined ? body.event_date || null : event.event_date;
+  const start_date = body.start_date !== undefined ? body.start_date || event.start_date || event.event_date : (event.start_date || event.event_date);
+  const end_date = body.end_date !== undefined ? body.end_date || event.end_date || start_date : (event.end_date || start_date);
+  if(start_date && end_date && start_date>end_date) return badRequest("event end date must be on or after start date");
   const start_time = body.start_time !== undefined ? body.start_time || null : event.start_time;
   const end_time = body.end_time !== undefined ? body.end_time || null : event.end_time;
   const reporting_time = body.reporting_time !== undefined ? body.reporting_time || null : event.reporting_time;
@@ -986,15 +981,16 @@ export async function updateEvent(request, env, id, ctx) {
     let enabled=true; try{enabled=rule?JSON.parse(rule.value_json||"{}").enabled!==false:true;}catch{}
     if(enabled && Number(pending?.count||0)>0) return badRequest("required Event tasks are still pending");
   }
-  await env.DB.prepare(`UPDATE events SET type = ?, venue = ?, event_date = ?, start_time = ?, end_time = ?, reporting_time = ?, status = ? WHERE id = ?`)
-    .bind(type, venue, event_date, start_time, end_time, reporting_time, status, id).run();
+  await env.DB.prepare(`UPDATE events SET type = ?, venue = ?, event_date = ?, start_date = ?, end_date = ?, start_time = ?, end_time = ?, reporting_time = ?, status = ? WHERE id = ?`)
+    .bind(type, venue, event_date, start_date, end_date, start_time, end_time, reporting_time, status, id).run();
   if(status==="Completed"){
     await env.DB.prepare("UPDATE invoices SET locked_at=COALESCE(locked_at,datetime('now')),updated_at=datetime('now') WHERE event_id=?").bind(id).run();
   }
+  await refreshEventOperations(env,id);
 
   // Calendar sync is deliberately non-critical to the CRM save.
   const account = await env.DB.prepare(`SELECT name FROM accounts WHERE id = ?`).bind(event.account_id).first();
-  const updatedEvent = { ...event, type, venue, event_date, start_time, end_time, reporting_time, status };
+  const updatedEvent = { ...event, type, venue, event_date, start_date, end_date, start_time, end_time, reporting_time, status };
   if (account) ctx?.waitUntil(syncCrmEvent(env, updatedEvent, account));
 
   return json({ ok: true });
@@ -1114,6 +1110,7 @@ export async function addEventService(request, env, id) {
   ).bind(id, body.service_id, service.base_price, body.is_crosssell ? 1 : 0, addedAfterFinalization).run();
 
   await recomputeQuote(env, id);
+  await refreshEventOperations(env,id);
   return json({ ok: true, added_after_finalization: !!addedAfterFinalization });
 }
 
@@ -1142,6 +1139,7 @@ export async function applyPackageToEvent(request, env, id) {
   ).bind(id, pkg.id, pkg.base_price, event.commercial_finalized_at?1:0).run();
 
   await recomputeQuote(env, id);
+  await refreshEventOperations(env,id);
   return json({ ok: true });
 }
 
@@ -1151,6 +1149,58 @@ export async function setEventTier(request, env, id) {
   await env.DB.prepare(`UPDATE events SET pricing_tier_id = ? WHERE id = ?`).bind(body.pricing_tier_id, id).run();
   await recomputeQuote(env, id);
   return json({ ok: true });
+}
+
+async function refreshEventOperations(env,eventId) {
+  const event=await env.DB.prepare("SELECT id,start_date,end_date,event_date FROM events WHERE id=?").bind(eventId).first();
+  if(!event) return;
+  const required=(await env.DB.prepare(`
+    SELECT DISTINCT ss.skill_id,s.label,s.workflow_phase,s.start_offset_days,s.due_offset_days
+    FROM event_services es JOIN service_skills ss ON ss.service_id=es.service_id
+    JOIN skills s ON s.id=ss.skill_id AND s.active=1
+    WHERE es.event_id=? AND es.service_id IS NOT NULL
+    UNION
+    SELECT DISTINCT ss.skill_id,s.label,s.workflow_phase,s.start_offset_days,s.due_offset_days
+    FROM event_services es JOIN package_items pi ON pi.package_id=es.package_id
+    JOIN service_skills ss ON ss.service_id=pi.service_id
+    JOIN skills s ON s.id=ss.skill_id AND s.active=1
+    WHERE es.event_id=? AND es.package_id IS NOT NULL
+    ORDER BY workflow_phase,label
+  `).bind(eventId,eventId).all()).results;
+
+  await env.DB.prepare("DELETE FROM event_resource_requirements WHERE event_id=? AND generated_by_system=1").bind(eventId).run();
+  for(const skill of required){
+    await env.DB.prepare(`INSERT INTO event_resource_requirements(event_id,role_label,skill_id,quantity,phase,allocation_date,notes,generated_by_system) VALUES(?,?,?,1,?,?,?,1)`)
+      .bind(eventId,skill.label,skill.skill_id,skill.workflow_phase,event.start_date||event.event_date,null).run();
+  }
+
+  await env.DB.prepare("DELETE FROM event_checklist WHERE event_id=? AND generated_source IS NOT NULL").bind(eventId).run();
+  const templates=(await env.DB.prepare(`SELECT id,item,phase FROM checklist_templates WHERE active=1 AND service_id IS NULL AND skill_id IS NULL ORDER BY phase,sort_order,id`).all()).results;
+  for(const t of templates){
+    await env.DB.prepare("INSERT INTO event_checklist(event_id,item,done,phase,template_id,generated_source) VALUES(?,?,0,?,?,?)").bind(eventId,t.item,t.phase,t.id,'template').run();
+  }
+  for(const skill of required){
+    const matches=(await env.DB.prepare("SELECT id,item,phase FROM checklist_templates WHERE active=1 AND skill_id=? ORDER BY sort_order,id").bind(skill.skill_id).all()).results;
+    for(const t of matches){
+      await env.DB.prepare("INSERT INTO event_checklist(event_id,item,done,phase,template_id,generated_source) VALUES(?,?,0,?,?,?)").bind(eventId,t.item,t.phase,t.id,'skill-template').run();
+    }
+    const item='Assign resource: '+skill.label;
+    const exists=await env.DB.prepare("SELECT 1 FROM event_checklist WHERE event_id=? AND generated_source='skill-readiness' AND item=? LIMIT 1").bind(eventId,item).first();
+    if(!exists) await env.DB.prepare("INSERT INTO event_checklist(event_id,item,done,phase,generated_source) VALUES(?,?,0,?,?)").bind(eventId,item,skill.workflow_phase,'skill-readiness').run();
+  }
+
+  const allocations=(await env.DB.prepare(`SELECT era.id,era.start_source,era.due_source,s.start_offset_days,s.due_offset_days,era.start_at,era.end_at
+    FROM event_resource_allocations era JOIN skills s ON s.id=era.skill_id
+    WHERE era.event_id=? AND era.generated_from_skill=1`).bind(eventId).all()).results;
+  const base=event.start_date||event.event_date;
+  const dateOffset=(date,days)=>{if(!date)return null;const d=new Date(date+'T00:00:00Z');d.setUTCDate(d.getUTCDate()+Number(days||0));return d.toISOString().slice(0,10);};
+  for(const a of allocations){
+    const start=a.start_source==='skill-rule'?dateOffset(base,a.start_offset_days):a.start_at?.slice(0,10);
+    const due=a.due_source==='skill-rule'?dateOffset(base,a.due_offset_days):a.end_at?.slice(0,10);
+    const st=start?(start+'T'+(a.start_at?.slice(11,16)||'09:00')):null;
+    const en=due?(due+'T'+(a.end_at?.slice(11,16)||'18:00')):null;
+    await env.DB.prepare("UPDATE event_resource_allocations SET start_at=?,end_at=?,allocation_date=?,start_time=?,end_time=?,updated_at=datetime('now') WHERE id=?").bind(st,en,st?.slice(0,10)||null,st?.slice(11,16)||null,en?.slice(11,16)||null,a.id).run();
+  }
 }
 
 async function recomputeQuote(env, eventId) {
@@ -1610,7 +1660,7 @@ export async function deleteDeliverable(request, env, deliverableId) {
 }
 
 // ── Pre-event checklist ────────────────────────────────────────────
-const CHECKLIST_PHASE_LIST = ["Pre-wedding", "Wedding day", "Post-wedding"];
+const CHECKLIST_PHASE_LIST = ["Pre-Production", "Production", "Post-Production"];
 
 // One-off item on THIS event only — doesn't touch the shared template, for
 // the case where a specific booking needs something the general checklist
