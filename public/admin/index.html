@@ -1367,16 +1367,18 @@ async function renderEventDetail(id) {
     </div>
   `;
 
+  // Approved Event workspace: five operational tabs only.
+  // Event identity and KPI summary remain above these tabs.
   const tabNames = [
-    ["overview", L("event.overview", "Overview")], ["checklist", L("event.checklist", "Checklist")],
-    ["resources", L("event.resources", "Resource Mapping")], ["production", L("event.production", "Production")],
-    ["postproduction", L("event.post_production", "Post-Production")],
-    ["services", L("event.services", "Services & Quote")], ["payments", L("event.payments", "Payments")],
+    ["checklist", L("event.checklist", "Checklist")],
+    ["resources", L("event.resources", "Resource Mapping")],
+    ["services", L("event.services", "Service & Quote")],
+    ["payments", L("event.payments", "Payment")],
     ["expenses", L("event.expenses", "Expenses")]
   ];
   const direct=[...main.children], header=direct.filter(el=>el.matches('.back,h1,.sub,.kpis')), content=direct.filter(el=>!header.includes(el));
   const shell=document.createElement('div');
-  if(!tabNames.some(([k])=>k===activeEventTab)) activeEventTab='overview';
+  if(!tabNames.some(([k])=>k===activeEventTab)) activeEventTab='checklist';
   shell.innerHTML=`<div class="event-tabs">${tabNames.map(([k,v])=>`<button type="button" class="event-tab ${k===activeEventTab?'active':''}" data-event-tab="${k}">${v}</button>`).join('')}</div>${tabNames.map(([k])=>`<section class="event-tab-panel ${k===activeEventTab?'active':''}" data-event-panel="${k}"></section>`).join('')}`;
   main.appendChild(shell);
   const panels=Object.fromEntries([...shell.querySelectorAll('[data-event-panel]')].map(x=>[x.dataset.eventPanel,x]));
@@ -1386,7 +1388,15 @@ async function renderEventDetail(id) {
   renderInvoice(invoice);
   invoiceCard.addEventListener('click',async e=>{if(e.target.id==="generateInvoice"||e.target.id==="refreshInvoice"){await api(`/events/${id}/invoice`,{method:"POST",body:"{}"});toast("Invoice generated");renderEventDetail(id);} if(e.target.id==="issueInvoice"){await api(`/invoices/${invoice.id}/issue`,{method:"POST",body:"{}"});toast("Invoice issued");renderEventDetail(id);} if(e.target.id==="payInvoice"){await api(`/invoices/${invoice.id}/paid`,{method:"POST",body:"{}"});toast("Invoice marked paid");renderEventDetail(id);}});
 
-  const classify=el=>{const t=(el.innerText||'').toLowerCase(); if(t.includes('line items')||t.includes('apply a package')||t.startsWith('add-ons')||t.includes('pricing tier'))return'services'; if(t.includes('payment schedule')||t.includes('payments received'))return'payments'; if(t.includes('deliverables'))return'postproduction'; if(t.includes('expenses on this event'))return'expenses'; if(t.includes('internal staff')||t.includes('resource'))return'resources'; if(t.includes('outside vendors')||t.includes('equipment')||t.includes('staff tasks'))return'production'; if(t.includes('checklist'))return'checklist'; return'overview';};
+  const classify=el=>{const t=(el.innerText||'').toLowerCase();
+    if(t.includes('line items')||t.includes('apply a package')||t.startsWith('add-ons')||t.includes('pricing tier')) return 'services';
+    if(t.includes('payment schedule')||t.includes('payments received')||t.includes('invoice')) return 'payments';
+    if(t.includes('expenses on this event')) return 'expenses';
+    if(t.includes('deliverables')||t.includes('post-production')||t.includes('post production')) return 'resources';
+    if(t.includes('internal staff')||t.includes('resource')||t.includes('equipment')) return 'resources';
+    if(t.includes('staff tasks')||t.includes('checklist')) return 'checklist';
+    return 'checklist';
+  };
   content.forEach(el=>panels[classify(el)].appendChild(el));
   const ppCard=document.createElement('div'); ppCard.className='card';
   const picklists=await api('/picklists').catch(()=>[]);
@@ -1399,26 +1409,22 @@ async function renderEventDetail(id) {
   const rp=document.createElement('div'); rp.className='card'; rp.innerHTML=`<h2>${L('event.resources','Resources')} <button type="button" class="icon-btn" id="addResourceBtn">+ Add</button></h2><div id="eventResourcesList" class="resource-grid"><div class="empty">Loading…</div></div>`; panels.resources.prepend(rp);
   const taskList=Array.isArray(ev.tasks)?ev.tasks:[]; const taskDone=taskList.filter(t=>String(t.status||"").toLowerCase()==="done" || String(t.status||"").toLowerCase()==="completed").length;
   const taskPending=Math.max(0,taskList.length-taskDone);
-  panels.overview.insertAdjacentHTML('afterbegin',`<div class="row2">
-    <div class="card"><h2>Operational overview</h2>
-      <div class="kpis" style="grid-template-columns:repeat(2,minmax(0,1fr));">
-        <div class="kpi"><div class="l">Event date</div><div class="v" style="font-size:18px">${escapeHtml(ev.event_date||"Not scheduled")}</div></div>
-        <div class="kpi"><div class="l">Stage</div><div class="v" style="font-size:18px">${statusPill(ev.status||"Planning")}</div></div>
-        <div class="kpi"><div class="l">Tasks complete</div><div class="v" style="font-size:18px">${taskDone}/${taskList.length}</div></div>
-        <div class="kpi"><div class="l">Tasks pending</div><div class="v" style="font-size:18px">${taskPending}</div></div>
+  const eventSummary=document.createElement('div');
+  eventSummary.className='card';
+  eventSummary.innerHTML=`<h2>Event overview</h2>
+    <div class="row2">
+      <div>
+        <div class="list-row"><span>Event date</span><b>${escapeHtml(ev.event_date||"Not scheduled")}</b></div>
+        <div class="list-row"><span>Time</span><b>${escapeHtml([ev.start_time,ev.end_time].filter(Boolean).join(" – ")||"Not scheduled")}</b></div>
+        <div class="list-row"><span>Venue</span><b>${escapeHtml(ev.venue||"Not set")}</b></div>
       </div>
-    </div>
-    <div class="card"><h2>Financial snapshot</h2>
-      <div class="list-row"><span>Revenue</span><b>${money(ev.quote_total)}</b></div>
-      <div class="list-row"><span>Received</span><b>${money(ev.advance_paid)}</b></div>
-      <div class="list-row"><span>Outstanding</span><b>${money(Math.max(0,(ev.quote_total||0)-(ev.advance_paid||0)))}</b></div>
-      <div class="list-row"><span>Event cost</span><b>${money(ev.cost_breakdown?.total||0)}</b></div>
-      <div class="list-row"><span>Contribution</span><b style="color:${(ev.profit||0)>=0?'var(--success)':'var(--critical)'}">${money(ev.profit||0)}</b></div>
-    </div>
-  </div>
-  <div class="card"><h2>Next actions</h2>
-    ${taskList.filter(t=>String(t.status||"").toLowerCase()!=="done" && String(t.status||"").toLowerCase()!=="completed").slice(0,6).map(t=>`<div class="list-row"><span><b>${escapeHtml(t.task||t.title||"Task")}</b><span class="meta"> · ${escapeHtml(t.phase||"")}</span></span><span class="pill">${escapeHtml(t.status||"Pending")}</span></div>`).join("") || '<div class="empty">No pending tasks — this event is operationally clear.</div>'}
-  </div>`);
+      <div>
+        <div class="list-row"><span>Status</span>${statusPill(ev.status||"Planning")}</div>
+        <div class="list-row"><span>Tasks</span><b>${taskDone}/${taskList.length} complete</b></div>
+        <div class="list-row"><span>Next action</span><b>${escapeHtml(taskList.find(t=>!["done","completed"].includes(String(t.status||"").toLowerCase()))?.task||"No pending task")}</b></div>
+      </div>
+    </div>`;
+  main.insertBefore(eventSummary,shell);
   const er=await api(`/events/${id}/resources`).catch(()=>[]);
   document.getElementById('eventResourcesList').innerHTML=er.length?er.map(r=>`<div class="resource-card"><b>${escapeHtml(r.resource_name)}</b><div class="meta"><span class="pill">${escapeHtml(r.resource_type||"Person")}</span> · ${escapeHtml(r.phase)}${r.skill_label?` · ${escapeHtml(r.skill_label)}`:''}</div>${r.role_label?`<div>${escapeHtml(r.role_label)}</div>`:''}<div class="meta">${money(r.cost)} · ${escapeHtml(r.status||'Planned')}${r.start_at?` · ${r.start_at.replace('T',' ')}`:''}${r.end_at?` → ${r.end_at.replace('T',' ')}`:''}</div><div class="row-actions"><button type="button" class="icon-btn edit" data-edit-event-resource="${r.id}">✎ Edit</button><button type="button" class="icon-btn del" data-del-event-resource="${r.id}">✕ Remove</button></div></div>`).join(''):'<div class="empty">No resources allocated to this event.</div>';
   main.querySelectorAll('[data-edit-event-resource]').forEach(el=>el.addEventListener('click',async()=>{
