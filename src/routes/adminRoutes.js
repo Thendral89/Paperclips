@@ -79,13 +79,14 @@ export async function listLeads(request, env) {
 export async function getLead(request, env, id) {
   const lead = await env.DB.prepare(`SELECT * FROM leads WHERE id = ?`).bind(id).first();
   if (!lead) return notFound("lead not found");
-  const [activities, account, quotes, history] = await Promise.all([
+  const [activities, account, quotes, history, contacts] = await Promise.all([
     env.DB.prepare(`SELECT * FROM lead_activities WHERE lead_id = ? ORDER BY created_at DESC`).bind(id).all(),
     env.DB.prepare(`SELECT id FROM accounts WHERE lead_id = ?`).bind(id).first(),
-    env.DB.prepare(`SELECT * FROM lead_quotes WHERE lead_id = ? ORDER BY created_at DESC`).bind(id).all(),
+    env.DB.prepare(`SELECT * FROM lead_quotes WHERE lead_id = ? ORDER BY version DESC, id DESC`).bind(id).all(),
     env.DB.prepare(`SELECT * FROM lead_status_history WHERE lead_id = ? ORDER BY changed_at DESC, id DESC`).bind(id).all(),
+    env.DB.prepare(`SELECT * FROM lead_contacts WHERE lead_id = ? ORDER BY is_primary DESC,id`).bind(id).all(),
   ]);
-  return json({ ...lead, activities: activities.results, account_id: account?.id || null, quotes: quotes.results, stage_history: history.results });
+  return json({ ...lead, activities: activities.results, account_id: account?.id || null, quotes: quotes.results, stage_history: history.results, contacts: contacts.results });
 }
 
 export async function createLeadManual(request, env, staff) {
@@ -213,12 +214,48 @@ export async function updateLeadDetails(request, env, id) {
   const event_type = body.event_type !== undefined ? body.event_type || null : lead.event_type;
   const event_date = body.event_date !== undefined ? body.event_date || null : lead.event_date;
   const budget_est = body.budget_est !== undefined ? (body.budget_est ? Number(body.budget_est) : null) : lead.budget_est;
+  const venue = body.venue !== undefined ? body.venue || null : lead.venue;
   const phone_normalized = body.phone !== undefined ? normalizePhone(phone) : lead.phone_normalized;
 
   await env.DB.prepare(
-    `UPDATE leads SET name = ?, phone = ?, phone_normalized = ?, email = ?, event_type = ?, event_date = ?, budget_est = ?, updated_at = datetime('now') WHERE id = ?`
-  ).bind(name, phone, phone_normalized, email, event_type, event_date, budget_est, id).run();
+    `UPDATE leads SET name = ?, phone = ?, phone_normalized = ?, email = ?, event_type = ?, event_date = ?, venue = ?, budget_est = ?, updated_at = datetime('now') WHERE id = ?`
+  ).bind(name, phone, phone_normalized, email, event_type, event_date, venue, budget_est, id).run();
   return json({ ok: true });
+}
+
+export async function addLeadContact(request, env, id) {
+  const body = await request.json().catch(() => null);
+  if (!body || !body.name) return badRequest("contact name is required");
+  const lead = await env.DB.prepare("SELECT id FROM leads WHERE id=?").bind(id).first();
+  if (!lead) return notFound("lead not found");
+  const existingPrimary = await env.DB.prepare("SELECT id FROM lead_contacts WHERE lead_id=? AND is_primary=1 LIMIT 1").bind(id).first();
+  const isPrimary = body.is_primary ? 1 : existingPrimary ? 0 : 1;
+  if (isPrimary) await env.DB.prepare("UPDATE lead_contacts SET is_primary=0,updated_at=datetime('now') WHERE lead_id=?").bind(id).run();
+  const r = await env.DB.prepare(`INSERT INTO lead_contacts(lead_id,name,role,phone,email,is_primary) VALUES(?,?,?,?,?,?)`)
+    .bind(id,body.name,body.role||null,body.phone||null,body.email||null,isPrimary).run();
+  return json({ok:true,id:r.meta.last_row_id},{status:201});
+}
+
+export async function updateLeadContact(request, env, contactId) {
+  const body=await request.json().catch(()=>null);
+  const contact=await env.DB.prepare("SELECT * FROM lead_contacts WHERE id=?").bind(contactId).first();
+  if(!contact) return notFound("lead contact not found");
+  const isPrimary=body.is_primary!==undefined ? (body.is_primary?1:0) : Number(contact.is_primary||0);
+  if(isPrimary) await env.DB.prepare("UPDATE lead_contacts SET is_primary=0,updated_at=datetime('now') WHERE lead_id=?").bind(contact.lead_id).run();
+  await env.DB.prepare(`UPDATE lead_contacts SET name=?,role=?,phone=?,email=?,is_primary=?,updated_at=datetime('now') WHERE id=?`)
+    .bind(body.name??contact.name,body.role??contact.role,body.phone??contact.phone,body.email??contact.email,isPrimary,contactId).run();
+  return json({ok:true});
+}
+
+export async function deleteLeadContact(request, env, contactId) {
+  const contact=await env.DB.prepare("SELECT id,lead_id,is_primary FROM lead_contacts WHERE id=?").bind(contactId).first();
+  if(!contact) return notFound("lead contact not found");
+  await env.DB.prepare("DELETE FROM lead_contacts WHERE id=?").bind(contactId).run();
+  if(Number(contact.is_primary)===1){
+    const next=await env.DB.prepare("SELECT id FROM lead_contacts WHERE lead_id=? ORDER BY id LIMIT 1").bind(contact.lead_id).first();
+    if(next) await env.DB.prepare("UPDATE lead_contacts SET is_primary=1,updated_at=datetime('now') WHERE id=?").bind(next.id).run();
+  }
+  return json({ok:true});
 }
 
 // Terminal stages: 'Won' (Closed Won — the UI labels it that; the stored
@@ -380,35 +417,58 @@ export async function convertLead(request, env, id) {
   const body = await request.json().catch(() => ({}));
   const lead = await env.DB.prepare(`SELECT * FROM leads WHERE id = ?`).bind(id).first();
   if (!lead) return notFound("lead not found");
-  const existing = await env.DB.prepare(`SELECT id FROM accounts WHERE lead_id = ?`).bind(id).first();
-  if (existing) return json({ ok: true, account_id: existing.id });
 
-  // Confirmation-screen values win when given; otherwise fall back to what
-  // the lead already had. `notes` defaults to the lead's original capture
-  // message so that context isn't lost the moment the lead record stops
-  // being the primary place anyone looks.
+  let account = await env.DB.prepare(`SELECT id FROM accounts WHERE lead_id = ?`).bind(id).first();
+  let accountId = account?.id || null;
+
   const name = body.name || lead.name;
   const phone = body.phone || lead.phone;
   const email = body.email !== undefined ? body.email || null : lead.email;
   const address = body.address || null;
   const notes = body.notes !== undefined ? body.notes || null : lead.message || null;
 
-  const result = await env.DB.prepare(
-    `INSERT INTO accounts (lead_id, name, phone, email, address, notes, client_since) VALUES (?, ?, ?, ?, ?, ?, datetime('now'))`
-  )
-    .bind(id, name, phone, email, address, notes)
-    .run();
-  const accountId = result.meta.last_row_id;
+  if (!accountId) {
+    const result = await env.DB.prepare(
+      `INSERT INTO accounts (lead_id, name, phone, email, address, notes, client_since) VALUES (?, ?, ?, ?, ?, ?, datetime('now'))`
+    ).bind(id, name, phone, email, address, notes).run();
+    accountId = result.meta.last_row_id;
+  } else {
+    await env.DB.prepare(`UPDATE accounts SET name=?,phone=?,email=?,address=?,notes=? WHERE id=?`)
+      .bind(name,phone,email,address,notes,accountId).run();
+  }
 
-  // A converted lead had no contact row before — the account existed with
-  // no one listed on it. One primary contact, seeded from the same details,
-  // closes that gap; add more (bride/groom/planner) from the account page.
-  await env.DB.batch([
-    env.DB.prepare(`INSERT INTO contacts (account_id, name, phone, email, is_primary) VALUES (?, ?, ?, ?, 1)`)
-      .bind(accountId, name, phone, email),
-    env.DB.prepare(`UPDATE leads SET stage = 'Won', updated_at = datetime('now') WHERE id = ?`).bind(id),
-  ]);
-  return json({ ok: true, account_id: accountId }, { status: 201 });
+  const leadContacts = (await env.DB.prepare(`SELECT * FROM lead_contacts WHERE lead_id=? ORDER BY is_primary DESC,id`).bind(id).all()).results;
+  const existingAccountContacts = (await env.DB.prepare(`SELECT * FROM contacts WHERE account_id=?`).bind(accountId).all()).results;
+  if (!existingAccountContacts.length) {
+    const sourceContacts = leadContacts.length
+      ? leadContacts
+      : [{name,phone,email,role:null,is_primary:1}];
+    for (const contact of sourceContacts) {
+      await env.DB.prepare(`INSERT INTO contacts(account_id,name,phone,email,role,is_primary) VALUES(?,?,?,?,?,?)`)
+        .bind(accountId,contact.name,contact.phone||null,contact.email||null,contact.role||null,contact.is_primary?1:0).run();
+    }
+  }
+
+  await env.DB.prepare(`UPDATE leads SET stage='Won',updated_at=datetime('now') WHERE id=?`).bind(id).run();
+
+  // Closed Won is the point where the commercial commitment becomes operational:
+  // finalize/accept the latest quote, create the Booking, then create its Event.
+  const quote = await env.DB.prepare(
+    `SELECT id,status FROM lead_quotes WHERE lead_id=? AND status IN ('Finalized','Accepted','Won') ORDER BY version DESC,id DESC LIMIT 1`
+  ).bind(id).first();
+
+  if (quote) {
+    if (quote.status === "Finalized") {
+      await env.DB.prepare(`UPDATE lead_quotes SET status='Accepted',updated_at=datetime('now') WHERE id=?`).bind(quote.id).run();
+    }
+    const { convertAcceptedQuote } = await import("./bookingRoutes.js");
+    const conversion = await convertAcceptedQuote(request, env, quote.id);
+    const payload = await conversion.json().catch(() => ({}));
+    if (!conversion.ok) return conversion;
+    return json({...payload,account_id:accountId});
+  }
+
+  return json({ok:true,account_id:accountId,booking_id:null,event_id:null},{status:201});
 }
 
 // ── Quotes — built while a lead is Quoted, before there's an account or
