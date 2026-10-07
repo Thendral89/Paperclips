@@ -5,7 +5,7 @@
 import { json, badRequest, notFound } from "../lib/util.js";
 
 const PHASES = ["Pre-Production", "Production", "Post-Production"];
-const RESOURCE_TYPES = ["Person", "Vendor"];
+const RESOURCE_TYPES = ["Internal", "External", "Equipment / Vendor"];
 
 function parseRuleValue(value) {
   try { return value ? JSON.parse(value) : {}; } catch { return {}; }
@@ -192,9 +192,10 @@ export async function listResources(request, env) {
 export async function saveResource(request, env) {
   const body = await request.json().catch(() => null);
   if (!body?.name) return badRequest("name is required");
-  const requestedType = String(body.resource_type || "Person");
+  const requestedType = String(body.resource_type || "Internal").trim();
   const typeRow = await env.DB.prepare(`SELECT value_label FROM picklist_values v JOIN picklist_groups g ON g.id=v.group_id WHERE g.group_key=? AND g.active=1 AND v.active=1 AND (v.value_label=? OR v.value_key=?)`).bind("resource_type",requestedType,requestedType.toLowerCase()).first();
-  const resourceType = typeRow?.value_label || "Person";
+  if (!typeRow) return badRequest("invalid resource type");
+  const resourceType = typeRow.value_label;
 
   let id = body.id;
   if (id) {
@@ -211,14 +212,26 @@ export async function saveResource(request, env) {
     id = result.meta.last_row_id;
   }
 
+  const skillIds=[...new Set((Array.isArray(body.skill_ids) ? body.skill_ids : [])
+    .map(Number).filter(Number.isInteger).filter(x=>x>0))];
+  if(skillIds.length){
+    const marks=skillIds.map(()=>"?").join(",");
+    const {results:validSkills}=await env.DB.prepare(
+      `SELECT id FROM skills WHERE active=1 AND id IN (${marks})`
+    ).bind(...skillIds).all();
+    const validIds=new Set((validSkills||[]).map(x=>Number(x.id)));
+    if(validIds.size!==skillIds.length) return badRequest("one or more selected skills are invalid or inactive");
+  }
+  const phases=[...new Set(Array.isArray(body.phases)?body.phases:[])];
+  if(phases.some(phase=>!PHASES.includes(phase))) return badRequest("one or more workflow phases are invalid");
+
   await env.DB.prepare(`DELETE FROM resource_skills WHERE resource_id=?`).bind(id).run();
   await env.DB.prepare(`DELETE FROM resource_phase_assignments WHERE resource_id=?`).bind(id).run();
 
-  for (const skillId of (Array.isArray(body.skill_ids) ? body.skill_ids : [])) {
+  for (const skillId of skillIds) {
     await env.DB.prepare(`INSERT OR IGNORE INTO resource_skills(resource_id,skill_id) VALUES(?,?)`).bind(id,skillId).run();
   }
-  for (const phase of (Array.isArray(body.phases) ? body.phases : [])) {
-    if (!PHASES.includes(phase)) continue;
+  for (const phase of phases) {
     await env.DB.prepare(`INSERT OR IGNORE INTO resource_phase_assignments(resource_id,phase) VALUES(?,?)`).bind(id,phase).run();
   }
   return json({ ok:true,id });
