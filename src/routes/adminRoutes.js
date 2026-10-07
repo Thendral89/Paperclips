@@ -952,7 +952,7 @@ export async function createEvent(request, env, ctx) {
     if (account && event) ctx?.waitUntil(syncCrmEvent(env, event, account));
   }
 
-  await refreshEventOperations(env,eventId);
+  await rebuildEventOperations(env,eventId);
   return json({ ok: true, id: eventId }, { status: 201 });
 }
 
@@ -986,7 +986,7 @@ export async function updateEvent(request, env, id, ctx) {
   if(status==="Completed"){
     await env.DB.prepare("UPDATE invoices SET locked_at=COALESCE(locked_at,datetime('now')),updated_at=datetime('now') WHERE event_id=?").bind(id).run();
   }
-  await refreshEventOperations(env,id);
+  await rebuildEventOperations(env,id);
 
   // Calendar sync is deliberately non-critical to the CRM save.
   const account = await env.DB.prepare(`SELECT name FROM accounts WHERE id = ?`).bind(event.account_id).first();
@@ -1151,7 +1151,7 @@ export async function setEventTier(request, env, id) {
   return json({ ok: true });
 }
 
-async function refreshEventOperations(env,eventId) {
+async function rebuildEventOperations(env,eventId) {
   const event=await env.DB.prepare("SELECT id,start_date,end_date,event_date FROM events WHERE id=?").bind(eventId).first();
   if(!event) return;
   const required=(await env.DB.prepare(`
@@ -1201,6 +1201,25 @@ async function refreshEventOperations(env,eventId) {
     const en=due?(due+'T'+(a.end_at?.slice(11,16)||'18:00')):null;
     await env.DB.prepare("UPDATE event_resource_allocations SET start_at=?,end_at=?,allocation_date=?,start_time=?,end_time=?,updated_at=datetime('now') WHERE id=?").bind(st,en,st?.slice(0,10)||null,st?.slice(11,16)||null,en?.slice(11,16)||null,a.id).run();
   }
+}
+
+export async function refreshEventOperations(request, env, eventId) {
+  const event=await env.DB.prepare("SELECT id FROM events WHERE id=?").bind(eventId).first();
+  if(!event) return notFound("event not found");
+  await rebuildEventOperations(env,eventId);
+  return json({ok:true});
+}
+
+export async function getEventActivity(request, env, eventId) {
+  const [allocationHistory,] = await Promise.all([
+    env.DB.prepare(`SELECT h.*,r.name AS resource_name,s.label AS skill_label
+      FROM event_resource_allocation_history h
+      LEFT JOIN event_resource_allocations era ON era.id=h.allocation_id
+      LEFT JOIN resources r ON r.id=era.resource_id
+      LEFT JOIN skills s ON s.id=era.skill_id
+      WHERE h.event_id=? ORDER BY h.changed_at DESC,h.id DESC`).bind(eventId).all()
+  ]);
+  return json({allocation_history:allocationHistory.results});
 }
 
 async function recomputeQuote(env, eventId) {
