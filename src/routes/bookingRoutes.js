@@ -92,41 +92,135 @@ export async function addBookingPayment(request, env, bookingId, staff) {
 
 export async function convertAcceptedQuote(request, env, quoteId) {
   const q=await env.DB.prepare(`SELECT q.*,l.name AS lead_name,l.phone,l.email,l.event_type,l.event_date,l.venue,l.source,l.id AS lead_id,a.id AS existing_account_id
-    FROM lead_quotes q JOIN leads l ON l.id=q.lead_id LEFT JOIN accounts a ON a.lead_id=l.id WHERE q.id=?`).bind(quoteId).first();
+    FROM lead_quotes q
+    JOIN leads l ON l.id=q.lead_id
+    LEFT JOIN accounts a ON a.lead_id=l.id
+    WHERE q.id=?`).bind(quoteId).first();
   if(!q) return notFound("quote not found");
   if(!["Accepted","Won"].includes(q.status)) return badRequest("Quote must be Accepted/Won before conversion");
 
   let accountId=q.existing_account_id;
   if(!accountId){
-    const ar=await env.DB.prepare("INSERT INTO accounts(lead_id,name,phone,email,notes) VALUES(?,?,?,?,?)").bind(q.lead_id,q.lead_name,q.phone||null,q.email||null,"Created from accepted quote").run();
+    const ar=await env.DB.prepare(
+      "INSERT INTO accounts(lead_id,name,phone,email,notes) VALUES(?,?,?,?,?)"
+    ).bind(q.lead_id,q.lead_name,q.phone||null,q.email||null,"Created from accepted quote").run();
     accountId=ar.meta.last_row_id;
   }
 
-  const selected=await env.DB.prepare("SELECT * FROM quote_package_options WHERE quote_id=? AND selected=1 ORDER BY id LIMIT 1").bind(quoteId).first();
-  const addon=(await env.DB.prepare("SELECT * FROM quote_items WHERE quote_id=? AND is_addon=1 AND selected=1 ORDER BY id").bind(quoteId).all()).results;
-  const customized=selected?(await env.DB.prepare("SELECT * FROM quote_items WHERE quote_package_option_id=? AND is_addon=0 AND selected=1 ORDER BY id").bind(selected.id).all()).results:[];
-  const legacy=selected?[]:(await env.DB.prepare("SELECT * FROM quote_items WHERE quote_id=? AND selected=1 ORDER BY id").bind(quoteId).all()).results;
+  const selected=await env.DB.prepare(
+    "SELECT * FROM quote_package_options WHERE quote_id=? AND selected=1 ORDER BY id LIMIT 1"
+  ).bind(quoteId).first();
+  const addon=(await env.DB.prepare(
+    "SELECT * FROM quote_items WHERE quote_id=? AND is_addon=1 AND selected=1 ORDER BY id"
+  ).bind(quoteId).all()).results;
+  const customized=selected?(await env.DB.prepare(
+    "SELECT * FROM quote_items WHERE quote_package_option_id=? AND is_addon=0 AND selected=1 ORDER BY id"
+  ).bind(selected.id).all()).results:[];
+  const legacy=selected?[]:(await env.DB.prepare(
+    "SELECT * FROM quote_items WHERE quote_id=? AND selected=1 ORDER BY id"
+  ).bind(quoteId).all()).results;
   const items=selected
-    ? [{id:selected.id,service_id:null,package_id:selected.package_id,label:selected.label,price:Number(selected.price||0),quantity:1,is_addon:0,selected:1,details_json:selected.details_json},...customized,...addon]
+    ? [{id:selected.id,service_id:null,package_id:selected.package_id,label:selected.label,price:Number(selected.price||0),quantity:1,is_addon:0,selected:1,details_json:selected.details_json},
+       ...customized,...addon]
     : legacy;
-  const total=Math.max(0,items.reduce((s,x)=>s+Number(x.price||0)*Number(x.quantity||1),0)-Number(q.concession_amount||0));
-  const quoteSnapshot={quote_id:q.id,status:"Accepted",accepted_at:new Date().toISOString(),concession_amount:Number(q.concession_amount||0),concession_note:q.concession_note||null,valid_until:q.valid_until||null,selected_package_option_id:selected?.id||null,items:items.map(x=>({id:x.id,service_id:x.service_id||null,package_id:x.package_id||null,label:x.label,price:Number(x.price||0),quantity:Number(x.quantity||1),is_addon:Number(x.is_addon||0),selected:Number(x.selected||0),details_json:x.details_json||null}))};
+  const total=Math.max(
+    0,
+    items.reduce((s,x)=>s+Number(x.price||0)*Number(x.quantity||1),0)-Number(q.concession_amount||0)
+  );
+  const quoteSnapshot={
+    quote_id:q.id,
+    status:"Accepted",
+    accepted_at:new Date().toISOString(),
+    concession_amount:Number(q.concession_amount||0),
+    concession_note:q.concession_note||null,
+    valid_until:q.valid_until||null,
+    selected_package_option_id:selected?.id||null,
+    items:items.map(x=>({
+      id:x.id,service_id:x.service_id||null,package_id:x.package_id||null,label:x.label,
+      price:Number(x.price||0),quantity:Number(x.quantity||1),is_addon:Number(x.is_addon||0),
+      selected:Number(x.selected||0),details_json:x.details_json||null
+    }))
+  };
 
-  const existing=await env.DB.prepare("SELECT id,event_number FROM events WHERE quote_id=? ORDER BY id DESC LIMIT 1").bind(quoteId).first();
-  if(existing) return json({ok:true,event_id:existing.id,event_number:existing.event_number,account_id:accountId,already_exists:true});
+  // A revision must update the existing Event rather than creating a second Event.
+  // Follow the quote revision chain so v2/v3/... all resolve back to the original Event.
+  const existing=await env.DB.prepare(`
+    WITH RECURSIVE quote_chain(id) AS (
+      SELECT id FROM lead_quotes WHERE id=?
+      UNION ALL
+      SELECT q.revision_of_quote_id
+      FROM lead_quotes q
+      JOIN quote_chain c ON q.id=c.id
+      WHERE q.revision_of_quote_id IS NOT NULL
+    )
+    SELECT e.id,e.event_number
+    FROM events e
+    WHERE e.quote_id IN (SELECT id FROM quote_chain)
+    ORDER BY e.id DESC
+    LIMIT 1
+  `).bind(quoteId).first();
+
+  if(existing){
+    await env.DB.batch([
+      env.DB.prepare(`
+        UPDATE events
+        SET quote_id=?,quote_total=?,finalized_quote_total=?,quote_snapshot_json=?,
+            commercial_finalized_at=datetime('now'),updated_at=datetime('now')
+        WHERE id=?
+      `).bind(quoteId,total,total,JSON.stringify(quoteSnapshot),existing.id),
+      env.DB.prepare("DELETE FROM event_services WHERE event_id=?").bind(existing.id)
+    ]);
+
+    const serviceRows=items
+      .filter(x=>x.service_id)
+      .map(x=>[existing.id,x.service_id||null,x.package_id||null,Number(x.price||0),x.is_addon?1:0]);
+    if(serviceRows.length){
+      const chunk=18;
+      for(let i=0;i<serviceRows.length;i+=chunk){
+        const rows=serviceRows.slice(i,i+chunk);
+        await env.DB.prepare(
+          "INSERT INTO event_services(event_id,service_id,package_id,price_at_booking,is_crosssell) VALUES "+
+          rows.map(()=>"(?,?,?,?,?)").join(",")
+        ).bind(...rows.flat()).run();
+      }
+    }
+
+    await env.DB.prepare("UPDATE lead_quotes SET status='Accepted',updated_at=datetime('now') WHERE id=?").bind(quoteId).run();
+    await env.DB.prepare("UPDATE leads SET stage='Won',updated_at=datetime('now') WHERE id=?").bind(q.lead_id).run();
+    await rebuildEventOperations(env,existing.id);
+    await initializeEventWork(env,existing.id);
+
+    return json({
+      ok:true,event_id:existing.id,event_number:existing.event_number,
+      account_id:accountId,booking_id:null,updated_existing_event:true,
+      quote_id:quoteId,version:q.version
+    });
+  }
 
   const eventNumber=await nextNumber(env,"event");
-  const er=await env.DB.prepare(`INSERT INTO events(account_id,booking_id,quote_id,event_number,type,event_date,start_date,end_date,venue,status,quote_total,finalized_quote_total,quote_snapshot_json,commercial_finalized_at)
-    VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,datetime('now'))`).bind(accountId,null,quoteId,eventNumber||null,q.event_type||"Wedding",q.event_date||null,q.event_date||null,q.event_date||null,q.venue||null,"Planning",total,total,JSON.stringify(quoteSnapshot)).run();
+  const er=await env.DB.prepare(`
+    INSERT INTO events(
+      account_id,booking_id,quote_id,event_number,type,event_date,start_date,end_date,venue,status,
+      quote_total,finalized_quote_total,quote_snapshot_json,commercial_finalized_at
+    ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,datetime('now'))
+  `).bind(
+    accountId,null,quoteId,eventNumber||null,q.event_type||"Wedding",
+    q.event_date||null,q.event_date||null,q.event_date||null,q.venue||null,
+    "Planning",total,total,JSON.stringify(quoteSnapshot)
+  ).run();
   const eventId=er.meta.last_row_id;
 
-  const serviceRows=items.filter(x=>x.service_id).map(x=>[eventId,x.service_id||null,x.package_id||null,Number(x.price||0),x.is_addon?1:0]);
+  const serviceRows=items
+    .filter(x=>x.service_id)
+    .map(x=>[eventId,x.service_id||null,x.package_id||null,Number(x.price||0),x.is_addon?1:0]);
   if(serviceRows.length){
-    const width=5,chunk=18;
+    const chunk=18;
     for(let i=0;i<serviceRows.length;i+=chunk){
       const rows=serviceRows.slice(i,i+chunk);
-      const placeholders=rows.map(()=>"(?,?,?,?,?)").join(",");
-      await env.DB.prepare("INSERT INTO event_services(event_id,service_id,package_id,price_at_booking,is_crosssell) VALUES "+placeholders).bind(...rows.flat()).run();
+      await env.DB.prepare(
+        "INSERT INTO event_services(event_id,service_id,package_id,price_at_booking,is_crosssell) VALUES "+
+        rows.map(()=>"(?,?,?,?,?)").join(",")
+      ).bind(...rows.flat()).run();
     }
   }
 
@@ -137,5 +231,8 @@ export async function convertAcceptedQuote(request, env, quoteId) {
   await rebuildEventOperations(env,eventId);
   await initializeEventWork(env,eventId);
 
-  return json({ok:true,event_id:eventId,event_number:eventNumber,account_id:accountId,booking_id:null,task_count:0,architecture:"Lead -> Quote -> Client -> Event"});
+  return json({
+    ok:true,event_id:eventId,event_number:eventNumber,account_id:accountId,
+    booking_id:null,task_count:0,architecture:"Lead -> Quote -> Client -> Event"
+  });
 }
