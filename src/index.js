@@ -161,6 +161,7 @@ const ADMIN_ROUTES = [
 
   ["GET", /^\/api\/admin\/checklist-templates$/, (req, env) => admin.listChecklistTemplates(req, env)],
   ["POST", /^\/api\/admin\/checklist-templates$/, (req, env) => admin.addChecklistTemplateItem(req, env)],
+  ["POST", /^\/api\/admin\/checklist-templates\/(\d+)$/, (req, env, staff, [id]) => admin.updateChecklistTemplateItem(req, env, id)],
   ["POST", /^\/api\/admin\/checklist-templates\/(\d+)\/remove$/, (req, env, staff, [id]) => admin.removeChecklistTemplateItem(req, env, id)],
   ["POST", /^\/api\/admin\/staff-links$/, (req, env) => admin.createStaffLink(req, env)],
   ["POST", /^\/api\/admin\/staff-links\/(\d+)$/, (req, env, staff, [id]) => admin.updateStaffLink(req, env, id)],
