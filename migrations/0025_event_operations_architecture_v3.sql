@@ -82,7 +82,7 @@ UPDATE resources SET resource_type='Internal'
 WHERE lower(trim(resource_type)) IN ('person','staff','employee','internal');
 
 UPDATE resources SET resource_type='External'
-WHERE lower(trim(resource_type)) IN ('vendor','external','equipment / vendor','equipment/vendor');
+WHERE lower(trim(resource_type)) IN ('vendor','external','equipment','equipment / vendor','equipment/vendor');
 
 INSERT OR IGNORE INTO picklist_values(group_id,value_key,value_label,sort_order,active)
 SELECT id,'internal','Internal',30,1 FROM picklist_groups WHERE group_key='resource_type';
@@ -94,7 +94,7 @@ SELECT id,'external','External',40,1 FROM picklist_groups WHERE group_key='resou
 UPDATE picklist_values
 SET active=0
 WHERE group_id=(SELECT id FROM picklist_groups WHERE group_key='resource_type')
-  AND lower(value_label) IN ('person','vendor','equipment / vendor');
+  AND lower(value_label) IN ('person','vendor','equipment / vendor','equipment');
 
 -- 8) Normalize legacy checklist vocabulary.
 UPDATE checklist_templates SET phase='Pre-Production' WHERE phase IN ('Pre-wedding','Pre Wedding');
