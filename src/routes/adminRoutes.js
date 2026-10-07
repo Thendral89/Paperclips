@@ -95,12 +95,12 @@ export async function createLeadManual(request, env, staff) {
   const { normalizePhone } = await import("../lib/util.js");
   const phone_normalized = normalizePhone(body.phone);
   const result = await env.DB.prepare(
-    `INSERT INTO leads (name, phone, phone_normalized, email, source, event_type, event_date, budget_est, referred_by, message, stage)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'New')`
+    `INSERT INTO leads (name, phone, phone_normalized, email, source, event_type, event_date, venue, budget_est, referred_by, message, stage)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'New')`
   )
     .bind(
       body.name, body.phone, phone_normalized, body.email || null,
-      body.source || "Manual", body.event_type || null, body.event_date || null,
+      body.source || "Manual", body.event_type || null, body.event_date || null, body.venue || null,
       body.budget_est ? Number(body.budget_est) : null, body.referred_by || null, body.message || null
     )
     .run();
