@@ -144,6 +144,13 @@ CREATE INDEX IF NOT EXISTS idx_service_work_mappings_lookup
 ALTER TABLE event_resource_allocations ADD COLUMN work_item_id INTEGER REFERENCES event_work_items(id) ON DELETE SET NULL;
 ALTER TABLE event_resource_allocations ADD COLUMN override_reason TEXT;
 ALTER TABLE event_resource_allocations ADD COLUMN override_note TEXT;
+ALTER TABLE event_resource_allocations ADD COLUMN start_at TEXT;
+ALTER TABLE event_resource_allocations ADD COLUMN end_at TEXT;
+ALTER TABLE event_resource_allocations ADD COLUMN original_estimate INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE event_resource_allocations ADD COLUMN revised_estimate INTEGER;
+ALTER TABLE event_resource_allocations ADD COLUMN actual_paid INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE event_resource_allocations ADD COLUMN payment_date TEXT;
+ALTER TABLE event_resource_allocations ADD COLUMN cost_notes TEXT;
 CREATE INDEX IF NOT EXISTS idx_event_resource_work_item
   ON event_resource_allocations(work_item_id,phase,status);
 CREATE INDEX IF NOT EXISTS idx_event_resource_conflict
