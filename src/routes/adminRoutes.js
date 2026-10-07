@@ -1645,12 +1645,12 @@ export async function listChecklistTemplates(request, env) {
   return json(results);
 }
 
-const CHECKLIST_PHASES = ["Pre-wedding", "Wedding day", "Post-wedding"];
+const CHECKLIST_PHASES = ["Pre-Production", "Production", "Post-Production"];
 
 export async function addChecklistTemplateItem(request, env) {
   const body = await request.json().catch(() => null);
   if (!body || !body.item) return badRequest("item is required");
-  const phase = CHECKLIST_PHASES.includes(body.phase) ? body.phase : "Pre-wedding";
+  const phase = CHECKLIST_PHASES.includes(body.phase) ? body.phase : "Pre-Production";
   const { results } = await env.DB.prepare(`SELECT COALESCE(MAX(sort_order),0) AS m FROM checklist_templates`).all();
   await env.DB.prepare(`INSERT INTO checklist_templates (item, sort_order, phase) VALUES (?, ?, ?)`)
     .bind(body.item, (results[0]?.m || 0) + 1, phase).run();
