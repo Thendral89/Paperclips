@@ -124,15 +124,23 @@ export async function convertAcceptedQuote(request, env, quoteId) {
     accountId=ar.meta.last_row_id;
   }
 
+  let booking=await env.DB.prepare(
+    "SELECT id,booking_number,booked_value FROM bookings WHERE quote_id=? ORDER BY id DESC LIMIT 1"
+  ).bind(quoteId).first();
+  if(!booking){
+    const bookingNumber=await nextNumber(env,"booking");
+    const br=await env.DB.prepare(`INSERT INTO bookings(account_id,quote_id,booking_number,status,booked_value,finalized_quote_total,confirmed_at)
+      VALUES(?,?,?,?,?,?,datetime('now'))`).bind(accountId,quoteId,bookingNumber||null,"Booked",0,0).run();
+    booking={id:br.meta.last_row_id,booking_number:bookingNumber||null,booked_value:0};
+  }
+
   const existingEvent=await env.DB.prepare(
-    "SELECT id,event_number FROM events WHERE quote_id=? ORDER BY id DESC LIMIT 1"
+    "SELECT id,event_number,booking_id FROM events WHERE quote_id=? ORDER BY id DESC LIMIT 1"
   ).bind(quoteId).first();
   if(existingEvent) return json({
-    ok:true,
-    event_id:existingEvent.id,
-    event_number:existingEvent.event_number,
-    account_id:accountId,
-    already_exists:true
+    ok:true,booking_id:booking.id,booking_number:booking.booking_number,
+    event_id:existingEvent.id,event_number:existingEvent.event_number,
+    account_id:accountId,already_exists:true
   });
 
   const selectedOption=await env.DB.prepare(
@@ -151,6 +159,7 @@ export async function convertAcceptedQuote(request, env, quoteId) {
     ? [{id:selectedOption.id,service_id:null,package_id:selectedOption.package_id,label:selectedOption.label,price:Number(selectedOption.price||0),quantity:1,is_addon:0,selected:1,details_json:selectedOption.details_json},...customizedItems,...addonItems]
     : legacyItems;
   const total=Math.max(0,items.reduce((sum,x)=>sum+Number(x.price||0)*Number(x.quantity||1),0)-Number(q.concession_amount||0));
+  const bookingSnapshot={quote_id:q.id,status:"Accepted",concession_amount:Number(q.concession_amount||0),concession_note:q.concession_note||null,valid_until:q.valid_until||null,selected_package_option_id:selectedOption?.id||null,items:items.map(x=>({id:x.id,service_id:x.service_id||null,package_id:x.package_id||null,label:x.label,price:Number(x.price||0),quantity:Number(x.quantity||1),is_addon:Number(x.is_addon||0),selected:Number(x.selected||0),details_json:x.details_json||null}))};
   const quoteSnapshot={
     quote_id:q.id,
     status:"Accepted",
@@ -168,10 +177,11 @@ export async function convertAcceptedQuote(request, env, quoteId) {
 
   const eventNumber=await nextNumber(env,"event");
   const er=await env.DB.prepare(`INSERT INTO events(
-      account_id,quote_id,event_number,type,event_date,start_date,end_date,status,quote_total,finalized_quote_total,
+      account_id,booking_id,quote_id,event_number,type,event_date,start_date,end_date,status,quote_total,finalized_quote_total,
       quote_snapshot_json,commercial_finalized_at
-     ) VALUES(?,?,?,?,?,?,?,?,?,?,?,datetime('now'))`).bind(
+     ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,datetime('now'))`).bind(
       accountId,
+      booking.id,
       quoteId,
       eventNumber||null,
       q.event_type||"Wedding",
@@ -282,9 +292,11 @@ export async function convertAcceptedQuote(request, env, quoteId) {
     ["event_id","item","done","phase","template_id"],
     checklistRows
   );
-  await env.DB.prepare(
-    "UPDATE lead_quotes SET status='Accepted',updated_at=datetime('now') WHERE id=?"
-  ).bind(quoteId).run();
+  await env.DB.batch([
+    env.DB.prepare(`UPDATE bookings SET booked_value=?,finalized_quote_total=?,quote_snapshot_json=?,confirmed_at=COALESCE(confirmed_at,datetime('now')),updated_at=datetime('now') WHERE id=?`)
+      .bind(total,total,JSON.stringify(bookingSnapshot),booking.id),
+    env.DB.prepare(`UPDATE lead_quotes SET status='Accepted',updated_at=datetime('now') WHERE id=?`).bind(quoteId)
+  ]);
   await rebuildEventOperations(env,eventId);
   await env.DB.prepare(
     "UPDATE leads SET stage='Won',updated_at=datetime('now') WHERE id=?"
@@ -295,6 +307,8 @@ export async function convertAcceptedQuote(request, env, quoteId) {
 
   return json({
     ok:true,
+    booking_id:booking.id,
+    booking_number:booking.booking_number,
     event_id:eventId,
     event_number:eventNumber,
     account_id:accountId,
