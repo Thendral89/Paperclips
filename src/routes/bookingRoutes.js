@@ -1,4 +1,5 @@
 import { json, badRequest, notFound } from "../lib/util.js";
+import { rebuildEventOperations } from "./adminRoutes.js";
 
 function parseQty(label) {
   const s=String(label||"");
@@ -167,13 +168,15 @@ export async function convertAcceptedQuote(request, env, quoteId) {
 
   const eventNumber=await nextNumber(env,"event");
   const er=await env.DB.prepare(`INSERT INTO events(
-      account_id,quote_id,event_number,type,event_date,status,quote_total,finalized_quote_total,
+      account_id,quote_id,event_number,type,event_date,start_date,end_date,status,quote_total,finalized_quote_total,
       quote_snapshot_json,commercial_finalized_at
-    ) VALUES(?,?,?,?,?,?,?,?,?,datetime('now'))`).bind(
+     ) VALUES(?,?,?,?,?,?,?,?,?,?,?,datetime('now'))`).bind(
       accountId,
       quoteId,
       eventNumber||null,
       q.event_type||"Wedding",
+      q.event_date||null,
+      q.event_date||null,
       q.event_date||null,
       "Planning",
       total,
@@ -282,6 +285,7 @@ export async function convertAcceptedQuote(request, env, quoteId) {
   await env.DB.prepare(
     "UPDATE lead_quotes SET status='Accepted',updated_at=datetime('now') WHERE id=?"
   ).bind(quoteId).run();
+  await rebuildEventOperations(env,eventId);
   await env.DB.prepare(
     "UPDATE leads SET stage='Won',updated_at=datetime('now') WHERE id=?"
   ).bind(q.lead_id).run();

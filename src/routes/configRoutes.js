@@ -178,7 +178,9 @@ export async function listResources(request, env) {
     SELECT r.id,r.name,r.resource_type,r.phone,r.email,r.notes,r.active,
       COALESCE(GROUP_CONCAT(DISTINCT s.label),'') AS skills,
       COALESCE(GROUP_CONCAT(DISTINCT rs.skill_id),'') AS skill_ids,
-      COALESCE(GROUP_CONCAT(DISTINCT rp.phase),'') AS phases
+      COALESCE(GROUP_CONCAT(DISTINCT rp.phase),'') AS phases,
+      COALESCE((SELECT GROUP_CONCAT(CAST(rsc.skill_id AS TEXT)||':'||CAST(rsc.cost AS TEXT))
+                FROM resource_skill_costs rsc WHERE rsc.resource_id=r.id),'') AS skill_costs
     FROM resources r
     LEFT JOIN resource_skills rs ON rs.resource_id=r.id
     LEFT JOIN skills s ON s.id=rs.skill_id AND s.active=1
@@ -234,6 +236,19 @@ export async function saveResource(request, env) {
   for (const phase of phases) {
     await env.DB.prepare(`INSERT OR IGNORE INTO resource_phase_assignments(resource_id,phase) VALUES(?,?)`).bind(id,phase).run();
   }
+
+  const costEntries=Array.isArray(body.skill_costs)?body.skill_costs:[];
+  for(const entry of costEntries){
+    const skillId=Number(entry?.skill_id), cost=Number(entry?.cost);
+    if(!Number.isInteger(skillId)||skillId<=0||!Number.isFinite(cost)||cost<0) continue;
+    if(!skillIds.includes(skillId)) continue;
+    await env.DB.prepare(`
+      INSERT INTO resource_skill_costs(resource_id,skill_id,cost,updated_at)
+      VALUES(?,?,?,datetime('now'))
+      ON CONFLICT(resource_id,skill_id) DO UPDATE SET cost=excluded.cost,updated_at=datetime('now')
+    `).bind(id,skillId,cost).run();
+  }
+  await env.DB.prepare(`DELETE FROM resource_skill_costs WHERE resource_id=? AND skill_id NOT IN (SELECT skill_id FROM resource_skills WHERE resource_id=?)`).bind(id,id).run();
   return json({ ok:true,id });
 }
 
@@ -264,47 +279,60 @@ export async function listEventResources(request, env, eventId) {
 
 export async function saveEventResource(request, env, eventId) {
   const body = await request.json().catch(() => null);
-  if (!body?.resource_id || !PHASES.includes(body.phase)) return badRequest("resource_id and valid phase are required");
+  if (!body?.resource_id || !['Production','Post-Production'].includes(body.phase)) return badRequest("resource_id and valid operational phase are required");
 
   const resource=await env.DB.prepare("SELECT id,name,resource_type,active FROM resources WHERE id=?").bind(Number(body.resource_id)).first();
   if(!resource) return notFound("resource not found");
   if(!resource.active) return badRequest("resource is inactive");
 
   const skillId=body.skill_id ? Number(body.skill_id) : null;
+  let skill=null;
   if(skillId){
-    const match=await env.DB.prepare(
-      "SELECT 1 FROM resource_skills rs JOIN skills s ON s.id=rs.skill_id WHERE rs.resource_id=? AND rs.skill_id=? AND s.active=1"
+    skill=await env.DB.prepare(
+      "SELECT s.* FROM resource_skills rs JOIN skills s ON s.id=rs.skill_id WHERE rs.resource_id=? AND rs.skill_id=? AND s.active=1"
     ).bind(resource.id,skillId).first();
-    if(!match) return badRequest("selected skill is not assigned to this resource");
+    if(!skill) return badRequest("selected skill is not assigned to this resource");
+    if(skill.workflow_phase!==body.phase) return badRequest("selected skill is configured for a different workflow phase");
   }
 
-  const event=await env.DB.prepare("SELECT event_date,start_time,end_time FROM events WHERE id=?").bind(eventId).first();
+  const event=await env.DB.prepare("SELECT id,start_date,end_date,event_date,start_time,end_time FROM events WHERE id=?").bind(eventId).first();
   if(!event) return notFound("event not found");
 
-  const phaseAssignment=await env.DB.prepare(
+  const existingId=body.id?Number(body.id):null;
+  const existing=existingId?await env.DB.prepare("SELECT * FROM event_resource_allocations WHERE id=? AND event_id=?").bind(existingId,eventId).first():null;
+  if(existingId&&!existing) return notFound("allocation not found");
+
+  const resourcePhase=await env.DB.prepare(
     "SELECT COUNT(*) AS n FROM resource_phase_assignments WHERE resource_id=?"
   ).bind(resource.id).first();
-  if(Number(phaseAssignment?.n||0)>0){
+  if(Number(resourcePhase?.n||0)>0){
     const phaseOk=await env.DB.prepare(
       "SELECT 1 FROM resource_phase_assignments WHERE resource_id=? AND phase=?"
     ).bind(resource.id,body.phase).first();
     if(!phaseOk) return badRequest("resource is not configured for this workflow phase");
   }
 
-  const existingId=body.id?Number(body.id):null;
-  const existingAllocation=existingId?await env.DB.prepare(
-    "SELECT original_estimate,start_at,end_at,allocation_date,start_time,end_time FROM event_resource_allocations WHERE id=? AND event_id=?"
-  ).bind(existingId,eventId).first():null;
+  const baseDate=event.start_date||event.event_date||null;
+  const offsetDate=(date,days)=>{
+    if(!date) return null;
+    const d=new Date(date+"T00:00:00Z"); d.setUTCDate(d.getUTCDate()+Number(days||0));
+    return d.toISOString().slice(0,10);
+  };
+  const generatedStart=skill ? offsetDate(baseDate,skill.start_offset_days) : null;
+  const generatedDue=skill ? offsetDate(baseDate,skill.due_offset_days) : null;
 
-  const allocationDate=body.allocation_date || existingAllocation?.allocation_date || event.event_date || null;
-  const startAt=body.start_at || (allocationDate && body.start_time ? `${allocationDate}T${body.start_time}` : existingAllocation?.start_at || (event.event_date && event.start_time ? `${event.event_date}T${event.start_time}` : null));
-  const endAt=body.end_at || (allocationDate && body.end_time ? `${allocationDate}T${body.end_time}` : existingAllocation?.end_at || (event.event_date && event.end_time ? `${event.event_date}T${event.end_time}` : null));
-  if(startAt && endAt && startAt>=endAt) return badRequest("end date/time must be after start date/time");
-
-  const startDate=startAt ? String(startAt).slice(0,10) : allocationDate;
-  const endDate=endAt ? String(endAt).slice(0,10) : startDate;
-  const startTime=startAt ? String(startAt).slice(11,16) : null;
-  const endTime=endAt ? String(endAt).slice(11,16) : null;
+  const manualStart=body.start_at!==undefined && body.start_at!==null && body.start_at!=="";
+  const manualDue=body.end_at!==undefined && body.end_at!==null && body.end_at!=="";
+  const startDate=manualStart ? String(body.start_at).slice(0,10) : (existing?.start_at?.slice(0,10)||generatedStart||event.start_date||event.event_date||null);
+  const dueDate=manualDue ? String(body.end_at).slice(0,10) : (existing?.end_at?.slice(0,10)||generatedDue||startDate);
+  const startSource=manualStart ? 'manual' : (existing?.start_source || (skill?'skill-rule':'manual'));
+  const dueSource=manualDue ? 'manual' : (existing?.due_source || (skill?'skill-rule':'manual'));
+  const generatedFromSkill=existing ? Number(existing.generated_from_skill||0)===1 || !!skill : !!skill;
+  const startTime=manualStart ? String(body.start_at).slice(11,16) : (existing?.start_at?.slice(11,16)||event.start_time||"09:00");
+  const dueTime=manualDue ? String(body.end_at).slice(11,16) : (existing?.end_at?.slice(11,16)||event.end_time||"18:00");
+  const startAt=startDate ? startDate+"T"+startTime : null;
+  const endAt=dueDate ? dueDate+"T"+dueTime : null;
+  if(startAt&&endAt&&startAt>=endAt) return badRequest("due date/time must be after start date/time");
 
   const conflictRule=await env.DB.prepare(
     "SELECT value_json FROM crm_business_rules WHERE rule_key='resource.block_conflict' AND active=1 ORDER BY id DESC LIMIT 1"
@@ -312,48 +340,85 @@ export async function saveEventResource(request, env, eventId) {
   const conflictEnabled=conflictRule ? parseRuleValue(conflictRule.value_json).enabled!==false : true;
   if(conflictEnabled && startAt && endAt){
     const conflict=await env.DB.prepare(`
-      SELECT era.id,r.name
-      FROM event_resource_allocations era
+      SELECT era.id,r.name FROM event_resource_allocations era
       JOIN resources r ON r.id=era.resource_id
       WHERE era.resource_id=? AND era.event_id<>?
         AND COALESCE(era.status,'Planned')<>'Cancelled'
-        AND COALESCE(era.start_at, CASE WHEN era.allocation_date IS NOT NULL AND era.start_time IS NOT NULL THEN era.allocation_date || 'T' || era.start_time END) < ?
-        AND COALESCE(era.end_at, CASE WHEN era.allocation_date IS NOT NULL AND era.end_time IS NOT NULL THEN era.allocation_date || 'T' || era.end_time END) > ?
+        AND COALESCE(era.start_at,CASE WHEN era.allocation_date IS NOT NULL AND era.start_time IS NOT NULL THEN era.allocation_date||'T'||era.start_time END) < ?
+        AND COALESCE(era.end_at,CASE WHEN era.allocation_date IS NOT NULL AND era.end_time IS NOT NULL THEN era.allocation_date||'T'||era.end_time END) > ?
       LIMIT 1
     `).bind(resource.id,eventId,endAt,startAt).first();
     if(conflict) return badRequest(`resource conflict: ${conflict.name} is already allocated during that time`);
   }
 
   const resourceType=String(resource.resource_type||"Internal").toLowerCase();
-  const isExternal=resourceType.includes("external") || resourceType.includes("vendor") || resourceType.includes("equipment");
-  const original=Number(body.original_estimate ?? existingAllocation?.original_estimate ?? body.cost ?? 0);
-  const revised=isExternal && body.revised_estimate!=="" && body.revised_estimate!=null ? Number(body.revised_estimate) : null;
-  const actual=Number(body.actual_paid||0);
-  if(!Number.isFinite(original)||original<0|| (revised!=null && (!Number.isFinite(revised)||revised<0)) || !Number.isFinite(actual)||actual<0) return badRequest("resource costs must be valid non-negative numbers");
+  const isExternal=resourceType.includes("external");
+  const costOverride=skillId?await env.DB.prepare("SELECT cost FROM resource_skill_costs WHERE resource_id=? AND skill_id=?").bind(resource.id,skillId).first():null;
+  const resolvedCost=body.cost!==undefined && body.cost!=="" ? Number(body.cost) : Number(costOverride?.cost ?? skill?.default_cost ?? existing?.cost ?? 0);
+  if(!Number.isFinite(resolvedCost)||resolvedCost<0) return badRequest("resource cost must be a valid non-negative number");
 
+  const original=Number(existing?.original_estimate ?? resolvedCost);
+  const revised=isExternal && body.revised_estimate!=="" && body.revised_estimate!=null ? Number(body.revised_estimate) : (existing?.revised_estimate??null);
+  const actual=Number(body.actual_paid ?? existing?.actual_paid ?? 0);
+  if(!Number.isFinite(original)||original<0||(revised!=null&&(!Number.isFinite(revised)||revised<0))||!Number.isFinite(actual)||actual<0) return badRequest("resource costs must be valid non-negative numbers");
+
+  const notes=body.notes!==undefined?String(body.notes||""):String(existing?.notes||"");
+  const now=new Date().toISOString();
   if(existingId){
-    const existing=await env.DB.prepare("SELECT * FROM event_resource_allocations WHERE id=? AND event_id=?").bind(existingId,eventId).first();
-    if(!existing) return notFound("allocation not found");
     await env.DB.prepare(`
-      UPDATE event_resource_allocations
-      SET resource_id=?,phase=?,role_label=?,skill_id=?,cost=?,status=?,notes=?,
-          allocation_date=?,start_time=?,end_time=?,start_at=?,end_at=?,original_estimate=?,revised_estimate=?,actual_paid=?,payment_date=?,cost_notes=?
+      UPDATE event_resource_allocations SET resource_id=?,phase=?,role_label=?,skill_id=?,cost=?,status=?,notes=?,
+      allocation_date=?,start_time=?,end_time=?,start_at=?,end_at=?,original_estimate=?,revised_estimate=?,actual_paid=?,payment_date=?,cost_notes=?,
+      start_source=?,due_source=?,generated_from_skill=?,updated_at=datetime('now')
       WHERE id=? AND event_id=?
-    `).bind(resource.id,body.phase,null,skillId,revised??original,body.status||"Planned",body.notes||null,
-      startDate,startTime,endTime,startAt,endAt,original,revised,actual,body.payment_date||null,body.cost_notes||null,existingId,eventId).run();
+    `).bind(resource.id,body.phase,null,skillId,resolvedCost,body.status||existing.status||"Planned",notes,
+      startDate,startTime,dueTime,startAt,endAt,original,revised,actual,body.payment_date||existing.payment_date||null,body.cost_notes||existing.cost_notes||null,
+      startSource,dueSource,generatedFromSkill?1:0,existingId,eventId).run();
+
+    const changes=[
+      ['resource_id',existing.resource_id,resource.id,null],
+      ['skill_id',existing.skill_id||null,skillId,null],
+      ['phase',existing.phase,body.phase,null],
+      ['start_at',existing.start_at,startAt,manualStart?'Start date manually changed':''],
+      ['end_at',existing.end_at,endAt,manualDue?'Due date manually changed':''],
+      ['cost',existing.cost,resolvedCost,null],
+      ['status',existing.status,body.status||existing.status||'Planned',null],
+      ['notes',existing.notes||'',notes,null]
+    ];
+    for(const [field,oldValue,newValue,autoReason] of changes){
+      if(String(oldValue??'')===String(newValue??'')) continue;
+      const reason=String(body.change_reason||'').trim() || autoReason || null;
+      await env.DB.prepare(`
+        INSERT INTO event_resource_allocation_history(allocation_id,event_id,action,field_name,old_value,new_value,reason,note,changed_by)
+        VALUES(?,?,?,?,?,?,?,?,?)
+      `).bind(existingId,eventId,'updated',field,String(oldValue??''),String(newValue??''),reason,notes||null,body.changed_by||'admin').run();
+    }
   } else {
-    await env.DB.prepare(`
+    const result=await env.DB.prepare(`
       INSERT INTO event_resource_allocations(
         event_id,resource_id,phase,role_label,skill_id,cost,status,notes,
-        allocation_date,start_time,end_time,start_at,end_at,original_estimate,revised_estimate,actual_paid,payment_date,cost_notes
-      ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-    `).bind(eventId,resource.id,body.phase,null,skillId,revised??original,body.status||"Planned",body.notes||null,
-      startDate,startTime,endTime,startAt,endAt,original,revised,actual,body.payment_date||null,body.cost_notes||null).run();
+        allocation_date,start_time,end_time,start_at,end_at,original_estimate,revised_estimate,actual_paid,payment_date,cost_notes,
+        start_source,due_source,generated_from_skill,updated_at
+      ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,datetime('now'))
+    `).bind(eventId,resource.id,body.phase,null,skillId,resolvedCost,body.status||"Planned",notes,
+      startDate,startTime,dueTime,startAt,endAt,resolvedCost,revised,actual,body.payment_date||null,body.cost_notes||null,
+      startSource,dueSource,generatedFromSkill?1:0).run();
+    const allocationId=result.meta.last_row_id;
+    await env.DB.prepare(`
+      INSERT INTO event_resource_allocation_history(allocation_id,event_id,action,field_name,new_value,reason,note,changed_by)
+      VALUES(?,?,?,?,?,?,?,?)
+    `).bind(allocationId,eventId,'created','allocation',`${resource.name} / ${skill?.label||'Unspecified skill'}`,String(body.change_reason||'')||'Initial allocation',notes||null,body.changed_by||'admin').run();
   }
   return json({ok:true});
 }
 
+
 export async function deleteEventResource(request, env, allocationId) {
+  const current=await env.DB.prepare(`SELECT * FROM event_resource_allocations WHERE id=?`).bind(allocationId).first();
+  if(!current) return notFound("allocation not found");
+  await env.DB.prepare(`
+    INSERT INTO event_resource_allocation_history(allocation_id,event_id,action,field_name,old_value,reason,changed_by)
+    VALUES(?,?,?,?,?,?,?)
+  `).bind(allocationId,current.event_id,'deleted','allocation',`resource_id=${current.resource_id}; skill_id=${current.skill_id||''}`, 'Allocation removed', request.headers.get('x-staff-email')||'admin').run();
   await env.DB.prepare(`DELETE FROM event_resource_allocations WHERE id=?`).bind(allocationId).run();
   return json({ok:true});
 }
