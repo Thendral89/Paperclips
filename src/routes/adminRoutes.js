@@ -508,6 +508,7 @@ export async function createQuote(request, env, id) {
   const result = await env.DB.prepare(`INSERT INTO lead_quotes (lead_id, token) VALUES (?, ?)`).bind(id, token).run();
   const quoteId=result.meta.last_row_id;
   for(let i=0;i<packageIds.length;i++) await createQuotePackageOptionRecord(env,quoteId,packageIds[i],i,i===0?1:0);
+  await env.DB.prepare(`UPDATE leads SET stage=CASE WHEN stage IN ('New','Qualified') THEN 'Quote' ELSE stage END,updated_at=datetime('now') WHERE id=?`).bind(id).run();
   return json({ ok: true, id: quoteId, token }, { status: 201 });
 }
 
