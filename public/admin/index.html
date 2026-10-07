@@ -654,8 +654,8 @@ async function renderLeads() {
       ${[["","All"],["New","New"],["Qualified","Qualified"],["Quote","Quote"],["Negotiation","Negotiation"],["Won","Booked / Won"],["Long Pending","Long Pending"],["Lost","Lost"],["Cancelled","Cancelled"]].map(([v,l])=>`<button type="button" class="seg ${String(f?.stage||"")===v&&!f?.q?"active":""}" data-lead-stage="${v}">${l}</button>`).join("")}
     </div>
     <div class="card"><h2>${f ? escapeHtml(f.label||"Filtered leads") : "All leads"} (${leads.length})</h2>
-      <table><thead><tr><th>Name</th><th>Source</th><th>Stage</th><th>Follow-up</th><th>Budget</th><th></th></tr></thead>
-      <tbody>${leads.map(l => `<tr class="clickable" data-lead="${l.id}"><td>${l.name}</td><td><span class="pill">${l.source}</span></td><td>${l.stage}</td><td>${followUpCell(l)}</td><td>${money(l.budget_est)}</td><td class="row-actions"><button type="button" class="icon-btn edit" data-edit-lead="${l.id}" title="Edit">✎</button><button type="button" class="icon-btn del" data-del-lead="${l.id}" title="Delete">✕</button></td></tr>`).join("") || `<tr><td colspan="6" class="empty">No leads match this filter.</td></tr>`}</tbody></table>
+      <table><thead><tr><th>Name</th><th>Event Type</th><th>Event Date</th><th>Venue</th><th>Stage</th><th>Follow-up</th><th>Budget</th><th></th></tr></thead>
+      <tbody>${leads.map(l => `<tr class="clickable" data-lead="${l.id}"><td>${l.name}</td><td>${l.event_type || "—"}</td><td>${l.event_date || "TBD"}</td><td>${l.venue || "—"}</td><td>${l.stage}</td><td>${followUpCell(l)}</td><td>${money(l.budget_est)}</td><td class="row-actions"><button type="button" class="icon-btn edit" data-edit-lead="${l.id}" title="Edit">✎</button><button type="button" class="icon-btn del" data-del-lead="${l.id}" title="Delete">✕</button></td></tr>`).join("") || `<tr><td colspan="8" class="empty">No leads match this filter.</td></tr>`}</tbody></table>
     </div>
   `;
   wireCsvImport("/leads/import", "name*, phone*, email, source, event_type, event_date, budget_est, referred_by, message", () => renderLeads());
@@ -689,7 +689,7 @@ async function renderLeads() {
         </div>
         <div class="row2">
           <div class="field"><label>Event type</label><input name="event_type" value="${l.event_type || ""}"></div>
-          <div class="field"><label>Event date</label><input name="event_date" type="date" value="${l.event_date || ""}"></div>
+          <div class="field"><label>Event date</label><input name="event_date" type="date" value="${l.event_date || ""}"></div><div class="field"><label>Venue</label><input name="venue" value="${l.venue || ""}"></div>
         </div>
         <button type="submit" style="width:100%;">Save</button>
       </form>
@@ -715,15 +715,16 @@ async function renderLeads() {
 
 const LEAD_STAGES = [
   ["New", "New"], ["Qualified", "Qualified"], ["Quote", "Quote"], ["Negotiation", "Negotiation"],
-  ["Won", "Won"], ["Long Pending", "Long Pending"], ["Lost", "Lost"], ["Cancelled", "Cancelled"],
+  ["Won", "Closed Won"],
 ];
+const LEAD_OUTCOMES = ["Long Pending","Lost","Cancelled"];
 const ACTIVITY_TYPES = ["Call", "WhatsApp", "Email", "Meeting", "Site visit", "Note", "Other"];
 const ACTIVITY_ICON = { Call: "📞", WhatsApp: "💬", Email: "✉️", Meeting: "🤝", "Site visit": "📍", "Quote sent": "📄", "Quote viewed": "👀", "Stage change": "↪", Note: "📝", Other: "•" };
 
 async function openConvertModal(id, lead) {
   const p = await api(`/leads/${id}/convert-preview`);
   if (p.already_converted) { go("accountDetail", p.account_id); return; }
-  openModal("Create account — review before converting", `
+  openModal("Create client — review before converting", `
     <p class="empty" style="margin-top:-6px;">This lead is Closed Won. Confirm the details below to create the client record — catches the case where this is actually a repeat/referral for someone already in Accounts.</p>
     <form>
       <div class="field"><label>Name</label><input name="name" value="${p.name}" required></div>
@@ -733,11 +734,11 @@ async function openConvertModal(id, lead) {
       </div>
       <div class="field"><label>Address</label><input name="address" placeholder="Optional"></div>
       <div class="field"><label>Notes carried to account</label><textarea name="notes" rows="2">${p.notes || ""}</textarea></div>
-      <button type="submit" style="width:100%;">Create account</button>
+      <button type="submit" style="width:100%;">Create client</button>
     </form>
   `, async data => {
     const r = await api(`/leads/${id}/convert`, { method: "POST", body: JSON.stringify(data) });
-    toast("Account created");
+    toast("Client created");
     go("accountDetail", r.account_id);
   });
 }
@@ -756,7 +757,7 @@ async function renderLeadDetail(id) {
           <tr><td>Phone</td><td>${l.phone} ${waButton(l.phone, `Hi ${l.name}, this is Paperclip Studios following up on your ${l.event_type || "event"} enquiry — would love to help you plan it!`)}</td></tr>
           <tr><td>Email</td><td>${l.email || "—"}</td></tr>
           <tr><td>Source</td><td>${l.source}</td></tr>
-          <tr><td>Event</td><td>${l.event_type || "—"} · ${l.event_date || "TBD"}</td></tr>
+          <tr><td>Event type</td><td>${l.event_type || "—"}</td></tr><tr><td>Event date</td><td>${l.event_date || "TBD"}</td></tr><tr><td>Venue</td><td>${l.venue || "—"}</td></tr>
           <tr><td>Budget</td><td>${money(l.budget_est)}</td></tr>
           ${l.possible_duplicate_of ? `<tr><td>⚠ Possible duplicate of</td><td>lead #${l.possible_duplicate_of}</td></tr>` : ""}
           ${["Lost","Cancelled"].includes(l.stage) && l.lost_reason ? `<tr><td>${l.stage} reason</td><td>${l.lost_reason}</td></tr>` : ""}
@@ -781,10 +782,10 @@ async function renderLeadDetail(id) {
             ${LEAD_STAGES.map(([v,label]) => `<option value="${v}" ${v===l.stage?"selected":""}>${label}</option>`).join("")}
           </select>
         </div>
-        <div class="field"><label>Next follow-up</label><input id="fuDate" type="date" value="${l.next_follow_up_date || ""}"></div>
+        <div class="field"><label>Lead outcome</label><select id="outcomeSel"><option value="">No outcome</option>${LEAD_OUTCOMES.map(v=>`<option value="${v}" ${v===l.stage?"selected":""}>${v}</option>`).join("")}</select></div><div class="field"><label>Next follow-up</label><input id="fuDate" type="date" value="${l.next_follow_up_date || ""}"></div>
         ${l.account_id
-          ? `<a class="btn" style="text-decoration:none;display:inline-block" data-acct="${l.account_id}">View account →</a>`
-          : `<button id="convertBtn">Create account</button> <button type="button" class="ghost" id="deleteLeadBtn">Delete lead</button>`}
+          ? `<a class="btn" style="text-decoration:none;display:inline-block" data-acct="${l.account_id}">View client →</a>`
+          : `<button id="convertBtn">Create client</button> <button type="button" class="ghost" id="deleteLeadBtn">Delete lead</button>`}
       </div>
       <div class="card">
         <h2>Quotes ${engaged ? '<span class="pill" style="background:var(--critical-soft);color:var(--critical)">high interest</span>' : ""} <button class="icon-btn" id="newQuoteBtn">+ New quote</button></h2>
@@ -794,6 +795,7 @@ async function renderLeadDetail(id) {
           </div>`).join("") || '<div class="empty">No quote sent yet — use + New quote once this lead reaches Quoted.</div>'}
       </div>
     </div>
+    <div class="card"><h2>Contacts <button class="icon-btn" id="addLeadContactBtn">+ Add contact</button></h2><div id="leadContactsList">${(l.contacts||[]).map(function(c){return "<div class=\"list-row\"><span><b>"+escapeHtml(c.name)+"</b> "+(c.is_primary?"<span class=\"pill\">Primary</span>":"")+(c.role?" <span class=\"pill\">"+escapeHtml(c.role)+"</span>":"")+"<br><span class=\"meta\">"+escapeHtml([c.phone,c.email].filter(Boolean).join(" · ")||"No contact details")+"</span></span><button class=\"icon-btn del\" data-del-lead-contact=\""+c.id+"\">✕</button></div>";}).join("") || "<div class=\"empty\">No additional contacts yet.</div>"}</div></div>
     <div class="card">
       <h2>Activity <button class="icon-btn" id="logActivityBtn">+ Log activity</button></h2>
       ${l.activities.map(a => `<div style="display:flex;gap:9px;padding:7px 0;border-bottom:1px dashed var(--line);font-size:12.5px;">
@@ -825,14 +827,17 @@ async function renderLeadDetail(id) {
     }
     await api(`/leads/${id}/stage`, { method: "POST", body: JSON.stringify({ stage, lost_reason }) });
     toast("Stage updated");
-    if (stage === "Won" && !l.account_id) { await openConvertModal(id, l); return; }
+    if (stage === "Won") { if (!l.account_id) { await openConvertModal(id, l); return; } const conversion=await api(`/leads/${id}/convert`,{method:"POST",body:"{}"}); toast(conversion.event_id?"Client and Event created":"Lead converted"); if(conversion.event_id){go("eventDetail",conversion.event_id);return;} }
     renderLeadDetail(id);
   });
+  main.querySelector("#outcomeSel").addEventListener("change", async e => { const stage=e.target.value; if(!stage) return; const lost_reason=prompt(`Reason for ${stage}? (e.g. Budget, Date conflict, Chose competitor, Went silent)`); if(!lost_reason){ renderLeadDetail(id); return; } await api(`/leads/${id}/stage`, { method:"POST", body:JSON.stringify({stage,lost_reason}) }); renderLeadDetail(id); });
   main.querySelector("#fuDate").addEventListener("change", async e => { await api(`/leads/${id}/followup`, { method: "POST", body: JSON.stringify({ date: e.target.value }) }); toast("Follow-up date saved"); });
   const convertBtn = main.querySelector("#convertBtn");
   if (convertBtn) convertBtn.addEventListener("click", () => openConvertModal(id, l));
   const deleteLeadBtn = main.querySelector("#deleteLeadBtn");
   if (deleteLeadBtn) deleteLeadBtn.addEventListener("click", () => confirmDelete("Delete this lead? This can't be undone.", `/leads/${id}/delete`, () => go("leads")));
+  main.querySelector("#addLeadContactBtn").addEventListener("click", () => openModal("Add lead contact", '<form><div class="row2"><div class="field"><label>Name</label><input name="name" required></div><div class="field"><label>Role</label><input name="role"></div></div><div class="row2"><div class="field"><label>Phone</label><input name="phone"></div><div class="field"><label>Email</label><input name="email"></div></div><label><input name="is_primary" type="checkbox"> Primary contact</label><button type="submit">Save contact</button></form>', async data => { data.is_primary=!!data.is_primary; await api("/leads/"+id+"/contacts",{method:"POST",body:JSON.stringify(data)}); renderLeadDetail(id); }));
+  main.querySelectorAll("[data-del-lead-contact]").forEach(el=>el.addEventListener("click",async()=>{if(!confirm("Delete this contact?"))return;await api("/lead-contacts/"+el.dataset.delLeadContact+"/delete",{method:"POST"});renderLeadDetail(id);}));
   main.querySelector("#logActivityBtn").addEventListener("click", () => openModal("Log activity", `
     <form>
       <div class="field"><label>Type</label><select name="activity_type">${ACTIVITY_TYPES.map(t => `<option>${t}</option>`).join("")}</select></div>
@@ -869,7 +874,7 @@ async function renderQuoteDetail(id) {
   const packageOptions = q.options || [];
   main.innerHTML = `
     <span class="back" data-lead-back="${q.lead_id}">← ${q.lead_name || "Lead"}</span>
-    <h1>Quote ${statusPill(q.status)} <button type="button" class="icon-btn del" id="deleteQuoteBtn" title="Delete quote">✕ Delete</button>${["Accepted","Won"].includes(q.status) ? ' <button type="button" class="icon-btn" id="convertQuoteBtn">Convert to Client + Event</button>' : ""}</h1>
+    <h1>Quote ${statusPill(q.status)} <span class="meta">v${q.version||1}</span>${["Draft","Sent","Viewed","Negotiation"].includes(q.status) ? ' <button type="button" class="icon-btn" id="finalizeQuoteBtn">Finalize Quote</button>' : ""}${["Finalized","Accepted","Won"].includes(q.status) ? ' <button type="button" class="icon-btn" id="reviseQuoteBtn">Revise Quote</button>' : ""}"" <button type="button" class="icon-btn del" id="deleteQuoteBtn" title="Delete quote">✕ Delete</button></h1>
     <div class="kpis">
       <div class="kpi"><div class="l">Subtotal</div><div class="v">${money(q.subtotal)}</div></div>
       <div class="kpi"><div class="l">Concession</div><div class="v" style="color:var(--success)">${q.concession_amount ? "−" + money(q.concession_amount) : "—"}</div></div>
@@ -921,12 +926,8 @@ async function renderQuoteDetail(id) {
     </div>
   `;
   main.querySelector("[data-lead-back]").addEventListener("click", () => go("leadDetail", q.lead_id));
-  main.querySelector("#convertQuoteBtn")?.addEventListener("click", async () => {
-    if(!confirm("Convert this accepted quote into a booking and operational event?")) return;
-    const r=await api(`/quotes/${id}/convert`,{method:"POST",body:"{}"});
-    toast(r.already_exists?"Booking already exists":"Booking and Event created");
-    if(r.event_id) go("eventDetail",r.event_id); else renderQuoteDetail(id);
-  });
+  main.querySelector("#finalizeQuoteBtn")?.addEventListener("click", async () => { if(!confirm("Finalize this quote? It will become immutable. Future changes must use Revise Quote.")) return; await api(`/quotes/${id}/finalize`,{method:"POST",body:"{}"}); toast("Quote finalized"); renderQuoteDetail(id); });
+  main.querySelector("#reviseQuoteBtn")?.addEventListener("click", async () => { if(!confirm("Create a new draft revision from this quote? The current version will remain unchanged.")) return; const r=await api(`/quotes/${id}/revise`,{method:"POST",body:"{}"}); toast("New quote revision created"); go("quoteDetail",r.id); });
   main.querySelector("#deleteQuoteBtn").addEventListener("click", () =>
     confirmDelete("Delete this quote? This can't be undone.", `/quotes/${id}/delete`, () => go("leadDetail", q.lead_id))
   );
@@ -1003,7 +1004,7 @@ async function renderQuoteDetail(id) {
     const d=o.details||{};
     openModal(o.label, `<div class="package-detail-modal"><div><b>${escapeHtml(d.sessions_text||"")}</b></div><h4>Crew</h4><ul>${(d.crew||[]).map(x=>`<li>${escapeHtml(x)}</li>`).join("")}</ul><h4>Deliverables</h4><ul>${(d.deliverables||[]).map(x=>`<li>${escapeHtml(x)}</li>`).join("")}</ul>${(d.complimentary||[]).length?`<h4>Complimentary</h4><ul>${d.complimentary.map(x=>`<li>${escapeHtml(x)}</li>`).join("")}</ul>`:""}</div>`,()=>{});
   }));
-  if (q.status === "Draft") {
+  if (q.status === "Draft" || q.status === "Sent" || q.status === "Viewed" || q.status === "Negotiation") {
     main.querySelector("h1").insertAdjacentHTML("beforeend", ` <button type="button" class="icon-btn" id="sendQuoteBtn">Send quote</button>`);
     main.querySelector("#sendQuoteBtn").addEventListener("click", async () => {
       const r = await api(`/quotes/${id}/send`, { method: "POST", body: "{}" });
@@ -1051,7 +1052,7 @@ async function renderAccounts() {
     </div>
     ${balanceOnly ? `<div class="crit-banner">Showing ${accts.length} client(s) with money still owed — cleared automatically once a payment covers the balance.</div>` : ""}
     <div class="card">
-    <table><thead><tr><th>Name</th><th>Phone</th><th>Bookings</th><th>Lifetime value</th><th>Balance due</th><th>Client since</th><th></th></tr></thead>
+    <table><thead><tr><th>Name</th><th>Phone</th><th>Events</th><th>Lifetime value</th><th>Balance due</th><th>Client since</th><th></th></tr></thead>
     <tbody>${accts.map(a => `<tr class="clickable" data-acct="${a.id}"><td>${a.name}${a.is_signature ? ' <span class="pill" style="background:var(--warning-soft);color:var(--warning)">Signature</span>' : ""}${a.event_count >= 2 ? ' <span class="pill" style="background:var(--success-soft);color:var(--success)">Repeat client</span>' : ""}</td><td>${a.phone||"—"}</td><td>${a.event_count}</td><td>${money(a.lifetime_value)}</td><td${a.balance_due > 0 ? ' style="color:var(--critical);font-weight:600;"' : ""}>${a.balance_due > 0 ? money(a.balance_due) : "—"}</td><td>${a.client_since}</td><td class="row-actions"><button type="button" class="icon-btn edit" data-edit-acct="${a.id}" title="Edit">✎</button><button type="button" class="icon-btn del" data-del-acct="${a.id}" title="Delete">✕</button></td></tr>`).join("") || `<tr><td colspan="7" class="empty">${balanceOnly ? "No customers currently owe a balance." : "No customers yet — convert a lead first."}</td></tr>`}</tbody></table>
   </div>`;
   wireCsvImport("/accounts/import", "name*, phone, email, address, notes, is_signature", () => renderAccounts());
@@ -1350,394 +1351,88 @@ async function renderPackages() {
 
 // ── Event detail (pricing, resourcing, cost/profit, payments, ops) ─
 async function renderEventDetail(id) {
-  const [ev, services, packages, vendors] = await Promise.all([
-    api(`/events/${id}`), api("/services"), api("/packages"), api("/vendors"),
-  ]);
-  const bookedIds = new Set(ev.services.map(s => s.service_id));
-  const checklistDone = ev.checklist.filter(c => c.done).length;
-  main.innerHTML = `
-    <span class="back" data-back>← Back</span>
-    <h1>${ev.type} <span class="pill">${money(ev.quote_total)}</span> <button class="icon-btn" id="editEventBtn">✎ Edit</button> <button type="button" class="icon-btn del" id="deleteEventBtn" title="Delete event">✕ Delete</button></h1>
-    <div class="sub" style="margin:-10px 0 16px;font-size:12.5px;color:var(--ink-soft);">Customer: <a data-acct="${ev.account_id}" style="cursor:pointer;color:var(--accent-deep);font-weight:600;">${ev.account_name} →</a></div>
-    <div class="kpis">
-      <div class="kpi"><div class="l">Revenue</div><div class="v">${money(ev.quote_total)}</div></div>
-      <div class="kpi"><div class="l">Real cost</div><div class="v">${money(ev.cost_breakdown.total)}</div></div>
-      <div class="kpi"><div class="l">Profit</div><div class="v" style="color:${ev.profit >= 0 ? 'var(--success)' : 'var(--critical)'}">${money(ev.profit)}</div></div>
-      <div class="kpi"><div class="l">Received</div><div class="v">${money(ev.advance_paid)}</div></div>
-    </div>
-
-    <div class="card"><h2>Event checklist — ${checklistDone}/${ev.checklist.length} ready ${checklistDone < ev.checklist.length ? '<span class="pill" style="background:var(--critical-soft);color:var(--critical)">incomplete</span>' : '<span class="pill" style="background:var(--success-soft);color:var(--success)">all set</span>'}</h2>
-      ${ev.checklist.length ? `<div class="bar"><div class="bar-fill" style="width:${Math.round(checklistDone / ev.checklist.length * 100)}%;background:${checklistDone < ev.checklist.length ? "var(--warning)" : "var(--success)"}"></div></div>` : ""}
-      <div class="checklist-grid">${["Pre-Production","Production","Post-Production"].map(phase => { const items=ev.checklist.filter(c=>c.phase===phase); return `<div class="checklist-phase"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;"><b style="font-size:12px;color:var(--ink-soft);text-transform:uppercase;letter-spacing:.03em;">${phase}</b><button type="button" class="icon-btn" data-add-checklist="${phase}" title="Add item">+ Add</button></div>${items.map(c=>`<div class="check-row ${c.done?"done":""}"><input type="checkbox" data-check="${c.id}" ${c.done?"checked":""}> <span style="flex:1;">${escapeHtml(c.item)}</span><button type="button" class="icon-btn del" data-del-checklist="${c.id}" title="Remove">✕</button></div>`).join("") || '<div class="empty">Nothing here yet.</div>'}</div>`; }).join("")}</div>
-    </div>
-
-    <div class="card"><h2>Line items — what this event is actually billed for</h2>
-      ${ev.services.map(s => `<div class="svc">${s.name} ${s.is_package ? '<span class="pill" style="background:var(--warning-soft);color:var(--warning)">Package</span>' : ""} — ${money(s.price_at_booking)} <button type="button" class="icon-btn del" data-del-lineitem="${s.id}" title="Remove">✕</button></div>`).join("") || '<div class="empty">Nothing added yet — apply a package or add services below.</div>'}
-    </div>
-    <div class="card"><h2>Apply a package</h2>
-      <div style="display:flex;gap:8px;flex-wrap:wrap;">${packages.map(p => `<div class="tier" data-pkg="${p.id}"><b>${p.name}</b><div style="font-size:11px;color:var(--ink-soft)">${money(p.base_price)} · ${p.items.map(i=>i.name).join(", ")}</div></div>`).join("") || '<div class="empty">No packages defined yet.</div>'}</div>
-    </div>
-    <div class="card"><h2>Add-ons</h2>
-      ${services.map(s => `<div class="svc">${s.name} — ${money(s.base_price)} ${bookedIds.has(s.id) ? '<span class="pill">added</span>' : `<button class="ghost" data-svc="${s.id}">+ Add</button>`}</div>`).join("")}
-    </div>
-
-    <div class="row2">
-      <div class="card"><h2>Internal staff (cost against this event) <button class="icon-btn" id="addStaffBtn">+ Add</button></h2>
-        ${ev.staff_links.map(l => `<div class="list-row"><span>${l.staff_name}${l.role ? ` <span class="pill">${l.role}</span>` : ""} <span class="meta">${money(l.cost)}</span></span><span class="row-actions"><button type="button" class="icon-btn edit" data-edit-staff="${l.id}" title="Edit">✎</button><button type="button" class="icon-btn del" data-del-staff="${l.id}" title="Remove">✕</button></span></div>`).join("") || '<div class="empty">No staff assigned yet — use + Add.</div>'}
-        <div id="linkOut"></div>
-      </div>
-    </div>
-
-    <div class="card"><h2>Equipment — the other half of "event ready" besides people <button class="icon-btn" id="addEquipBtn">+ Add</button></h2>
-      ${ev.equipment.map(eq => `<div class="list-row"><span>${eq.equipment_name || eq.custom_label}${eq.category ? ` <span class="pill">${eq.category}</span>` : ""}${eq.needs_rental ? ' <span class="pill" style="background:var(--warning-soft);color:var(--warning)">Needs rental</span>' : ""}</span><span class="row-actions"><button type="button" class="icon-btn ${eq.ready ? "" : "edit"}" data-equip-ready="${eq.id}" title="Toggle ready">${eq.ready ? "✓ Ready" : "Mark ready"}</button><button type="button" class="icon-btn del" data-del-equip="${eq.id}" title="Remove">✕</button></span></div>`).join("") || '<div class="empty">No equipment assigned yet.</div>'}
-    </div>
-
-    <div class="row2">
-      <div class="card"><h2>Payment schedule — ${money(ev.advance_paid)} of ${money(ev.quote_total)} received <button class="icon-btn" id="addSchedBtn">+ Add</button></h2>
-        ${ev.quote_total ? `<div class="bar"><div class="bar-fill" style="width:${Math.min(100, Math.round(ev.advance_paid / ev.quote_total * 100))}%"></div></div>` : ""}
-        ${ev.payment_schedule.map(p => `<div class="list-row"><span>${p.label} — ${money(p.amount)} <span class="meta">${p.due_date||"no due date"}</span></span><span class="row-actions">${statusPill(p.status)}${p.status !== "Paid" ? `<button class="icon-btn" data-sched-paid="${p.id}">Mark paid</button><button type="button" class="icon-btn edit" data-edit-sched="${p.id}" title="Edit">✎</button><button type="button" class="icon-btn del" data-del-sched="${p.id}" title="Remove">✕</button>` : ""}</span></div>`).join("") || '<div class="empty">No installments planned — log ad-hoc payments below instead.</div>'}
-      </div>
-      <div class="card"><h2>Payments received (ledger) <button class="icon-btn" id="addPayBtn">+ Add</button></h2>
-        ${ev.payments.map(p => `<div class="list-row"><span>${money(p.amount)} — ${p.method||"—"} <span class="meta">${p.date}</span></span><button type="button" class="icon-btn del" data-del-pay="${p.id}" title="Delete">✕</button></div>`).join("") || '<div class="empty">No payments yet.</div>'}
-      </div>
-    </div>
-
-    <div class="row2">
-      <div class="card"><h2>Deliverables — album/video production status <button class="icon-btn" id="addDelivBtn">+ Add</button></h2>
-        ${ev.deliverables.map(d => `<div class="list-row"><span>${d.name} <span class="meta">${d.due_date?`due ${d.due_date}`:""}</span></span><span class="row-actions"><select data-deliv-status="${d.id}">${["Not started","In progress","Client review","Delivered"].map(s=>`<option ${s===d.status?"selected":""}>${s}</option>`).join("")}</select><button type="button" class="icon-btn edit" data-edit-deliv="${d.id}" title="Edit">✎</button><button type="button" class="icon-btn del" data-del-deliv="${d.id}" title="Delete">✕</button></span></div>`).join("") || '<div class="empty">No deliverables tracked yet.</div>'}
-      </div>
-      <div class="card"><h2>Staff tasks <button class="icon-btn" id="addTaskBtn">+ Add</button></h2>
-        ${ev.tasks.map(t => `<div class="list-row"><span>${t.task} ${t.staff_name?`<span class="pill">${t.staff_name}</span>`:'<span class="pill">Anyone</span>'} ${statusPill(t.status)}</span><span class="row-actions"><button type="button" class="icon-btn edit" data-edit-task="${t.id}" title="Edit">✎</button><button type="button" class="icon-btn del" data-del-task="${t.id}" title="Delete">✕</button></span></div>`).join("") || '<div class="empty">No tasks assigned — staff also see and update these from their own link.</div>'}
-      </div>
-    </div>
-
-    <div class="row2">
-      <div class="card"><h2>Expenses on this event — ${money(ev.cost_breakdown.expenses)} total <button class="icon-btn" id="addExpenseBtn">+ Add</button></h2>
-        ${ev.expenses.map(x => `<div class="list-row"><span>${x.category} — ${money(x.amount)} <span class="meta">${x.note || ""} · ${(x.submitted_at||"").slice(0,10)}</span></span><span class="row-actions"><button type="button" class="icon-btn edit" data-edit-expense="${x.id}" title="Edit">✎</button><button type="button" class="icon-btn del" data-del-expense="${x.id}" title="Delete">✕</button></span></div>`).join("") || '<div class="empty">No expenses logged on this event yet. Also shown in the Expenses tab alongside every other expense.</div>'}
-      </div>
-      <div class="card"><h2>Feedback <button class="icon-btn" id="getFeedbackLinkBtn">Get feedback link</button></h2>
-        <div id="feedbackLinkOut"></div>
-        ${ev.feedback.map(f => `<div class="list-row"><span>${statusPill(f.sentiment)} ${f.rating ? "★".repeat(f.rating) : ""} <span class="meta">${(f.created_at||"").slice(0,10)}</span>${f.comment ? `<br>${f.comment}` : ""}</span></span>`).join("") || '<div class="empty">No feedback submitted yet.</div>'}
-      </div>
-    </div>
-  `;
-
-  // Approved Event workspace: five operational tabs.
-  // Event identity and commercial KPIs remain above the tabs.
-  const tabNames = [
-    ["checklist", L("event.checklist", "Checklist")],
-    ["timeline", L("event.timeline", "Timeline")],
-    ["services", L("event.services", "Services")],
-    ["resources", L("event.resources", "Resources")],
-    ["finance", L("event.finance", "Finance")],
-    ["activity", L("event.activity", "Activity")]
-  ];
-  const direct=[...main.children], header=direct.filter(el=>el.matches('.back,h1,.sub,.kpis')), content=direct.filter(el=>!header.includes(el));
-  const shell=document.createElement('div');
-  if(!tabNames.some(([k])=>k===activeEventTab)) activeEventTab='checklist';
-  shell.innerHTML=`<div class="event-tabs">${tabNames.map(([k,v])=>`<button type="button" class="event-tab ${k===activeEventTab?'active':''}" data-event-tab="${k}">${v}</button>`).join('')}</div>${tabNames.map(([k])=>`<section class="event-tab-panel ${k===activeEventTab?'active':''}" data-event-panel="${k}"></section>`).join('')}`;
-  main.appendChild(shell);
-  const panels=Object.fromEntries([...shell.querySelectorAll('[data-event-panel]')].map(x=>[x.dataset.eventPanel,x]));
-  const invoiceCard=document.createElement('div'); invoiceCard.className='card'; invoiceCard.id='eventInvoiceCard'; invoiceCard.innerHTML='<h2>Invoice</h2><div class="empty">Loading invoice…</div>'; panels.finance.appendChild(invoiceCard);
-  const invoice=await api(`/events/${id}/invoice`).catch(()=>null);
-  const renderInvoice=inv=>{invoiceCard.innerHTML=inv?`<h2>Invoice <span class="pill">${escapeHtml(inv.invoice_number||"Draft")}</span></h2><div class="list-row"><span>Status</span>${statusPill(inv.status)}</div><div class="list-row"><span>Total</span><b>${money(inv.total_amount)}</b></div><div class="list-row"><span>Version</span><span>${inv.version||1}</span></div><div class="row-actions">${inv.locked_at?'<span class="meta">Locked on Event completion</span>':`<button type="button" class="icon-btn" id="refreshInvoice">Generate / Refresh</button>${inv.status==="Draft"?'<button type="button" class="icon-btn" id="issueInvoice">Issue</button>':""}${inv.status==="Issued"?'<button type="button" class="icon-btn" id="payInvoice">Mark paid</button>':""}`}</div>`: '<h2>Invoice</h2><button type="button" class="btn" id="generateInvoice">Generate invoice</button>';};
-  renderInvoice(invoice);
-  invoiceCard.addEventListener('click',async e=>{if(e.target.id==="generateInvoice"||e.target.id==="refreshInvoice"){await api(`/events/${id}/invoice`,{method:"POST",body:"{}"});toast("Invoice generated");renderEventDetail(id);} if(e.target.id==="issueInvoice"){await api(`/invoices/${invoice.id}/issue`,{method:"POST",body:"{}"});toast("Invoice issued");renderEventDetail(id);} if(e.target.id==="payInvoice"){await api(`/invoices/${invoice.id}/paid`,{method:"POST",body:"{}"});toast("Invoice marked paid");renderEventDetail(id);}});
-
-  const classify=el=>{const t=(el.innerText||'').toLowerCase();
-    if(t.includes('line items')||t.includes('apply a package')||t.startsWith('add-ons')||t.includes('pricing tier')) return 'services';
-    if(t.includes('payment schedule')||t.includes('payments received')||t.includes('invoice')) return 'finance';
-    if(t.includes('expenses on this event')) return 'finance';
-    if(t.includes('deliverables')||t.includes('checklist')) return 'checklist';
-    if(t.includes('staff tasks')) return 'timeline';
-    if(t.includes('internal staff')||t.includes('resource')||t.includes('outside vendors')||t.includes('equipment')) return 'resources';
-    return 'checklist';
-  };
-  content.forEach(el=>panels[classify(el)].appendChild(el));
-  const ppCard=document.createElement('div'); ppCard.className='card';
-  const picklists=await api('/picklists').catch(()=>[]);
-  const ppGroup=(picklists||[]).find(g=>g.group_key==='post_production_timeline');
-  const ppValues=(ppGroup?.values||[]).map(v=>v.value_label);
-  const ppFallback=['Exclusive Pictures — 7–14 days','Client Reference — 7–20 days','Album Selection — 1 month','Album Layout — 4 weeks after album selection','Candid Video — 30–45 working days','Traditional Video — 30–60 working days','Album Printing — 2 weeks after layout confirmation','Hard Drive deliverable — Along with album collection'];
-  ppCard.innerHTML=`<h2>${L('event.post_production','Post-Production Workflow')}</h2><div class="resource-grid">${(ppValues.length?ppValues:ppFallback).map(x=>`<div class="resource-card">${escapeHtml(x)}</div>`).join('')}</div>`;
-  panels.checklist.appendChild(ppCard);
-  shell.querySelectorAll('[data-event-tab]').forEach(btn=>btn.addEventListener('click',()=>{activeEventTab=btn.dataset.eventTab;shell.querySelectorAll('[data-event-tab]').forEach(b=>b.classList.toggle('active',b===btn));shell.querySelectorAll('[data-event-panel]').forEach(x=>x.classList.toggle('active',x.dataset.eventPanel===activeEventTab));}));
-  const rp=document.createElement('div'); rp.className='card'; rp.innerHTML=`<h2>${L('event.resources','Resources')} <button type="button" class="icon-btn" id="addResourceBtn">+ Add</button></h2><div class="resource-phase-grid"><section class="resource-phase-column"><h2>Production</h2><div id="eventResourcesProduction"><div class="empty">Loading…</div></div></section><section class="resource-phase-column"><h2>Post-Production</h2><div id="eventResourcesPostProduction"><div class="empty">Loading…</div></div></section></div>`; panels.resources.prepend(rp);
-  const taskList=Array.isArray(ev.tasks)?ev.tasks:[]; const taskDone=taskList.filter(t=>String(t.status||"").toLowerCase()==="done" || String(t.status||"").toLowerCase()==="completed").length;
-  const taskPending=Math.max(0,taskList.length-taskDone);
-  const eventSummary=document.createElement('div');
-  eventSummary.className='card';
-  eventSummary.innerHTML=`<div style="display:flex;justify-content:space-between;align-items:center;gap:12px;"><h2 style="margin:0">Event details</h2><button type="button" class="icon-btn" id="editEventTopBtn">✎ Edit</button></div>
-    <div class="row2">
-      <div>
-        <div class="list-row"><span>Client</span><b><a data-acct="${ev.account_id}" style="cursor:pointer;color:var(--accent-deep);">${escapeHtml(ev.account_name||"—")} →</a></b></div>
-        <div class="list-row"><span>Event type</span><b>${escapeHtml(ev.type||"—")}</b></div>
-        <div class="list-row"><span>Location</span><b>${escapeHtml(ev.venue||"Not set")}</b></div>
-        <div class="list-row"><span>Quote</span><b>${money(ev.quote_total)}</b></div>
-      </div>
-      <div>
-        <div class="list-row"><span>Start</span><b>${escapeHtml(ev.start_date||ev.event_date||"Not scheduled")}</b></div>
-        <div class="list-row"><span>End</span><b>${escapeHtml(ev.end_date||ev.event_date||"Not scheduled")}</b></div>
-        <div class="list-row"><span>Status</span>${statusPill(ev.status||"Planning")}</div>
-        <div class="list-row"><span>Checklist</span><b>${checklistDone}/${ev.checklist.length} complete</b></div>
-      </div>
-    </div>`;
-  main.insertBefore(eventSummary,shell);
-  const er=await api(`/events/${id}/resources`).catch(()=>[]);
-  const timelineCard=document.createElement("div"); timelineCard.className="card";
-  const timelineRows=er.filter(r=>r.phase==="Production"||r.phase==="Post-Production").map(r =>
-    "<tr><td>"+escapeHtml(r.phase)+"</td><td>"+escapeHtml(r.skill_label||"Unspecified skill")+"</td><td>"+escapeHtml(r.resource_name)+"</td><td>"+escapeHtml((r.start_at||"").replace("T"," ")||"—")+"</td><td>"+escapeHtml((r.end_at||"").replace("T"," ")||"—")+"</td><td>"+money(r.cost)+"</td><td>"+statusPill(r.status||"Planned")+"</td></tr>"
-  ).join("");
-  timelineCard.innerHTML="<h2>Operational timeline</h2><p class=\"meta\">Dates are generated from Skill rules unless a manual override was recorded.</p>"+
-    (timelineRows ? "<table><thead><tr><th>Phase</th><th>Skill</th><th>Resource</th><th>Start</th><th>Due</th><th>Cost</th><th>Status</th></tr></thead><tbody>"+timelineRows+"</tbody></table>" :
-    "<div class=\"empty\">No resource work allocated yet. Use Resources to assign the required skills.</div>");
-  panels.timeline.appendChild(timelineCard);
-  const activity=await api(`/events/${id}/activity`).catch(()=>({allocation_history:[]}));
-  const activityCard=document.createElement("div"); activityCard.className="card";
-  activityCard.innerHTML="<h2>Operational history</h2>"+
-    ((activity.allocation_history||[]).map(h =>
-      "<div class=\"list-row\"><span><b>"+escapeHtml(h.action||"Change")+"</b> · "+escapeHtml(h.resource_name||"Resource")+
-      (h.skill_label ? " · "+escapeHtml(h.skill_label) : "")+"<br><span class=\"meta\">"+escapeHtml(h.field_name||"")+" "+
-      escapeHtml(h.old_value||"")+" → "+escapeHtml(h.new_value||"")+" · "+escapeHtml(h.reason||h.note||"No reason recorded")+
-      "</span></span><span class=\"meta\">"+escapeHtml(h.changed_at||"")+"</span></div>"
-    ).join("") || "<div class=\"empty\">No allocation history yet.</div>");
-  panels.activity.appendChild(activityCard);
-  const resourceCard=r=>`<div class="resource-card"><b>${escapeHtml(r.resource_name)}</b><div class="meta"><span class="pill">${escapeHtml(r.resource_type||"Person")}</span>${r.skill_label?` · ${escapeHtml(r.skill_label)}`:''}</div><div class="meta">${money(r.cost)}${r.start_at?` · ${r.start_at.replace('T',' ')}`:''}${r.end_at?` → ${r.end_at.replace('T',' ')}`:''}</div><div class="row-actions"><button type="button" class="icon-btn edit" data-edit-event-resource="${r.id}">✎ Edit</button><button type="button" class="icon-btn del" data-del-event-resource="${r.id}">✕ Remove</button></div></div>`;
-  document.getElementById('eventResourcesProduction').innerHTML=er.filter(r=>r.phase==='Production').map(resourceCard).join('')||'<div class="empty">No Production resources allocated.</div>';
-  document.getElementById('eventResourcesPostProduction').innerHTML=er.filter(r=>r.phase==='Post-Production').map(resourceCard).join('')||'<div class="empty">No Post-Production resources allocated.</div>';
-  main.querySelectorAll('[data-edit-event-resource]').forEach(el=>el.addEventListener('click',async()=>{
-    const current=(await api(`/events/${id}/resources`)).find(x=>String(x.id)===String(el.dataset.editEventResource)); if(!current) return;
-    const cfg=await loadUiConfig(true), active=(cfg.resources||[]).filter(r=>r.active), skills=cfg.skills||[];
-    const form=`<form><div class="field"><label>Resource</label><select name="resource_id" id="editAllocResource">${active.map(r=>`<option value="${r.id}" ${String(r.id)===String(current.resource_id)?"selected":""}>${escapeHtml(r.name)}</option>`).join('')}</select></div><div class="field"><label>Phase</label><select name="phase">${(cfg.phases||[]).map(p=>`<option ${p===current.phase?"selected":""}>${escapeHtml(p)}</option>`).join('')}</select></div><div class="field"><label>Skill</label><select name="skill_id" id="editAllocSkill"></select></div><div class="row2"><div class="field"><label>Start date & time</label><input name="start_at" type="datetime-local" value="${current.start_at||((current.allocation_date&&current.start_time)?current.allocation_date+'T'+current.start_time:'')}"></div><div class="field"><label>End date & time</label><input name="end_at" type="datetime-local" value="${current.end_at||((current.allocation_date&&current.end_time)?current.allocation_date+'T'+current.end_time:'')}"></div></div><div class="field" id="editExternalEstimate"><label>Original estimate (₹)</label><input name="original_estimate" type="number" min="0" value="${current.original_estimate||0}"><div class="meta">For external resources, revised estimate is tracked separately.</div></div><div class="field" id="editRevisedEstimate"><label>Revised estimate (₹)</label><input name="revised_estimate" type="number" min="0" value="${current.revised_estimate??''}"></div><div class="field"><label>Notes</label><textarea name="notes">${escapeHtml(current.notes||'')}</textarea></div><div class="field"><label>Reason / notes</label><textarea name="change_reason" rows="2" placeholder="Optional reason for this change"></textarea></div><button type="submit">Save</button></form>`;
-    openModal('Edit resource allocation',form,async data=>{data.id=current.id;await api(`/events/${id}/resources`,{method:'POST',body:JSON.stringify(data)});toast('Resource allocation updated');renderEventDetail(id);});
-    const modal=document.getElementById('modal-body'); const refresh=()=>{const r=active.find(x=>String(x.id)===String(modal.querySelector('#editAllocResource').value));const ids=String(r?.skill_ids||'').split(',').map(Number).filter(Number.isFinite);modal.querySelector('#editAllocSkill').innerHTML='<option value="">— none —</option>'+skills.filter(s=>ids.includes(Number(s.id))).map(s=>`<option value="${s.id}" ${String(s.id)===String(current.skill_id)?"selected":""}>${escapeHtml(s.label)}</option>`).join('');const ext=String(r?.resource_type||'').toLowerCase().includes('external')||String(r?.resource_type||'').toLowerCase().includes('vendor')||String(r?.resource_type||'').toLowerCase().includes('equipment');modal.querySelector('#editRevisedEstimate').style.display=ext?'block':'none';}; modal.querySelector('#editAllocResource').addEventListener('change',refresh); refresh();
-  }));  main.querySelectorAll('[data-del-event-resource]').forEach(el=>el.addEventListener('click',async()=>{await api(`/event-resources/${el.dataset.delEventResource}/delete`,{method:'POST',body:'{}'});toast('Resource removed');renderEventDetail(id);}));
-  main.querySelector('#addResourceBtn').addEventListener('click',async()=>{
-    const cfg=await loadUiConfig(true), active=(cfg.resources||[]).filter(r=>r.active), skills=cfg.skills||[];
-    const resourceOptions=active.map(r=>`<option value="${r.id}">${escapeHtml(r.name)} (${escapeHtml(r.resource_type||"Person")})</option>`).join('');
-    const formHtml=`<form>
-      <div class="field"><label>Resource</label><select name="resource_id" id="allocResource" required>${resourceOptions}</select></div>
-      <div class="field"><label>Phase</label><select name="phase">${(cfg.phases||[]).filter(x=>x==='Production'||x==='Post-Production').map(x=>`<option>${escapeHtml(x)}</option>`).join('')}</select></div>
-      <div class="field"><label>Skill</label><select name="skill_id" id="allocSkill"><option value="">— none —</option></select></div>
-      <div class="row2"><div class="field"><label>Start date & time</label><input name="start_at" type="datetime-local" value="${(ev.start_date||ev.event_date)?((ev.start_date||ev.event_date)+'T'+(ev.start_time||'09:00')):''}"></div><div class="field"><label>End date & time</label><input name="end_at" type="datetime-local" value="${(ev.end_date||ev.event_date)?((ev.end_date||ev.event_date)+'T'+(ev.end_time||'18:00')):''}"></div></div>
-      <div class="field" id="allocOriginalEstimate"><label>Original estimate (₹)</label><input name="original_estimate" type="number" min="0" value="0"></div>
-      <div class="field" id="allocRevisedEstimate" style="display:none"><label>Revised estimate (₹)</label><input name="revised_estimate" type="number" min="0"><div class="meta">Only used for external resources.</div></div>
-      <div class="field"><label>Notes</label><textarea name="notes" rows="2"></textarea></div><div class="field"><label>Reason / notes</label><textarea name="change_reason" rows="2" placeholder="Optional reason for this change"></textarea></div>
-      <button type="submit" style="width:100%">Allocate</button></form>`;
-    openModal('Allocate resource',formHtml,async data=>{await api(`/events/${id}/resources`,{method:'POST',body:JSON.stringify(data)});toast('Resource allocated');renderEventDetail(id);});
-    const modal=document.getElementById('modal-body');
-    const refreshSkills=()=>{const r=active.find(x=>String(x.id)===String(modal.querySelector('#allocResource')?.value));const phase=modal.querySelector('[name=phase]')?.value;const ids=String(r?.skill_ids||'').split(',').map(Number).filter(Number.isFinite);const list=skills.filter(s=>ids.includes(Number(s.id))&&(!phase||s.workflow_phase===phase));modal.querySelector('#allocSkill').innerHTML='<option value="">— none —</option>'+list.map(s=>`<option value="${s.id}">${escapeHtml(s.label)}</option>`).join('');};
-    const refreshEstimate=()=>{const rr=active.find(x=>String(x.id)===String(modal.querySelector('#allocResource')?.value));const ext=String(rr?.resource_type||'').toLowerCase().includes('external')||String(rr?.resource_type||'').toLowerCase().includes('vendor')||String(rr?.resource_type||'').toLowerCase().includes('equipment');const box=modal.querySelector('#allocRevisedEstimate');if(box)box.style.display=ext?'block':'none';};
-    modal?.querySelector('#allocResource')?.addEventListener('change',()=>{refreshSkills();refreshEstimate();}); modal?.querySelector('[name=phase]')?.addEventListener('change',refreshSkills); refreshSkills(); refreshEstimate();
+  const [ev, services, skills, picklists] = await Promise.all([api(`/events/${id}/operations`), api('/services'), api('/skills'), api('/picklists')]);
+  const groups = ['Pre-Wedding','Wedding','Reception','Post-Wedding'];
+  const phases = ['Production','Post-Production'];
+  const groupValues = (picklists.find(x=>x.group_key==='event_work_group')?.values||[]).map(x=>x.value_label);
+  const typeValues = (picklists.find(x=>x.group_key==='event_type')?.values||[]).map(x=>x.value_label);
+  const overrideReasons = (picklists.find(x=>x.group_key==='allocation_override_reason')?.values||[]).map(x=>x.value_label);
+  const workGroups = groupValues.length ? groupValues : groups;
+  const workStatuses = ['Not Started','Assigned','In Progress','Waiting','Completed','Cancelled'];
+  const checklistDone = ev.preparation.checklist_done;
+  const checklistTotal = ev.preparation.checklist_total;
+  const esc = v => escapeHtml(v==null ? '' : String(v));
+  const workCard = w => '<div class="list-row" style="align-items:flex-start;gap:12px;flex-direction:column;">'+
+    '<div style="width:100%;display:flex;justify-content:space-between;gap:12px;align-items:flex-start;"><span><b>'+esc(w.title)+'</b> '+statusPill(w.status||'Not Started')+'<br><span class="meta">'+esc(w.service_name||'No service')+' · '+esc(w.skill_labels||'No skill requirements')+'</span></span><span class="row-actions"><button class="icon-btn edit" data-edit-work="'+w.id+'">✎</button><button class="icon-btn del" data-del-work="'+w.id+'">✕</button></span></div>'+
+    '<div class="meta">'+(w.start_date?'Start '+esc(w.start_date):'No start')+' · '+(w.due_date?'Due '+esc(w.due_date):'No due')+' · '+Number(w.resource_count||0)+' resource'+(Number(w.resource_count||0)===1?'':'s')+' · '+Number(w.equipment_count||0)+' equipment</div>'+
+    '<div class="row-actions"><button class="ghost" data-add-work-resource="'+w.id+'">+ Resource</button><button class="ghost" data-add-work-equipment="'+w.id+'">+ Equipment</button></div></div>';
+  const renderWork = () => workGroups.map(group => {
+    const rows = ev.work.filter(w=>w.work_group===group);
+    const prod = rows.filter(w=>w.phase==='Production').map(workCard).join('') || '<div class="empty">No Production work.</div>';
+    const post = rows.filter(w=>w.phase==='Post-Production').map(workCard).join('') || '<div class="empty">No Post-Production work.</div>';
+    return '<div class="card"><div style="display:flex;justify-content:space-between;align-items:center;gap:10px;"><h2>'+esc(group)+'</h2><button class="icon-btn" data-add-work-group="'+esc(group)+'">+ Add Work</button></div><div class="resource-phase-grid"><section class="resource-phase-column"><h3>Production</h3>'+prod+'</section><section class="resource-phase-column"><h3>Post-Production</h3>'+post+'</section></div></div>';
+  }).join('');
+  const checklistPhases = ['Pre-Production','Production','Post-Production'];
+  main.innerHTML = '<span class="back" data-back>← Back</span>'+
+    '<h1>'+esc(ev.type||'Event')+' <span class="pill">'+money(ev.quote_total||0)+'</span> <button class="icon-btn" id="editEventBtn">✎ Edit</button></h1>'+
+    '<div class="sub" style="margin:-10px 0 16px;font-size:12.5px;color:var(--ink-soft);">Client: <b>'+esc(ev.account_name||'—')+'</b></div>'+
+    '<div class="kpis"><div class="kpi"><div class="l">Revenue</div><div class="v">'+money(ev.quote_total||0)+'</div></div><div class="kpi"><div class="l">Operational cost</div><div class="v">'+money(ev.cost_breakdown.total||0)+'</div></div><div class="kpi"><div class="l">Outstanding</div><div class="v">'+money(Math.max(0,Number(ev.quote_total||0)-Number(ev.advance_paid||0)))+'</div></div><div class="kpi"><div class="l">Readiness</div><div class="v">'+(checklistTotal?Math.round(checklistDone/checklistTotal*100):100)+'%</div></div></div>'+
+    '<div class="card"><h2>Event details</h2><div class="row2"><div><div class="list-row"><span>Event Type</span><b>'+esc(ev.type||'—')+'</b></div><div class="list-row"><span>Venue</span><b>'+esc(ev.venue||'—')+'</b></div></div><div><div class="list-row"><span>Start</span><b>'+esc(ev.start_date||ev.event_date||'—')+'</b></div><div class="list-row"><span>End</span><b>'+esc(ev.end_date||ev.event_date||'—')+'</b></div></div></div></div>'+
+    '<div id="eventWorkspace"></div>';
+  const ws=document.getElementById('eventWorkspace');
+  const tabs=[['checklist','Checklist'],['work','Work'],['services','Services / Quote'],['preparation','Preparation'],['finance','Finance'],['activity','Activity']];
+  ws.innerHTML='<div class="event-tabs">'+tabs.map(t=>'<button type="button" class="event-tab '+(t[0]==='work'?'active':'')+'" data-event-tab="'+t[0]+'">'+t[1]+'</button>').join('')+'</div>'+tabs.map(t=>'<section class="event-tab-panel '+(t[0]==='work'?'active':'')+'" data-event-panel="'+t[0]+'"></section>').join('');
+  const panels=Object.fromEntries([...ws.querySelectorAll('[data-event-panel]')].map(x=>[x.dataset.eventPanel,x]));
+  panels.work.innerHTML='<div class="card"><div style="display:flex;justify-content:space-between;align-items:center;"><div><h2>Work</h2><div class="meta">Operational execution. Each Work Item owns its Service, Skills, Resources, Equipment and Timeline.</div></div><button class="btn" id="addWorkBtn">+ Add Work</button></div></div>'+renderWork();
+  panels.checklist.innerHTML='<div class="card"><h2>Checklist — '+checklistDone+'/'+checklistTotal+' complete</h2><div class="checklist-grid">'+checklistPhases.map(phase=>{const items=ev.checklist.filter(x=>x.phase===phase);return '<div class="checklist-phase"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;"><b>'+phase+'</b><button class="icon-btn" data-add-check="'+phase+'">+ Add</button></div>'+(items.map(x=>'<div class="check-row '+(x.done?'done':'')+'"><input type="checkbox" data-check="'+x.id+'" '+(x.done?'checked':'')+'> <span style="flex:1">'+esc(x.item)+'</span><button class="icon-btn del" data-del-check="'+x.id+'">✕</button></div>').join('')||'<div class="empty">Nothing here yet.</div>')+'</div>';}).join('')+'</div></div>';
+  panels.services.innerHTML='<div class="card"><div style="display:flex;justify-content:space-between;align-items:center;"><h2>Services / Quote</h2><button class="icon-btn" id="reviseQuoteBtn">Revise Quote</button></div><p class="meta">Commercial snapshot stays separate from operational Work. Quote revisions create a new version.</p>'+(ev.services.map(s=>'<div class="list-row"><span>'+esc(s.name||'Service')+'</span><b>'+money(s.price_at_booking||0)+'</b></div>').join('')||'<div class="empty">No quoted services.</div>')+'</div>'+
+    '<div class="card"><h2>Quote history</h2>'+((ev.quote_history||[]).map(q=>'<div class="list-row"><span><b>v'+q.version+'</b> · '+esc(q.status||'')+'</span><span class="meta">'+esc(q.finalized_at||q.created_at||'')+'</span></div>').join('')||'<div class="empty">No quote history.</div>')+'</div>';
+  const equipmentRows = ev.equipment.map(e=>'<div class="list-row"><span><b>'+esc(e.equipment_name||e.custom_label||'Equipment')+'</b> <span class="pill">'+esc(e.allocation_type||'Owned')+'</span><br><span class="meta">'+esc(e.work_title||'Work')+' · '+(e.rental_cost?money(e.rental_cost)+' rental · ':'')+(e.rental_return_due?'Return '+esc(e.rental_return_due):'')+'</span></span><span class="row-actions">'+(e.allocation_type==='Rented'&&e.allocation_status!=='Returned'?'<button class="icon-btn" data-return-rental="'+e.id+'">Mark returned</button>':'')+(e.ready?'✓ Ready':'')+'</span></div>').join('');
+  panels.preparation.innerHTML='<div class="kpis"><div class="kpi"><div class="l">Work complete</div><div class="v">'+Number(ev.preparation.work_completed||0)+' / '+Number(ev.preparation.work_total||0)+'</div></div><div class="kpi"><div class="l">Work overdue</div><div class="v">'+Number(ev.preparation.work_overdue||0)+'</div></div><div class="kpi"><div class="l">Resources</div><div class="v">'+Number(ev.preparation.resources_allocated||0)+' / '+Number(ev.preparation.resources_required||0)+'</div></div><div class="kpi"><div class="l">Equipment ready</div><div class="v">'+Number(ev.preparation.equipment_ready||0)+' / '+Number(ev.preparation.equipment_total||0)+'</div></div></div>'+
+    '<div class="row2"><div class="card"><h2>Checklist</h2><div class="list-row"><span>Completed</span><b>'+Number(ev.preparation.checklist_done||0)+' / '+Number(ev.preparation.checklist_total||0)+'</b></div></div><div class="card"><h2>People readiness</h2><div class="list-row"><span>Required resource slots</span><b>'+Number(ev.preparation.resources_required||0)+'</b></div><div class="list-row"><span>Allocated</span><b>'+Number(ev.preparation.resources_allocated||0)+'</b></div></div></div>'+
+    '<div class="card"><h2>Equipment preparation</h2>'+((equipmentRows||'<div class="empty">No equipment allocated yet.</div>'))+'</div>'+
+    '<div class="card"><h2>Exceptions</h2>'+((ev.preparation.exceptions||[]).map(x=>'<div class="list-row"><span>⚠ '+esc(x.type)+'</span><span class="meta">'+esc(x.reason)+' '+esc(x.note||'')+'</span></div>').join('')||'<div class="empty">No operational exceptions.</div>')+'</div>';
+  panels.finance.innerHTML='<div class="kpis"><div class="kpi"><div class="l">Resource cost</div><div class="v">'+money(ev.cost_breakdown.resources)+'</div></div><div class="kpi"><div class="l">Equipment rental</div><div class="v">'+money(ev.cost_breakdown.equipment_rental)+'</div></div><div class="kpi"><div class="l">Other expenses</div><div class="v">'+money(ev.cost_breakdown.expenses)+'</div></div></div>'+
+    '<div class="card"><h2>Payment schedule</h2>'+((ev.payment_schedule||[]).map(p=>'<div class="list-row"><span>'+esc(p.label)+' · '+money(p.amount)+' · '+esc(p.due_date||'No due date')+'</span><span>'+statusPill(p.status||'Due')+'</span></div>').join('')||'<div class="empty">No payment schedule.</div>')+'</div>'+
+    '<div class="card"><h2>Event expenses</h2>'+((ev.expenses||[]).map(x=>'<div class="list-row"><span>'+esc(x.category)+' · '+esc(x.note||'')+'</span><b>'+money(x.amount)+'</b></div>').join('')||'<div class="empty">No event expenses.</div>')+'</div>';
+  panels.activity.innerHTML='<div class="card"><h2>Operational history</h2>'+((ev.activity||[]).map(x=>'<div class="list-row"><span><b>'+esc(x.action)+'</b> · '+esc(x.resource_name||'Resource')+'<br><span class="meta">'+esc(x.reason||x.note||'')+'</span></span><span class="meta">'+esc(x.changed_at||'')+'</span></div>').join('')||'<div class="empty">No Work resource history.</div>')+'</div>';
+  ws.querySelectorAll('[data-event-tab]').forEach(b=>b.addEventListener('click',()=>{ws.querySelectorAll('[data-event-tab]').forEach(x=>x.classList.toggle('active',x===b));ws.querySelectorAll('[data-event-panel]').forEach(x=>x.classList.toggle('active',x.dataset.eventPanel===b.dataset.eventTab));}));
+  const selectedSkillIds=String(work?.skill_ids||'').split(',').filter(Boolean).map(Number);
+  const workForm=(work)=>'<form><div class="field"><label>Group</label><select name="work_group">'+workGroups.map(x=>'<option '+(x===(work?.work_group||'Wedding')?'selected':'')+'>'+esc(x)+'</option>').join('')+'</select></div><div class="field"><label>Phase</label><select name="phase">'+phases.map(x=>'<option '+(x===(work?.phase||'Production')?'selected':'')+'>'+x+'</option>').join('')+'</select></div><div class="field"><label>Service</label><select name="service_id"><option value="">— none —</option>'+services.filter(x=>x.active!==0).map(x=>'<option value="'+x.id+'" '+(Number(x.id)===Number(work?.service_id)?'selected':'')+'>'+esc(x.name)+'</option>').join('')+'</select></div><div class="field"><label>Required Skills</label><select name="skill_ids" multiple size="5">'+skills.filter(x=>x.active!==0).map(x=>'<option value="'+x.id+'" '+(selectedSkillIds.includes(Number(x.id))?'selected':'')+'>'+esc(x.label)+'</option>').join('')+'</select><div class="meta">Skills are auto-derived from the selected Service, but can be adjusted for this Work item.</div></div><div class="field"><label>Work title</label><input name="title" value="'+esc(work?.title||'')+'" required></div><div class="row2"><div class="field"><label>Start</label><input type="date" name="start_date" value="'+esc(work?.start_date||ev.start_date||ev.event_date||'')+'"></div><div class="field"><label>Due</label><input type="date" name="due_date" value="'+esc(work?.due_date||ev.end_date||ev.event_date||'')+'"></div></div><div class="field"><label>Status</label><select name="status">'+workStatuses.map(x=>'<option '+(x===(work?.status||'Not Started')?'selected':'')+'>'+x+'</option>').join('')+'</select></div><div class="field"><label>Notes</label><textarea name="notes">'+esc(work?.notes||'')+'</textarea></div><button type="submit" style="width:100%">Save Work</button></form>';
+  const openWork=(work,group)=>openModal(work?'Edit Work':'Add Work',workForm(work||{work_group:group||'Wedding'}),async(data,form)=>{
+    const skillSelect=form.querySelector('[name="skill_ids"]');
+    data.skill_ids=skillSelect?[...skillSelect.selectedOptions].map(x=>Number(x.value)).filter(Number.isInteger):[];
+    if(work) await api(`/work-items/${work.id}`,{method:'POST',body:JSON.stringify(data)});
+    else { data.title=data.title||data.service_id; await api(`/events/${id}/work`,{method:'POST',body:JSON.stringify(data)}); }
+    toast('Work saved'); renderEventDetail(id);
   });
-  main.querySelector("[data-back]").addEventListener("click", () => goBack("events"));
-  main.querySelector("#editEventTopBtn").addEventListener("click", () => main.querySelector("#editEventBtn").click());
-  main.querySelector("#editEventBtn").addEventListener("click", () => openModal("Edit event", `
-    <form>
-      <div class="field"><label>Type</label><input name="type" value="${ev.type}" required></div>
-      <div class="row2"><div class="field"><label>Start date</label><input name="start_date" type="date" value="${ev.start_date || ev.event_date || ""}"></div><div class="field"><label>End date</label><input name="end_date" type="date" value="${ev.end_date || ev.event_date || ""}"></div></div>
-      <div class="field"><label>Start time</label><input name="start_time" type="time" value="${ev.start_time || ""}"></div>
-      <div class="field"><label>End time</label><input name="end_time" type="time" value="${ev.end_time || ""}"></div>
-      <div class="field"><label>Reporting time</label><input name="reporting_time" type="time" value="${ev.reporting_time || ""}"></div>
-      <div class="field"><label>Venue</label><input name="venue" value="${ev.venue || ""}"></div>
-      <div class="field"><label>Status</label>
-        <select name="status">${["Pending","Planning","In-Progress","Completed","Overdue","Cancelled"].map(s => `<option ${s===ev.status?"selected":""}>${s}</option>`).join("")}</select>
-      </div>
-      <button type="submit" style="width:100%;">Save</button>
-    </form>
-  `, async data => { await api(`/events/${id}/details`, { method: "POST", body: JSON.stringify(data) }); toast("Event updated"); renderEventDetail(id); }));
-  main.querySelector("#deleteEventBtn").addEventListener("click", () =>
-    confirmDelete("Delete this event? Only possible if it has no payments recorded.", `/events/${id}/delete`, () => goBack("events"))
-  );
-  main.querySelectorAll("[data-del-lineitem]").forEach(el => el.addEventListener("click", () =>
-    confirmDelete("Remove this line item from the event?", `/event-services/${el.dataset.delLineitem}/delete`, () => renderEventDetail(id))
-  ));
-  main.querySelectorAll("[data-pkg]").forEach(el => el.addEventListener("click", async () => { await api(`/events/${id}/package`, { method: "POST", body: JSON.stringify({ package_id: el.dataset.pkg }) }); renderEventDetail(id); }));
-  main.querySelectorAll("[data-svc]").forEach(el => el.addEventListener("click", async () => { await api(`/events/${id}/services`, { method: "POST", body: JSON.stringify({ service_id: el.dataset.svc, is_crosssell: true }) }); renderEventDetail(id); }));
-  main.querySelectorAll("[data-check]").forEach(el => el.addEventListener("change", async () => { await api(`/checklist/${el.dataset.check}/toggle`, { method: "POST", body: "{}" }); renderEventDetail(id); }));
-  const acctEl = main.querySelector("[data-acct]");
-  if (acctEl) acctEl.addEventListener("click", () => go("accountDetail", acctEl.dataset.acct));
-  main.querySelectorAll("[data-add-checklist]").forEach(el => el.addEventListener("click", () => openModal(`Add to ${el.dataset.addChecklist}`, `
-    <form>
-      <div class="field"><label>Item</label><input name="item" required></div>
-      <input type="hidden" name="phase" value="${el.dataset.addChecklist}">
-      <button type="submit" style="width:100%;">Add</button>
-    </form>
-  `, async data => { await api(`/events/${id}/checklist`, { method: "POST", body: JSON.stringify(data) }); toast("Added"); renderEventDetail(id); })));
-  main.querySelectorAll("[data-del-checklist]").forEach(el => el.addEventListener("click", () =>
-    confirmDelete("Remove this checklist item from this event?", `/checklist/${el.dataset.delChecklist}/remove`, () => renderEventDetail(id))
-  ));
-  main.querySelectorAll("[data-vendor-paid]").forEach(el => el.addEventListener("click", async () => { await api(`/event-vendors/${el.dataset.vendorPaid}/paid`, { method: "POST", body: "{}" }); renderEventDetail(id); }));
-  main.querySelectorAll("[data-sched-paid]").forEach(el => el.addEventListener("click", async () => { await api(`/payment-schedule/${el.dataset.schedPaid}/paid`, { method: "POST", body: "{}" }); renderEventDetail(id); }));
-  main.querySelectorAll("[data-deliv-status]").forEach(el => el.addEventListener("change", async e => { await api(`/deliverables/${el.dataset.delivStatus}/status`, { method: "POST", body: JSON.stringify({ status: e.target.value }) }); renderEventDetail(id); }));
-  main.querySelector("#addStaffBtn").addEventListener("click", () => openModal("Add internal staff", `
-    <form>
-      <div class="field"><label>Photographer name</label><input name="staff_name" required></div>
-      <div class="field"><label>Role</label><input name="role" placeholder="Lead photographer"></div>
-      <div class="field"><label>Cost for this event (₹)</label><input name="cost" type="number" value="0"></div>
-      <button type="submit" style="width:100%;">Generate link</button>
-    </form>
-  `, async data => {
-    data.event_id = id;
-    const r = await api("/staff-links", { method: "POST", body: JSON.stringify(data) });
-    document.getElementById("linkOut").innerHTML = `<div class="copybox">${r.url}</div>`;
-    toast("Staff link generated");
-  }));
-  main.querySelector("#addSchedBtn").addEventListener("click", () => openModal("Add installment", `
-    <form>
-      <div class="field"><label>Label</label><input name="label" placeholder="Advance / Before event / On delivery" required></div>
-      <div class="field"><label>Amount</label><input name="amount" type="number" required></div>
-      <div class="field"><label>Due date</label><input name="due_date" type="date"></div>
-      <button type="submit" style="width:100%;">Add installment</button>
-    </form>
-  `, async data => {
-    await api(`/events/${id}/payment-schedule`, { method: "POST", body: JSON.stringify(data) });
-    toast("Installment added");
-    renderEventDetail(id);
-  }));
-  main.querySelector("#addPayBtn").addEventListener("click", () => openModal("Log payment", `
-    <form>
-      <div class="field"><label>Amount</label><input name="amount" type="number" required></div>
-      <div class="field"><label>Method</label><input name="method"></div>
-      <button type="submit" style="width:100%;">Log payment</button>
-    </form>
-  `, async data => {
-    await api(`/events/${id}/payments`, { method: "POST", body: JSON.stringify(data) });
-    toast("Payment logged");
-    renderEventDetail(id);
-  }));
-  main.querySelector("#addDelivBtn").addEventListener("click", () => openModal("Add deliverable", `
-    <form>
-      <div class="field"><label>Name</label><input name="name" placeholder="Wedding album" required></div>
-      <div class="field"><label>Due date</label><input name="due_date" type="date"></div>
-      <button type="submit" style="width:100%;">Add</button>
-    </form>
-  `, async data => {
-    await api(`/events/${id}/deliverables`, { method: "POST", body: JSON.stringify(data) });
-    toast("Deliverable added");
-    renderEventDetail(id);
-  }));
-  main.querySelector("#addTaskBtn").addEventListener("click", () => openModal("Assign a task", `
-    <form>
-      <div class="field"><label>Assign to</label><select name="link_id"><option value="">Anyone on this event</option>${ev.staff_links.map(l=>`<option value="${l.id}">${l.staff_name}</option>`).join("")}</select></div>
-      <div class="field"><label>Task</label><input name="task" placeholder="Upload raw footage" required></div>
-      <button type="submit" style="width:100%;">Assign</button>
-    </form>
-  `, async data => {
-    await api(`/events/${id}/tasks`, { method: "POST", body: JSON.stringify(data) });
-    toast("Task assigned");
-    renderEventDetail(id);
-  }));
-  main.querySelector("#addEquipBtn").addEventListener("click", async () => {
-    const catalog = await api("/equipment");
-    openModal("Add equipment", `
-      <form>
-        <div class="field"><label>From catalog</label>
-          <select name="equipment_id"><option value="">— pick one, or use custom label below —</option>${catalog.map(e => `<option value="${e.id}">${e.name}${e.owned ? "" : " (rental)"}</option>`).join("")}</select>
-        </div>
-        <div class="field"><label>Or a one-off item</label><input name="custom_label" placeholder="e.g. Extra LED panel"></div>
-        <div class="field"><label><input type="checkbox" name="needs_rental" style="width:auto;"> Needs to be rented</label></div>
-        <button type="submit" style="width:100%;">Add</button>
-      </form>
-    `, async (data, form) => {
-      data.needs_rental = form.querySelector('[name="needs_rental"]').checked;
-      if (!data.equipment_id) delete data.equipment_id;
-      if (!data.equipment_id && !data.custom_label) throw new Error("Pick from the catalog or enter a custom label");
-      await api(`/events/${id}/equipment`, { method: "POST", body: JSON.stringify(data) });
-      toast("Equipment added");
-      renderEventDetail(id);
-    });
-  });
-  main.querySelectorAll("[data-equip-ready]").forEach(el => el.addEventListener("click", async () => { await api(`/event-equipment/${el.dataset.equipReady}/toggle`, { method: "POST", body: "{}" }); renderEventDetail(id); }));
-  main.querySelectorAll("[data-del-equip]").forEach(el => el.addEventListener("click", () =>
-    confirmDelete("Remove this equipment from the event?", `/event-equipment/${el.dataset.delEquip}/delete`, () => renderEventDetail(id))
-  ));
-  const expenseForm = (x) => `
-    <form>
-      <div class="field"><label>Category</label><input name="category" value="${x ? x.category : ""}" list="expCats" required></div>
-      <datalist id="expCats"><option>Travel</option><option>Equipment rental</option><option>Food & catering</option><option>Props/Decor</option><option>Miscellaneous</option></datalist>
-      <div class="field"><label>Amount (₹)</label><input name="amount" type="number" value="${x ? x.amount : ""}" required></div>
-      <div class="field"><label>Note</label><input name="note" value="${x ? (x.note||"") : ""}"></div>
-      <button type="submit" style="width:100%;">Save</button>
-    </form>
-  `;
-  main.querySelector("#addExpenseBtn").addEventListener("click", () => openModal("Add expense", expenseForm(), async data => {
-    data.event_id = id;
-    await api("/expenses", { method: "POST", body: JSON.stringify(data) });
-    toast("Expense logged");
-    renderEventDetail(id);
-  }));
-  main.querySelectorAll("[data-edit-expense]").forEach(el => el.addEventListener("click", () => {
-    const x = ev.expenses.find(e => String(e.id) === el.dataset.editExpense);
-    openModal("Edit expense", expenseForm(x), async data => { await api(`/expenses/${x.id}`, { method: "POST", body: JSON.stringify(data) }); toast("Updated"); renderEventDetail(id); });
-  }));
-  main.querySelectorAll("[data-del-expense]").forEach(el => el.addEventListener("click", () =>
-    confirmDelete("Delete this expense?", `/expenses/${el.dataset.delExpense}/delete`, () => renderEventDetail(id))
-  ));
-  main.querySelector("#getFeedbackLinkBtn").addEventListener("click", async () => {
-    const r = await api(`/events/${id}/feedback-link`);
-    document.getElementById("feedbackLinkOut").innerHTML = `<div class="copybox">${r.url}</div>`;
-  });
-
-  // ── Row-level edit/delete for every sub-list above ──
-  main.querySelectorAll("[data-edit-staff]").forEach(el => el.addEventListener("click", () => {
-    const l = ev.staff_links.find(x => String(x.id) === el.dataset.editStaff);
-    openModal("Edit staff assignment", `
-      <form>
-        <div class="field"><label>Photographer name</label><input name="staff_name" value="${l.staff_name}" required></div>
-        <div class="field"><label>Role</label><input name="role" value="${l.role || ""}"></div>
-        <div class="field"><label>Cost for this event (₹)</label><input name="cost" type="number" value="${l.cost}"></div>
-        <button type="submit" style="width:100%;">Save</button>
-      </form>
-    `, async data => { await api(`/staff-links/${l.id}`, { method: "POST", body: JSON.stringify(data) }); toast("Updated"); renderEventDetail(id); });
-  }));
-  main.querySelectorAll("[data-del-staff]").forEach(el => el.addEventListener("click", () =>
-    confirmDelete("Remove this staff assignment? Their portal link will stop working.", `/staff-links/${el.dataset.delStaff}/delete`, () => renderEventDetail(id))
-  ));  main.querySelectorAll("[data-edit-sched]").forEach(el => el.addEventListener("click", () => {
-    const p = ev.payment_schedule.find(x => String(x.id) === el.dataset.editSched);
-    openModal("Edit installment", `
-      <form>
-        <div class="field"><label>Label</label><input name="label" value="${p.label}" required></div>
-        <div class="field"><label>Amount</label><input name="amount" type="number" value="${p.amount}" required></div>
-        <div class="field"><label>Due date</label><input name="due_date" type="date" value="${p.due_date || ""}"></div>
-        <button type="submit" style="width:100%;">Save</button>
-      </form>
-    `, async data => { await api(`/payment-schedule/${p.id}`, { method: "POST", body: JSON.stringify(data) }); toast("Updated"); renderEventDetail(id); });
-  }));
-  main.querySelectorAll("[data-del-sched]").forEach(el => el.addEventListener("click", () =>
-    confirmDelete("Remove this installment from the schedule?", `/payment-schedule/${el.dataset.delSched}/delete`, () => renderEventDetail(id))
-  ));
-  main.querySelectorAll("[data-del-pay]").forEach(el => el.addEventListener("click", () =>
-    confirmDelete("Delete this payment? This will also reduce the amount received on this event.", `/payments/${el.dataset.delPay}/delete`, () => renderEventDetail(id))
-  ));
-  main.querySelectorAll("[data-edit-deliv]").forEach(el => el.addEventListener("click", () => {
-    const d = ev.deliverables.find(x => String(x.id) === el.dataset.editDeliv);
-    openModal("Edit deliverable", `
-      <form>
-        <div class="field"><label>Name</label><input name="name" value="${d.name}" required></div>
-        <div class="field"><label>Due date</label><input name="due_date" type="date" value="${d.due_date || ""}"></div>
-        <button type="submit" style="width:100%;">Save</button>
-      </form>
-    `, async data => { await api(`/deliverables/${d.id}`, { method: "POST", body: JSON.stringify(data) }); toast("Updated"); renderEventDetail(id); });
-  }));
-  main.querySelectorAll("[data-del-deliv]").forEach(el => el.addEventListener("click", () =>
-    confirmDelete("Remove this deliverable?", `/deliverables/${el.dataset.delDeliv}/delete`, () => renderEventDetail(id))
-  ));
-  main.querySelectorAll("[data-edit-task]").forEach(el => el.addEventListener("click", () => {
-    const t = ev.tasks.find(x => String(x.id) === el.dataset.editTask);
-    openModal("Edit task", `
-      <form>
-        <div class="field"><label>Assign to</label><select name="link_id"><option value="" ${!t.link_id?"selected":""}>Anyone on this event</option>${ev.staff_links.map(l=>`<option value="${l.id}" ${l.id===t.link_id?"selected":""}>${l.staff_name}</option>`).join("")}</select></div>
-        <div class="field"><label>Task</label><input name="task" value="${t.task}" required></div>
-        <button type="submit" style="width:100%;">Save</button>
-      </form>
-    `, async data => { await api(`/event-tasks/${t.id}`, { method: "POST", body: JSON.stringify(data) }); toast("Updated"); renderEventDetail(id); });
-  }));
-  main.querySelectorAll("[data-del-task]").forEach(el => el.addEventListener("click", () =>
-    confirmDelete("Remove this task?", `/event-tasks/${el.dataset.delTask}/delete`, () => renderEventDetail(id))
-  ));
+  panels.work.querySelector('#addWorkBtn').addEventListener('click',()=>openWork(null,'Wedding'));
+  panels.work.querySelectorAll('[data-add-work-group]').forEach(b=>b.addEventListener('click',()=>openWork(null,b.dataset.addWorkGroup)));
+  panels.work.querySelectorAll('[data-edit-work]').forEach(b=>b.addEventListener('click',()=>openWork(ev.work.find(x=>String(x.id)===b.dataset.editWork))));
+  panels.work.querySelectorAll('[data-del-work]').forEach(b=>b.addEventListener('click',()=>confirmDelete('Delete this Work item and its allocations?',`/work-items/${b.dataset.delWork}/delete`,()=>renderEventDetail(id))));
+  async function resourceModal(work){
+    const [resources,skills]=await Promise.all([api('/resources'),api('/skills')]);
+    const ids=String(work.skill_ids||'').split(',').filter(Boolean).map(Number);
+    const reasons=overrideReasons.map(x=>'<option>'+esc(x)+'</option>').join('');
+    const form='<form><div class="field"><label>Resource</label><select name="resource_id" required>'+resources.filter(x=>x.active).map(x=>'<option value="'+x.id+'">'+esc(x.name)+' · '+esc(x.resource_type||'Internal')+'</option>').join('')+'</select></div><div class="field"><label>Skill</label><select name="skill_id"><option value="">— none —</option>'+skills.filter(x=>ids.includes(Number(x.id))).map(x=>'<option value="'+x.id+'">'+esc(x.label)+'</option>').join('')+'</select></div><div class="row2"><div class="field"><label>Start</label><input type="datetime-local" name="start_at" value="'+esc((work.start_date||ev.start_date||ev.event_date||'')+'T09:00')+'"></div><div class="field"><label>Due</label><input type="datetime-local" name="end_at" value="'+esc((work.due_date||ev.end_date||ev.event_date||'')+'T18:00')+'"></div></div><div class="field"><label>Override reason</label><select name="override_reason"><option value="">— none —</option>'+reasons+'</select><div class="meta">Required if the resource does not have the selected skill or is otherwise constrained.</div></div><div class="field"><label>Override note</label><textarea name="override_note"></textarea></div><button type="submit">Allocate</button></form>';
+    openModal('Allocate resource',form,async data=>{await api(`/work-items/${work.id}/resources`,{method:'POST',body:JSON.stringify(data)});toast('Resource allocated');renderEventDetail(id);});
+  }
+  panels.work.querySelectorAll('[data-add-work-resource]').forEach(b=>b.addEventListener('click',()=>resourceModal(ev.work.find(x=>String(x.id)===b.dataset.addWorkResource))));
+  async function equipmentModal(work){
+    const equipment=await api('/equipment');
+    const rentalKey='rental-'+Date.now()+'-'+Math.random().toString(36).slice(2);
+    const form='<form><input type="hidden" name="rental_idempotency_key" value="'+rentalKey+'"><div class="field"><label>Allocation type</label><select name="allocation_type"><option>Owned</option><option>Rented</option><option>External / Other</option></select></div><div class="field"><label>Owned equipment</label><select name="equipment_id"><option value="">— select if owned —</option>'+equipment.map(x=>'<option value="'+x.id+'">'+esc(x.name)+(x.serial_number?' #'+esc(x.serial_number):'')+'</option>').join('')+'</select></div><div class="field"><label>Rental / external item name</label><input name="custom_label" placeholder="24–70mm GM II"></div><div class="field"><label>Rental vendor</label><input name="vendor_name"></div><div class="field"><label>Rental cost (₹)</label><input name="rental_cost" type="number" min="0" value="0"></div><div class="row2"><div class="field"><label>Allocation start</label><input name="allocated_start" type="date" value="'+esc(work.start_date||ev.start_date||ev.event_date||'')+'"></div><div class="field"><label>Return / end</label><input name="allocated_end" type="date" value="'+esc(work.due_date||ev.end_date||ev.event_date||'')+'"></div></div><div class="field"><label>Override reason</label><select name="override_reason"><option value="">— none —</option>'+overrideReasons.map(x=>'<option>'+esc(x)+'</option>').join('')+'</select></div><div class="field"><label>Notes</label><textarea name="notes"></textarea></div><button type="submit">Allocate equipment</button></form>';
+    openModal('Allocate equipment',form,async data=>{await api(`/work-items/${work.id}/equipment`,{method:'POST',body:JSON.stringify(data)});toast('Equipment allocated');renderEventDetail(id);});
+  }
+  panels.work.querySelectorAll('[data-add-work-equipment]').forEach(b=>b.addEventListener('click',()=>equipmentModal(ev.work.find(x=>String(x.id)===b.dataset.addWorkEquipment))));
+  panels.preparation.querySelectorAll('[data-return-rental]').forEach(b=>b.addEventListener('click',()=>openModal('Return rented equipment','<form><div class="field"><label>Condition</label><select name="return_condition"><option>Good</option><option>Damaged</option><option>Missing</option><option>Other</option></select></div><div class="field"><label>Notes</label><textarea name="notes"></textarea></div><button type="submit">Mark returned</button></form>',async data=>{await api(`/event-equipment/${b.dataset.returnRental}/return`,{method:'POST',body:JSON.stringify(data)});toast('Rental returned');renderEventDetail(id);})));
+  panels.checklist.querySelectorAll('[data-check]').forEach(x=>x.addEventListener('change',async()=>{await api(`/checklist/${x.dataset.check}/toggle`,{method:'POST',body:'{}'});renderEventDetail(id);}));
+  panels.checklist.querySelectorAll('[data-del-check]').forEach(x=>x.addEventListener('click',()=>confirmDelete('Remove checklist item?',`/checklist/${x.dataset.delCheck}/remove`,()=>renderEventDetail(id))));
+  panels.checklist.querySelectorAll('[data-add-check]').forEach(x=>x.addEventListener('click',()=>openModal('Add checklist item','<form><div class="field"><label>Item</label><input name="item" required></div><input type="hidden" name="phase" value="'+esc(x.dataset.addCheck)+'"><button type="submit">Add</button></form>',async data=>{await api(`/events/${id}/checklist`,{method:'POST',body:JSON.stringify(data)});renderEventDetail(id);})));
+  panels.services.querySelector('#reviseQuoteBtn').addEventListener('click',async()=>{if(!ev.quote_id)return toast('No quote linked',true);await api(`/events/${id}/revise-quote`,{method:'POST',body:'{}'});toast('New quote revision created');renderEventDetail(id);});
+  main.querySelector('#editEventBtn').addEventListener('click',()=>openModal('Edit event','<form><div class="field"><label>Event Type</label><select name="type">'+typeValues.map(x=>'<option '+(x===ev.type?'selected':'')+'>'+esc(x)+'</option>').join('')+'</select></div><div class="row2"><div class="field"><label>Start</label><input type="date" name="start_date" value="'+esc(ev.start_date||ev.event_date||'')+'"></div><div class="field"><label>End</label><input type="date" name="end_date" value="'+esc(ev.end_date||ev.event_date||'')+'"></div></div><div class="field"><label>Venue</label><input name="venue" value="'+esc(ev.venue||'')+'"></div><button type="submit">Save</button></form>',async data=>{await api(`/events/${id}/details`,{method:'POST',body:JSON.stringify(data)});toast('Event updated');renderEventDetail(id);}));
+  main.querySelector('[data-back]').addEventListener('click',()=>goBack('events'));
 }
-
 
 async function renderSettings(){
   const cfg=await api("/product-config");
@@ -1912,50 +1607,18 @@ async function renderResources(){
 }
 
 async function renderEquipment() {
-  const equipment = await api("/equipment");
-  main.innerHTML = `
-    ${pageHeader("Equipment", "+ New equipment")}
-    <p class="empty" style="margin-top:-10px;margin-bottom:16px;">Studio-owned gear you assign to events to plan resourcing — cameras, lenses, drones, lighting. Rented items get their cost tracked as an Outside vendor on the event; this catalog is about what exists and what's owned vs. always-rented.</p>
-    <div class="card"><h2>All equipment</h2>
-      <table><thead><tr><th>Name</th><th>Category</th><th>Ownership</th><th></th></tr></thead>
-      <tbody>${equipment.map(e => `<tr><td>${e.name}</td><td><span class="pill">${e.category||"—"}</span></td><td>${e.owned ? '<span class="pill" style="background:var(--success-soft);color:var(--success)">Owned</span>' : '<span class="pill" style="background:var(--warning-soft);color:var(--warning)">Always rented</span>'}</td><td class="row-actions"><button type="button" class="icon-btn edit" data-edit-equip="${e.id}" title="Edit">✎</button><button type="button" class="icon-btn del" data-del-equip="${e.id}" title="Delete">✕</button></td></tr>`).join("") || `<tr><td colspan="4" class="empty">No equipment yet — use the + button to add one.</td></tr>`}</tbody></table>
-    </div>
-  `;
-  const catOptions = (sel) => ["Camera","Lens","Drone","Lighting","Audio","Stabilizer","Other"].map(c => `<option ${c===sel?"selected":""}>${c}</option>`).join("");
-  setPrimaryAction(() => openModal("Add equipment", `
-    <form>
-      <div class="field"><label>Name</label><input name="name" required></div>
-      <div class="field"><label>Category</label><select name="category">${catOptions()}</select></div>
-      <div class="field"><label><input type="checkbox" name="owned" checked style="width:auto;"> Studio-owned (uncheck if this is always rented)</label></div>
-      <button type="submit" style="width:100%;">Add</button>
-    </form>
-  `, async (data, form) => {
-    data.owned = form.querySelector('[name="owned"]').checked;
-    await api("/equipment", { method: "POST", body: JSON.stringify(data) });
-    toast("Equipment added");
-    renderEquipment();
-  }));
-  main.querySelectorAll("[data-edit-equip]").forEach(el => el.addEventListener("click", () => {
-    const e = equipment.find(x => String(x.id) === el.dataset.editEquip);
-    openModal("Edit equipment", `
-      <form>
-        <div class="field"><label>Name</label><input name="name" value="${e.name}" required></div>
-        <div class="field"><label>Category</label><select name="category">${catOptions(e.category)}</select></div>
-        <div class="field"><label><input type="checkbox" name="owned" ${e.owned?"checked":""} style="width:auto;"> Studio-owned</label></div>
-        <button type="submit" style="width:100%;">Save</button>
-      </form>
-    `, async (data, form) => {
-      data.owned = form.querySelector('[name="owned"]').checked;
-      await api(`/equipment/${e.id}`, { method: "POST", body: JSON.stringify(data) });
-      toast("Updated");
-      renderEquipment();
-    });
-  }));
-  main.querySelectorAll("[data-del-equip]").forEach(el => el.addEventListener("click", () =>
-    confirmDelete("Delete this equipment? Only possible if it's not assigned to any event.", `/equipment/${el.dataset.delEquip}/delete`, renderEquipment)
-  ));
+  const equipment=await api('/equipment');
+  main.innerHTML=pageHeader('Equipment / Inventory','+ New equipment')+'<p class="empty" style="margin-top:-10px;margin-bottom:16px;">Owned equipment is the reusable inventory master. Procurement, maintenance, availability and event/rental history stay here; Event Work only allocates it.</p>'+
+    '<div class="card"><h2>Inventory</h2><table><thead><tr><th>Equipment</th><th>Category</th><th>Ownership</th><th>Status</th><th>Purchase</th><th>Active allocations</th><th></th></tr></thead><tbody>'+
+    (equipment.map(x=>'<tr><td><b>'+escapeHtml(x.name)+'</b><br><span class="meta">'+escapeHtml(x.serial_number||'')+'</span></td><td>'+escapeHtml(x.category||'—')+'</td><td>'+(x.owned?'<span class="pill">Owned</span>':'<span class="pill">Rental / external</span>')+'</td><td>'+statusPill(x.status||'Available')+'</td><td>'+money(x.purchase_cost||0)+'</td><td>'+Number(x.active_allocations||0)+'</td><td class="row-actions"><button class="icon-btn edit" data-edit-equip="'+x.id+'">✎</button><button class="icon-btn" data-maint-equip="'+x.id+'">Maintenance</button><button class="icon-btn" data-history-equip="'+x.id+'">History</button><button class="icon-btn del" data-del-equip="'+x.id+'">✕</button></td></tr>').join('')||'<tr><td colspan="7" class="empty">No equipment yet.</td></tr>')+'</tbody></table></div>';
+  const catOptions=sel=>['Camera','Lens','Drone','Lighting','Audio','Stabilizer','Other'].map(c=>'<option '+(c===sel?'selected':'')+'>'+c+'</option>').join('');
+  const form=x=>'<form><div class="field"><label>Name</label><input name="name" value="'+escapeHtml(x?.name||'')+'" required></div><div class="field"><label>Category</label><select name="category">'+catOptions(x?.category)+'</select></div><div class="field"><label>Serial number</label><input name="serial_number" value="'+escapeHtml(x?.serial_number||'')+'"></div><div class="field"><label><input type="checkbox" name="owned" '+(x?.owned!==false?'checked':'')+' style="width:auto"> Owned inventory</label></div><div class="field"><label>Purchase date</label><input type="date" name="purchase_date" value="'+escapeHtml(x?.purchase_date||'')+'"></div><div class="field"><label>Purchase cost (₹)</label><input type="number" name="purchase_cost" value="'+Number(x?.purchase_cost||0)+'"></div><div class="field"><label>Vendor</label><input name="vendor_name" value="'+escapeHtml(x?.vendor_name||'')+'"></div><div class="field"><label>Bill number</label><input name="bill_number" value="'+escapeHtml(x?.bill_number||'')+'"></div><div class="field"><label>Notes</label><textarea name="notes">'+escapeHtml(x?.notes||'')+'</textarea></div><button type="submit">Save equipment</button></form>';
+  setPrimaryAction(()=>openModal('Add equipment',form(null),async(data,frm)=>{data.owned=frm.querySelector('[name=owned]').checked;await api('/equipment',{method:'POST',body:JSON.stringify(data)});toast('Equipment added');renderEquipment();}));
+  main.querySelectorAll('[data-edit-equip]').forEach(b=>b.addEventListener('click',()=>{const x=equipment.find(e=>String(e.id)===b.dataset.editEquip);openModal('Edit equipment',form(x),async(data,frm)=>{data.owned=frm.querySelector('[name=owned]').checked;await api('/equipment/'+x.id,{method:'POST',body:JSON.stringify(data)});toast('Equipment updated');renderEquipment();});}));
+  main.querySelectorAll('[data-maint-equip]').forEach(b=>b.addEventListener('click',()=>openModal('Record maintenance','<form><div class="field"><label>Maintenance date</label><input type="date" name="maintenance_date"></div><div class="field"><label>Vendor</label><input name="vendor_name"></div><div class="field"><label>Cost (₹)</label><input type="number" name="amount" value="0"></div><div class="field"><label>Next due date</label><input type="date" name="next_due_date"></div><div class="field"><label>Notes</label><textarea name="notes"></textarea></div><button type="submit">Save maintenance</button></form>',async data=>{await api('/equipment/'+b.dataset.maintEquip+'/maintenance',{method:'POST',body:JSON.stringify(data)});toast('Maintenance recorded');renderEquipment();})));
+  main.querySelectorAll('[data-history-equip]').forEach(b=>b.addEventListener('click',async()=>{const h=await api('/equipment/'+b.dataset.historyEquip+'/history');openModal('Equipment history','<div class="card"><h3>Procurement</h3>'+((h.procurements||[]).map(x=>'<div class="list-row"><span>'+escapeHtml(x.purchase_date||'')+' · '+escapeHtml(x.vendor_name||'')+'</span><b>'+money(x.amount)+'</b></div>').join('')||'<div class="empty">None</div>')+'</div><div class="card"><h3>Maintenance</h3>'+((h.maintenance||[]).map(x=>'<div class="list-row"><span>'+escapeHtml(x.maintenance_date||'')+' · '+escapeHtml(x.vendor_name||'')+'</span><b>'+money(x.amount)+'</b></div>').join('')||'<div class="empty">None</div>')+'</div><div class="card"><h3>Event allocations</h3>'+((h.allocations||[]).map(x=>'<div class="list-row"><span>'+escapeHtml(x.event_type||'Event')+' · '+escapeHtml(x.account_name||'')+' · '+escapeHtml(x.work_title||'')+'</span><span class="pill">'+escapeHtml(x.allocation_type||'Owned')+'</span></div>').join('')||'<div class="empty">None</div>')+'</div>',()=>{});}));
+  main.querySelectorAll('[data-del-equip]').forEach(b=>b.addEventListener('click',()=>confirmDelete('Delete this equipment? It cannot be deleted while allocated.',`/equipment/${b.dataset.delEquip}/delete`,renderEquipment)));
 }
-
 
 async function renderExpenses() {
   const [expenses, accounts] = await Promise.all([api("/expenses"), api("/accounts")]);

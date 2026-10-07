@@ -168,7 +168,7 @@ export async function selectQuotePackage(request, env, token) {
   if(!optionId) return badRequest("option_id is required");
   const quote=await env.DB.prepare(`SELECT id,status FROM lead_quotes WHERE token=?`).bind(token).first();
   if(!quote) return notFound("invalid or expired quote link");
-  if(["Accepted","Rejected","Expired","Cancelled"].includes(quote.status)) return badRequest("this Quote is no longer adjustable");
+  if(["Finalized","Accepted","Rejected","Expired","Cancelled","Won"].includes(quote.status)) return badRequest("this Quote is no longer adjustable");
   const option=await env.DB.prepare(`SELECT id,package_id FROM quote_package_options WHERE id=? AND quote_id=?`).bind(optionId,quote.id).first();
   if(!option) return notFound("package option not found");
   const sessionKey=String(body?.session_key||"").slice(0,120)||null;
@@ -229,7 +229,7 @@ export async function toggleQuoteItem(request, env, token) {
   if (!body || !body.item_id || body.selected === undefined) return badRequest("item_id and selected are required");
   const quote = await env.DB.prepare(`SELECT id FROM lead_quotes WHERE token = ?`).bind(token).first();
   if (!quote) return notFound("invalid or expired quote link");
-  if(["Accepted","Rejected","Expired","Cancelled"].includes(quote.status)) return badRequest("this Quote is no longer adjustable");
+  if(["Finalized","Accepted","Rejected","Expired","Cancelled","Won"].includes(quote.status)) return badRequest("this Quote is no longer adjustable");
   const item = await env.DB.prepare(`SELECT * FROM quote_items WHERE id = ? AND quote_id = ?`).bind(body.item_id, quote.id).first();
   if (!item) return notFound("item not found on this quote");
   if (!item.is_addon) return badRequest("this item isn't adjustable");
