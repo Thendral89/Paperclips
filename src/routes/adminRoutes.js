@@ -1155,12 +1155,12 @@ export async function rebuildEventOperations(env,eventId) {
   const event=await env.DB.prepare("SELECT id,start_date,end_date,event_date FROM events WHERE id=?").bind(eventId).first();
   if(!event) return;
   const required=(await env.DB.prepare(`
-    SELECT DISTINCT ss.skill_id,s.label,s.workflow_phase,s.start_offset_days,s.due_offset_days
+    SELECT DISTINCT es.service_id,ss.skill_id,s.label,s.workflow_phase,s.start_offset_days,s.due_offset_days
     FROM event_services es JOIN service_skills ss ON ss.service_id=es.service_id
     JOIN skills s ON s.id=ss.skill_id AND s.active=1
     WHERE es.event_id=? AND es.service_id IS NOT NULL
     UNION
-    SELECT DISTINCT ss.skill_id,s.label,s.workflow_phase,s.start_offset_days,s.due_offset_days
+    SELECT DISTINCT pi.service_id,ss.skill_id,s.label,s.workflow_phase,s.start_offset_days,s.due_offset_days
     FROM event_services es JOIN package_items pi ON pi.package_id=es.package_id
     JOIN service_skills ss ON ss.service_id=pi.service_id
     JOIN skills s ON s.id=ss.skill_id AND s.active=1
@@ -1174,32 +1174,64 @@ export async function rebuildEventOperations(env,eventId) {
       .bind(eventId,skill.label,skill.skill_id,skill.workflow_phase,event.start_date||event.event_date,null).run();
   }
 
+  const existingGenerated=(await env.DB.prepare(`
+    SELECT item,phase,template_id,generated_source,done FROM event_checklist
+    WHERE event_id=? AND generated_source IS NOT NULL
+  `).bind(eventId).all()).results;
+  const completed=new Set(existingGenerated.filter(x=>Number(x.done)===1).map(x=>
+    [x.generated_source||"",x.template_id||"",x.item||"",x.phase||""].join("|")
+  ));
   await env.DB.prepare("DELETE FROM event_checklist WHERE event_id=? AND generated_source IS NOT NULL").bind(eventId).run();
-  const templates=(await env.DB.prepare(`SELECT id,item,phase FROM checklist_templates WHERE active=1 AND service_id IS NULL AND skill_id IS NULL ORDER BY phase,sort_order,id`).all()).results;
-  for(const t of templates){
-    await env.DB.prepare("INSERT INTO event_checklist(event_id,item,done,phase,template_id,generated_source) VALUES(?,?,0,?,?,?)").bind(eventId,t.item,t.phase,t.id,'template').run();
+
+  const insertChecklist=async(item,phase,templateId,source)=>{
+    const key=[source||"",templateId||"",item||"",phase||""].join("|");
+    await env.DB.prepare("INSERT INTO event_checklist(event_id,item,done,phase,template_id,generated_source) VALUES(?,?,?,?,?,?)")
+      .bind(eventId,item,completed.has(key)?1:0,phase,templateId||null,source).run();
+  };
+
+  const globalTemplates=(await env.DB.prepare(`
+    SELECT id,item,phase FROM checklist_templates
+    WHERE active=1 AND service_id IS NULL AND skill_id IS NULL
+    ORDER BY phase,sort_order,id
+  `).all()).results;
+  for(const t of globalTemplates) await insertChecklist(t.item,t.phase,t.id,"template");
+
+  const serviceIds=[...new Set(required.map(x=>Number(x.service_id)).filter(Number.isInteger))];
+  if(serviceIds.length){
+    const placeholders=serviceIds.map(()=>"?").join(",");
+    const serviceTemplates=(await env.DB.prepare(`
+      SELECT id,item,phase,service_id FROM checklist_templates
+      WHERE active=1 AND service_id IN (${placeholders})
+      ORDER BY phase,sort_order,id
+    `).bind(...serviceIds).all()).results;
+    for(const t of serviceTemplates) await insertChecklist(t.item,t.phase,t.id,"service-template");
   }
-  for(const skill of required){
-    const matches=(await env.DB.prepare("SELECT id,item,phase FROM checklist_templates WHERE active=1 AND skill_id=? ORDER BY sort_order,id").bind(skill.skill_id).all()).results;
-    for(const t of matches){
-      await env.DB.prepare("INSERT INTO event_checklist(event_id,item,done,phase,template_id,generated_source) VALUES(?,?,0,?,?,?)").bind(eventId,t.item,t.phase,t.id,'skill-template').run();
-    }
-    const item='Assign resource: '+skill.label;
-    const exists=await env.DB.prepare("SELECT 1 FROM event_checklist WHERE event_id=? AND generated_source='skill-readiness' AND item=? LIMIT 1").bind(eventId,item).first();
-    if(!exists) await env.DB.prepare("INSERT INTO event_checklist(event_id,item,done,phase,generated_source) VALUES(?,?,0,?,?)").bind(eventId,item,skill.workflow_phase,'skill-readiness').run();
+
+  const skillIds=[...new Set(required.map(x=>Number(x.skill_id)).filter(Number.isInteger))];
+  if(skillIds.length){
+    const placeholders=skillIds.map(()=>"?").join(",");
+    const skillTemplates=(await env.DB.prepare(`
+      SELECT id,item,phase,skill_id FROM checklist_templates
+      WHERE active=1 AND skill_id IN (${placeholders})
+      ORDER BY phase,sort_order,id
+    `).bind(...skillIds).all()).results;
+    for(const t of skillTemplates) await insertChecklist(t.item,t.phase,t.id,"skill-template");
   }
+
+  for(const skill of required) await insertChecklist("Assign resource: "+skill.label,skill.workflow_phase,null,"skill-readiness");
 
   const allocations=(await env.DB.prepare(`SELECT era.id,era.start_source,era.due_source,s.start_offset_days,s.due_offset_days,era.start_at,era.end_at
     FROM event_resource_allocations era JOIN skills s ON s.id=era.skill_id
     WHERE era.event_id=? AND era.generated_from_skill=1`).bind(eventId).all()).results;
   const base=event.start_date||event.event_date;
-  const dateOffset=(date,days)=>{if(!date)return null;const d=new Date(date+'T00:00:00Z');d.setUTCDate(d.getUTCDate()+Number(days||0));return d.toISOString().slice(0,10);};
+  const dateOffset=(date,days)=>{if(!date)return null;const d=new Date(date+"T00:00:00Z");d.setUTCDate(d.getUTCDate()+Number(days||0));return d.toISOString().slice(0,10);};
   for(const a of allocations){
-    const start=a.start_source==='skill-rule'?dateOffset(base,a.start_offset_days):a.start_at?.slice(0,10);
-    const due=a.due_source==='skill-rule'?dateOffset(base,a.due_offset_days):a.end_at?.slice(0,10);
-    const st=start?(start+'T'+(a.start_at?.slice(11,16)||'09:00')):null;
-    const en=due?(due+'T'+(a.end_at?.slice(11,16)||'18:00')):null;
-    await env.DB.prepare("UPDATE event_resource_allocations SET start_at=?,end_at=?,allocation_date=?,start_time=?,end_time=?,updated_at=datetime('now') WHERE id=?").bind(st,en,st?.slice(0,10)||null,st?.slice(11,16)||null,en?.slice(11,16)||null,a.id).run();
+    const start=a.start_source==="skill-rule"?dateOffset(base,a.start_offset_days):a.start_at?.slice(0,10);
+    const due=a.due_source==="skill-rule"?dateOffset(base,a.due_offset_days):a.end_at?.slice(0,10);
+    const st=start?(start+"T"+(a.start_at?.slice(11,16)||"09:00")):null;
+    const en=due?(due+"T"+(a.end_at?.slice(11,16)||"18:00")):null;
+    await env.DB.prepare("UPDATE event_resource_allocations SET start_at=?,end_at=?,allocation_date=?,start_time=?,end_time=?,updated_at=datetime('now') WHERE id=?")
+      .bind(st,en,st?.slice(0,10)||null,st?.slice(11,16)||null,en?.slice(11,16)||null,a.id).run();
   }
 }
 
