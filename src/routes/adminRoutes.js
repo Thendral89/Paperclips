@@ -1151,7 +1151,7 @@ export async function setEventTier(request, env, id) {
   return json({ ok: true });
 }
 
-async function rebuildEventOperations(env,eventId) {
+export async function rebuildEventOperations(env,eventId) {
   const event=await env.DB.prepare("SELECT id,start_date,end_date,event_date FROM events WHERE id=?").bind(eventId).first();
   if(!event) return;
   const required=(await env.DB.prepare(`
