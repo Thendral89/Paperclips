@@ -1205,7 +1205,12 @@ export async function getEvent(request, env, id) {
   const staffCost = links.results.reduce((s, l) => s + (l.cost || 0), 0);
   const vendorCost = vendors.results.reduce((s, v) => s + (v.cost || 0), 0);
   const expenseCost = expenseRowsFull.results.reduce((s, e) => s + (e.amount || 0), 0);
-  const resourceCost = resources.results.reduce((s, r) => s + (Number(r.cost) || 0), 0);
+  const resourceEstimatedCost = resources.results.reduce((s,r)=>s + Number(r.original_estimate ?? r.cost ?? 0),0);
+  const resourceActualCost = resources.results.reduce((s,r)=>{
+    const external=String(r.resource_type||"").toLowerCase().includes("external") || String(r.resource_type||"").toLowerCase().includes("vendor");
+    return s + (Number(r.actual_paid||0)>0 ? Number(r.actual_paid) : external ? Number(r.revised_estimate ?? r.cost ?? 0) : Number(r.cost||0));
+  },0);
+  const resourceCost = resourceActualCost;
   const total_cost = staffCost + resourceCost + vendorCost + expenseCost;
 
   return json({
@@ -1224,7 +1229,7 @@ export async function getEvent(request, env, id) {
     resources: resources.results,
     resource_requirements: resourceRequirements.results,
     quote_history: quoteHistory.results,
-    cost_breakdown: { staff: staffCost, resources: resourceCost, vendors: vendorCost, expenses: expenseCost, total: total_cost },
+    cost_breakdown: { staff: staffCost, resources: resourceCost, resource_estimated: resourceEstimatedCost, resource_actual: resourceActualCost, vendors: vendorCost, expenses: expenseCost, total: total_cost },
     profit: event.quote_total - total_cost,
   });
 }
