@@ -151,6 +151,7 @@ ALTER TABLE event_resource_allocations ADD COLUMN revised_estimate INTEGER;
 ALTER TABLE event_resource_allocations ADD COLUMN actual_paid INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE event_resource_allocations ADD COLUMN payment_date TEXT;
 ALTER TABLE event_resource_allocations ADD COLUMN cost_notes TEXT;
+UPDATE event_resource_allocations SET start_at=COALESCE(start_at,CASE WHEN allocation_date IS NOT NULL AND start_time IS NOT NULL THEN allocation_date||'T'||start_time END), end_at=COALESCE(end_at,CASE WHEN allocation_date IS NOT NULL AND end_time IS NOT NULL THEN allocation_date||'T'||end_time END), original_estimate=COALESCE(original_estimate,cost,0), actual_paid=COALESCE(actual_paid,0) WHERE start_at IS NULL OR end_at IS NULL OR original_estimate IS NULL OR actual_paid IS NULL;
 CREATE INDEX IF NOT EXISTS idx_event_resource_work_item
   ON event_resource_allocations(work_item_id,phase,status);
 CREATE INDEX IF NOT EXISTS idx_event_resource_conflict
