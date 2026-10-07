@@ -724,7 +724,7 @@ const ACTIVITY_ICON = { Call: "📞", WhatsApp: "💬", Email: "✉️", Meeting
 async function openConvertModal(id, lead) {
   const p = await api(`/leads/${id}/convert-preview`);
   if (p.already_converted) { go("accountDetail", p.account_id); return; }
-  openModal("Create account — review before converting", `
+  openModal("Create client — review before converting", `
     <p class="empty" style="margin-top:-6px;">This lead is Closed Won. Confirm the details below to create the client record — catches the case where this is actually a repeat/referral for someone already in Accounts.</p>
     <form>
       <div class="field"><label>Name</label><input name="name" value="${p.name}" required></div>
@@ -734,11 +734,11 @@ async function openConvertModal(id, lead) {
       </div>
       <div class="field"><label>Address</label><input name="address" placeholder="Optional"></div>
       <div class="field"><label>Notes carried to account</label><textarea name="notes" rows="2">${p.notes || ""}</textarea></div>
-      <button type="submit" style="width:100%;">Create account</button>
+      <button type="submit" style="width:100%;">Create client</button>
     </form>
   `, async data => {
     const r = await api(`/leads/${id}/convert`, { method: "POST", body: JSON.stringify(data) });
-    toast("Account created");
+    toast("Client created");
     go("accountDetail", r.account_id);
   });
 }
@@ -784,8 +784,8 @@ async function renderLeadDetail(id) {
         </div>
         <div class="field"><label>Lead outcome</label><select id="outcomeSel"><option value="">No outcome</option>${LEAD_OUTCOMES.map(v=>`<option value="${v}" ${v===l.stage?"selected":""}>${v}</option>`).join("")}</select></div><div class="field"><label>Next follow-up</label><input id="fuDate" type="date" value="${l.next_follow_up_date || ""}"></div>
         ${l.account_id
-          ? `<a class="btn" style="text-decoration:none;display:inline-block" data-acct="${l.account_id}">View account →</a>`
-          : `<button id="convertBtn">Create account</button> <button type="button" class="ghost" id="deleteLeadBtn">Delete lead</button>`}
+          ? `<a class="btn" style="text-decoration:none;display:inline-block" data-acct="${l.account_id}">View client →</a>`
+          : `<button id="convertBtn">Create client</button> <button type="button" class="ghost" id="deleteLeadBtn">Delete lead</button>`}
       </div>
       <div class="card">
         <h2>Quotes ${engaged ? '<span class="pill" style="background:var(--critical-soft);color:var(--critical)">high interest</span>' : ""} <button class="icon-btn" id="newQuoteBtn">+ New quote</button></h2>
