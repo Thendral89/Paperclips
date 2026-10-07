@@ -782,7 +782,7 @@ async function renderLeadDetail(id) {
             ${LEAD_STAGES.map(([v,label]) => `<option value="${v}" ${v===l.stage?"selected":""}>${label}</option>`).join("")}
           </select>
         </div>
-        <div class="field"><label>Next follow-up</label><input id="fuDate" type="date" value="${l.next_follow_up_date || ""}"></div>
+        <div class="field"><label>Lead outcome</label><select id="outcomeSel"><option value="">No outcome</option>${LEAD_OUTCOMES.map(v=>`<option value="${v}" ${v===l.stage?"selected":""}>${v}</option>`).join("")}</select></div><div class="field"><label>Next follow-up</label><input id="fuDate" type="date" value="${l.next_follow_up_date || ""}"></div>
         ${l.account_id
           ? `<a class="btn" style="text-decoration:none;display:inline-block" data-acct="${l.account_id}">View account →</a>`
           : `<button id="convertBtn">Create account</button> <button type="button" class="ghost" id="deleteLeadBtn">Delete lead</button>`}
@@ -829,6 +829,7 @@ async function renderLeadDetail(id) {
     if (stage === "Won" && !l.account_id) { await openConvertModal(id, l); return; }
     renderLeadDetail(id);
   });
+  main.querySelector("#outcomeSel").addEventListener("change", async e => { const stage=e.target.value; if(!stage) return; const lost_reason=prompt(`Reason for ${stage}? (e.g. Budget, Date conflict, Chose competitor, Went silent)`); if(!lost_reason){ renderLeadDetail(id); return; } await api(`/leads/${id}/stage`, { method:"POST", body:JSON.stringify({stage,lost_reason}) }); renderLeadDetail(id); });
   main.querySelector("#fuDate").addEventListener("change", async e => { await api(`/leads/${id}/followup`, { method: "POST", body: JSON.stringify({ date: e.target.value }) }); toast("Follow-up date saved"); });
   const convertBtn = main.querySelector("#convertBtn");
   if (convertBtn) convertBtn.addEventListener("click", () => openConvertModal(id, l));
