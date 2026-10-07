@@ -34,8 +34,8 @@ CREATE INDEX IF NOT EXISTS idx_lead_quotes_lifecycle ON lead_quotes(lead_id,stat
 ALTER TABLE bookings ADD COLUMN quote_snapshot_json TEXT;
 ALTER TABLE bookings ADD COLUMN finalized_quote_total INTEGER NOT NULL DEFAULT 0;
 
--- 6. Contacts copied from Lead to Client retain their role/primary semantics.
-ALTER TABLE contacts ADD COLUMN role TEXT;
+-- 6. Contacts already support role/is_primary in the existing schema.
+-- Lead contacts are stored separately and copied into those existing columns.
 
 -- 7. Ensure every migrated quote has a sensible version.
 UPDATE lead_quotes SET version=1 WHERE version IS NULL OR version < 1;
