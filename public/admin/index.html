@@ -827,7 +827,7 @@ async function renderLeadDetail(id) {
     }
     await api(`/leads/${id}/stage`, { method: "POST", body: JSON.stringify({ stage, lost_reason }) });
     toast("Stage updated");
-    if (stage === "Won" && !l.account_id) { await openConvertModal(id, l); return; }
+    if (stage === "Won") { if (!l.account_id) { await openConvertModal(id, l); return; } const conversion=await api(`/leads/${id}/convert`,{method:"POST",body:"{}"}); toast(conversion.event_id?"Client and Event created":"Lead converted"); if(conversion.event_id){go("eventDetail",conversion.event_id);return;} }
     renderLeadDetail(id);
   });
   main.querySelector("#outcomeSel").addEventListener("change", async e => { const stage=e.target.value; if(!stage) return; const lost_reason=prompt(`Reason for ${stage}? (e.g. Budget, Date conflict, Chose competitor, Went silent)`); if(!lost_reason){ renderLeadDetail(id); return; } await api(`/leads/${id}/stage`, { method:"POST", body:JSON.stringify({stage,lost_reason}) }); renderLeadDetail(id); });
