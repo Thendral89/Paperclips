@@ -513,7 +513,7 @@ export async function createQuote(request, env, id) {
 
 export async function listQuotes(request, env) {
   const { results } = await env.DB.prepare(`
-    SELECT q.id,q.lead_id,q.status,q.concession_amount,q.created_at,q.updated_at,
+    SELECT q.id,q.lead_id,q.status,q.version,q.revision_of_quote_id,q.finalized_at,q.finalized_by,q.concession_amount,q.created_at,q.updated_at,
            l.name AS lead_name,l.phone AS lead_phone,l.event_type,l.event_date,
            CASE WHEN EXISTS(SELECT 1 FROM quote_package_options o WHERE o.quote_id=q.id)
              THEN COALESCE((SELECT o.price FROM quote_package_options o WHERE o.quote_id=q.id AND o.selected=1 LIMIT 1),0)
@@ -532,7 +532,7 @@ export async function listQuotes(request, env) {
 export async function getQuote(request, env, quoteId) {
   const { quote, items, options, subtotal, total } = await computeQuoteTotals(env, quoteId);
   if (!quote) return notFound("quote not found");
-  const lead = await env.DB.prepare(`SELECT name, event_type FROM leads WHERE id = ?`).bind(quote.lead_id).first();
+  const lead = await env.DB.prepare(`SELECT name, event_type, event_date, venue FROM leads WHERE id = ?`).bind(quote.lead_id).first();
   const [views,commentsResult,engagement,packageEngagement] = await Promise.all([
     env.DB.prepare(`SELECT viewed_at FROM quote_views WHERE quote_id = ? ORDER BY viewed_at DESC LIMIT 20`).bind(quoteId).all(),
     env.DB.prepare(`SELECT author, author_name, message, created_at FROM quote_comments WHERE quote_id = ? ORDER BY created_at ASC`).bind(quoteId).all(),
@@ -575,12 +575,56 @@ export async function addStaffQuoteComment(request, env, quoteId, staff) {
   return json({ ok: true }, { status: 201 });
 }
 
+export async function finalizeQuote(request, env, quoteId, staff) {
+  const quote=await env.DB.prepare("SELECT * FROM lead_quotes WHERE id=?").bind(quoteId).first();
+  if(!quote) return notFound("quote not found");
+  if(["Finalized","Accepted","Won"].includes(quote.status)) return badRequest("this Quote is already finalized");
+  if(["Rejected","Expired","Cancelled"].includes(quote.status)) return badRequest("this Quote cannot be finalized from its current status");
+  const totals=await computeQuoteTotals(env,quoteId);
+  await env.DB.prepare(`UPDATE lead_quotes SET status='Finalized',finalized_at=datetime('now'),finalized_by=?,updated_at=datetime('now') WHERE id=?`)
+    .bind(staff?.email||null,quoteId).run();
+  await logActivity(env,quote.lead_id,"Quote finalized",`Quote QT-${String(quote.id).padStart(4,"0")} v${quote.version||1} finalized`,staff?.email);
+  return json({ok:true,status:"Finalized",total:totals.total,version:quote.version||1});
+}
+
+export async function reviseQuote(request, env, quoteId, staff) {
+  const quote=await env.DB.prepare("SELECT * FROM lead_quotes WHERE id=?").bind(quoteId).first();
+  if(!quote) return notFound("quote not found");
+  if(!["Finalized","Accepted","Won"].includes(quote.status)) return badRequest("Only a finalized quote can be revised");
+  const maxVersion=await env.DB.prepare("SELECT MAX(version) AS version FROM lead_quotes WHERE lead_id=?").bind(quote.lead_id).first();
+  const nextVersion=Number(maxVersion?.version||quote.version||1)+1;
+  const token=makeToken();
+  const qr=await env.DB.prepare(`INSERT INTO lead_quotes(
+    lead_id,token,pricing_tier_id,concession_amount,concession_note,status,valid_until,version,revision_of_quote_id
+  ) VALUES(?,?,?,?,?,?,?,?,?)`).bind(
+    quote.lead_id,token,quote.pricing_tier_id||null,quote.concession_amount||0,quote.concession_note||null,"Draft",quote.valid_until||null,nextVersion,quote.id
+  ).run();
+  const newId=qr.meta.last_row_id;
+  const options=(await env.DB.prepare("SELECT * FROM quote_package_options WHERE quote_id=? ORDER BY sort_order,id").bind(quoteId).all()).results;
+  for(const o of options){
+    await env.DB.prepare(`INSERT INTO quote_package_options(quote_id,package_id,label,price,details_json,selected,sort_order) VALUES(?,?,?,?,?,?,?)`)
+      .bind(newId,o.package_id,o.label,o.price,o.details_json,o.selected,o.sort_order).run();
+  }
+  const newOptions=(await env.DB.prepare("SELECT * FROM quote_package_options WHERE quote_id=? ORDER BY sort_order,id").bind(newId).all()).results;
+  const oldItems=(await env.DB.prepare("SELECT * FROM quote_items WHERE quote_id=? ORDER BY id").bind(quoteId).all()).results;
+  for(const item of oldItems){
+    const oldOpt=item.quote_package_option_id ? options.find(o=>Number(o.id)===Number(item.quote_package_option_id)) : null;
+    const newOpt=oldOpt ? newOptions.find(o=>Number(o.sort_order)===Number(oldOpt.sort_order)) : null;
+    await env.DB.prepare(`INSERT INTO quote_items(quote_id,service_id,package_id,quote_package_option_id,label,price,is_addon,selected,quantity)
+      VALUES(?,?,?,?,?,?,?,?,?)`).bind(
+      newId,item.service_id||null,item.package_id||null,newOpt?.id||null,item.label,item.price,item.is_addon,item.selected,item.quantity||1
+    ).run();
+  }
+  await logActivity(env,quote.lead_id,"Quote revised",`Revision created: QT-${String(newId).padStart(4,"0")} v${nextVersion} from v${quote.version||1}`,staff?.email);
+  return json({ok:true,id:newId,version:nextVersion,status:"Draft"},{status:201});
+}
+
 export async function updateQuote(request, env, quoteId) {
   const body = await request.json().catch(() => null);
   if (!body) return badRequest("no fields given");
   const quote = await env.DB.prepare(`SELECT * FROM lead_quotes WHERE id = ?`).bind(quoteId).first();
   if (!quote) return notFound("quote not found");
-  if(["Accepted","Rejected","Expired","Cancelled"].includes(quote.status)) return badRequest("this Quote is locked and cannot be changed");
+  if(["Finalized","Accepted","Won","Rejected","Expired","Cancelled"].includes(quote.status)) return badRequest("this Quote is locked and cannot be changed");
   const concession_amount = body.concession_amount !== undefined ? Number(body.concession_amount) : quote.concession_amount;
   if(!Number.isFinite(concession_amount) || concession_amount<0) return badRequest("concession_amount must be a valid non-negative number");
   const concession_note = body.concession_note !== undefined ? body.concession_note || null : quote.concession_note;
@@ -656,7 +700,7 @@ export async function addQuoteItem(request, env, quoteId) {
 export async function removeQuotePackageOption(request, env, optionId) {
   const option=await env.DB.prepare(`SELECT o.id,o.quote_id,q.status FROM quote_package_options o JOIN lead_quotes q ON q.id=o.quote_id WHERE o.id=?`).bind(optionId).first();
   if(!option) return notFound("package option not found");
-  if(["Accepted","Rejected","Expired","Cancelled"].includes(option.status)) return badRequest("this Quote is locked and cannot be changed");
+  if(["Finalized","Accepted","Won","Rejected","Expired","Cancelled"].includes(option.status)) return badRequest("this Quote is locked and cannot be changed");
   await env.DB.prepare("DELETE FROM quote_package_options WHERE id=?").bind(optionId).run();
   const remaining=await env.DB.prepare("SELECT id FROM quote_package_options WHERE quote_id=? ORDER BY sort_order,id").bind(option.quote_id).all();
   if(remaining.results.length && !(await env.DB.prepare("SELECT id FROM quote_package_options WHERE quote_id=? AND selected=1").bind(option.quote_id).first()))
@@ -668,7 +712,7 @@ export async function updateQuoteItem(request, env, itemId) {
   const body=await request.json().catch(()=>null);
   const item=await env.DB.prepare(`SELECT qi.*,q.status FROM quote_items qi JOIN lead_quotes q ON q.id=qi.quote_id WHERE qi.id=?`).bind(itemId).first();
   if(!item) return notFound("quote item not found");
-  if(["Accepted","Rejected","Expired","Cancelled"].includes(item.status)) return badRequest("this Quote is locked and cannot be changed");
+  if(["Finalized","Accepted","Won","Rejected","Expired","Cancelled"].includes(item.status)) return badRequest("this Quote is locked and cannot be changed");
   if(body?.price !== undefined && (!Number.isFinite(Number(body.price)))) return badRequest("price must be a valid number");
   const price=body?.price !== undefined ? Number(body.price) : Number(item.price||0);
   const quantity=body?.quantity !== undefined ? Math.max(1,Number(body.quantity)) : Number(item.quantity||1);
