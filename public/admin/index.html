@@ -795,6 +795,7 @@ async function renderLeadDetail(id) {
           </div>`).join("") || '<div class="empty">No quote sent yet — use + New quote once this lead reaches Quoted.</div>'}
       </div>
     </div>
+    <div class="card"><h2>Contacts <button class="icon-btn" id="addLeadContactBtn">+ Add contact</button></h2><div id="leadContactsList">${(l.contacts||[]).map(function(c){return "<div class=\"list-row\"><span><b>"+escapeHtml(c.name)+"</b> "+(c.is_primary?"<span class=\"pill\">Primary</span>":"")+(c.role?" <span class=\"pill\">"+escapeHtml(c.role)+"</span>":"")+"<br><span class=\"meta\">"+escapeHtml([c.phone,c.email].filter(Boolean).join(" · ")||"No contact details")+"</span></span><button class=\"icon-btn del\" data-del-lead-contact=\""+c.id+"\">✕</button></div>";}).join("") || "<div class=\"empty\">No additional contacts yet.</div>"}</div></div>
     <div class="card">
       <h2>Activity <button class="icon-btn" id="logActivityBtn">+ Log activity</button></h2>
       ${l.activities.map(a => `<div style="display:flex;gap:9px;padding:7px 0;border-bottom:1px dashed var(--line);font-size:12.5px;">
@@ -835,6 +836,8 @@ async function renderLeadDetail(id) {
   if (convertBtn) convertBtn.addEventListener("click", () => openConvertModal(id, l));
   const deleteLeadBtn = main.querySelector("#deleteLeadBtn");
   if (deleteLeadBtn) deleteLeadBtn.addEventListener("click", () => confirmDelete("Delete this lead? This can't be undone.", `/leads/${id}/delete`, () => go("leads")));
+  main.querySelector("#addLeadContactBtn").addEventListener("click", () => openModal("Add lead contact", '<form><div class="row2"><div class="field"><label>Name</label><input name="name" required></div><div class="field"><label>Role</label><input name="role"></div></div><div class="row2"><div class="field"><label>Phone</label><input name="phone"></div><div class="field"><label>Email</label><input name="email"></div></div><label><input name="is_primary" type="checkbox"> Primary contact</label><button type="submit">Save contact</button></form>', async data => { data.is_primary=!!data.is_primary; await api("/leads/"+id+"/contacts",{method:"POST",body:JSON.stringify(data)}); renderLeadDetail(id); }));
+  main.querySelectorAll("[data-del-lead-contact]").forEach(el=>el.addEventListener("click",async()=>{if(!confirm("Delete this contact?"))return;await api("/lead-contacts/"+el.dataset.delLeadContact+"/delete",{method:"POST"});renderLeadDetail(id);}));
   main.querySelector("#logActivityBtn").addEventListener("click", () => openModal("Log activity", `
     <form>
       <div class="field"><label>Type</label><select name="activity_type">${ACTIVITY_TYPES.map(t => `<option>${t}</option>`).join("")}</select></div>
