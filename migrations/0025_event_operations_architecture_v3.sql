@@ -46,7 +46,10 @@ ALTER TABLE event_resource_requirements ADD COLUMN generated_by_system INTEGER N
 CREATE INDEX IF NOT EXISTS idx_resource_requirements_generated ON event_resource_requirements(event_id,generated_by_system,skill_id);
 
 -- 4) Allocation records are the canonical operational work records.
-ALTER TABLE event_resource_allocations ADD COLUMN updated_at TEXT NOT NULL DEFAULT (datetime('now'));
+-- D1/SQLite does not allow a non-constant DEFAULT expression on ALTER TABLE ADD COLUMN.
+-- Keep this nullable for legacy rows; application writes explicitly set updated_at.
+ALTER TABLE event_resource_allocations ADD COLUMN updated_at TEXT;
+UPDATE event_resource_allocations SET updated_at=COALESCE(created_at,datetime('now')) WHERE updated_at IS NULL;
 ALTER TABLE event_resource_allocations ADD COLUMN start_source TEXT NOT NULL DEFAULT 'manual';
 ALTER TABLE event_resource_allocations ADD COLUMN due_source TEXT NOT NULL DEFAULT 'manual';
 ALTER TABLE event_resource_allocations ADD COLUMN generated_from_skill INTEGER NOT NULL DEFAULT 0;
