@@ -146,9 +146,11 @@ ALTER TABLE event_resource_allocations ADD COLUMN override_reason TEXT;
 ALTER TABLE event_resource_allocations ADD COLUMN override_note TEXT;
 ALTER TABLE event_resource_allocations ADD COLUMN start_at TEXT;
 ALTER TABLE event_resource_allocations ADD COLUMN end_at TEXT;
-ALTER TABLE event_resource_allocations ADD COLUMN original_estimate INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE event_resource_allocations ADD COLUMN original_estimate INTEGER;
+UPDATE event_resource_allocations SET original_estimate=COALESCE(cost,0) WHERE original_estimate IS NULL;
 ALTER TABLE event_resource_allocations ADD COLUMN revised_estimate INTEGER;
-ALTER TABLE event_resource_allocations ADD COLUMN actual_paid INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE event_resource_allocations ADD COLUMN actual_paid INTEGER;
+UPDATE event_resource_allocations SET actual_paid=0 WHERE actual_paid IS NULL;
 ALTER TABLE event_resource_allocations ADD COLUMN payment_date TEXT;
 ALTER TABLE event_resource_allocations ADD COLUMN cost_notes TEXT;
 UPDATE event_resource_allocations SET start_at=COALESCE(start_at,CASE WHEN allocation_date IS NOT NULL AND start_time IS NOT NULL THEN allocation_date||'T'||start_time END), end_at=COALESCE(end_at,CASE WHEN allocation_date IS NOT NULL AND end_time IS NOT NULL THEN allocation_date||'T'||end_time END), original_estimate=COALESCE(original_estimate,cost,0), actual_paid=COALESCE(actual_paid,0) WHERE start_at IS NULL OR end_at IS NULL OR original_estimate IS NULL OR actual_paid IS NULL;
@@ -159,9 +161,11 @@ CREATE INDEX IF NOT EXISTS idx_event_resource_conflict
 
 -- 4) Existing Equipment remains the reusable inventory master; extend it for asset lifecycle.
 ALTER TABLE equipment ADD COLUMN serial_number TEXT;
-ALTER TABLE equipment ADD COLUMN status TEXT NOT NULL DEFAULT 'Available';
+ALTER TABLE equipment ADD COLUMN status TEXT;
+UPDATE equipment SET status='Available' WHERE status IS NULL OR status='';
 ALTER TABLE equipment ADD COLUMN purchase_date TEXT;
-ALTER TABLE equipment ADD COLUMN purchase_cost INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE equipment ADD COLUMN purchase_cost INTEGER;
+UPDATE equipment SET purchase_cost=0 WHERE purchase_cost IS NULL;
 ALTER TABLE equipment ADD COLUMN last_maintenance_date TEXT;
 ALTER TABLE equipment ADD COLUMN next_maintenance_date TEXT;
 CREATE INDEX IF NOT EXISTS idx_equipment_status
@@ -169,14 +173,17 @@ CREATE INDEX IF NOT EXISTS idx_equipment_status
 
 -- 5) Equipment allocations are tied to Work, not directly to the Event UX.
 ALTER TABLE event_equipment ADD COLUMN work_item_id INTEGER REFERENCES event_work_items(id) ON DELETE SET NULL;
-ALTER TABLE event_equipment ADD COLUMN allocation_type TEXT NOT NULL DEFAULT 'Owned';
+ALTER TABLE event_equipment ADD COLUMN allocation_type TEXT;
+UPDATE event_equipment SET allocation_type=CASE WHEN needs_rental=1 THEN 'Rented' ELSE 'Owned' END WHERE allocation_type IS NULL OR allocation_type='';
 ALTER TABLE event_equipment ADD COLUMN vendor_name TEXT;
-ALTER TABLE event_equipment ADD COLUMN rental_cost INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE event_equipment ADD COLUMN rental_cost INTEGER;
+UPDATE event_equipment SET rental_cost=0 WHERE rental_cost IS NULL;
 ALTER TABLE event_equipment ADD COLUMN rental_start_date TEXT;
 ALTER TABLE event_equipment ADD COLUMN rental_return_due TEXT;
 ALTER TABLE event_equipment ADD COLUMN returned_at TEXT;
 ALTER TABLE event_equipment ADD COLUMN return_condition TEXT;
-ALTER TABLE event_equipment ADD COLUMN allocation_status TEXT NOT NULL DEFAULT 'Reserved';
+ALTER TABLE event_equipment ADD COLUMN allocation_status TEXT;
+UPDATE event_equipment SET allocation_status='Reserved' WHERE allocation_status IS NULL OR allocation_status='';
 ALTER TABLE event_equipment ADD COLUMN override_reason TEXT;
 ALTER TABLE event_equipment ADD COLUMN override_note TEXT;
 ALTER TABLE event_equipment ADD COLUMN allocated_start TEXT;
