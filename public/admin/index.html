@@ -1484,6 +1484,24 @@ async function renderEventDetail(id) {
     </div>`;
   main.insertBefore(eventSummary,shell);
   const er=await api(`/events/${id}/resources`).catch(()=>[]);
+  const timelineCard=document.createElement("div"); timelineCard.className="card";
+  const timelineRows=er.filter(r=>r.phase==="Production"||r.phase==="Post-Production").map(r =>
+    "<tr><td>"+escapeHtml(r.phase)+"</td><td>"+escapeHtml(r.skill_label||"Unspecified skill")+"</td><td>"+escapeHtml(r.resource_name)+"</td><td>"+escapeHtml((r.start_at||"").replace("T"," ")||"—")+"</td><td>"+escapeHtml((r.end_at||"").replace("T"," ")||"—")+"</td><td>"+money(r.cost)+"</td><td>"+statusPill(r.status||"Planned")+"</td></tr>"
+  ).join("");
+  timelineCard.innerHTML="<h2>Operational timeline</h2><p class=\"meta\">Dates are generated from Skill rules unless a manual override was recorded.</p>"+
+    (timelineRows ? "<table><thead><tr><th>Phase</th><th>Skill</th><th>Resource</th><th>Start</th><th>Due</th><th>Cost</th><th>Status</th></tr></thead><tbody>"+timelineRows+"</tbody></table>" :
+    "<div class=\"empty\">No resource work allocated yet. Use Resources to assign the required skills.</div>");
+  panels.timeline.appendChild(timelineCard);
+  const activity=await api(`/events/${id}/activity`).catch(()=>({allocation_history:[]}));
+  const activityCard=document.createElement("div"); activityCard.className="card";
+  activityCard.innerHTML="<h2>Operational history</h2>"+
+    ((activity.allocation_history||[]).map(h =>
+      "<div class=\"list-row\"><span><b>"+escapeHtml(h.action||"Change")+"</b> · "+escapeHtml(h.resource_name||"Resource")+
+      (h.skill_label ? " · "+escapeHtml(h.skill_label) : "")+"<br><span class=\"meta\">"+escapeHtml(h.field_name||"")+" "+
+      escapeHtml(h.old_value||"")+" → "+escapeHtml(h.new_value||"")+" · "+escapeHtml(h.reason||h.note||"No reason recorded")+
+      "</span></span><span class=\"meta\">"+escapeHtml(h.changed_at||"")+"</span></div>"
+    ).join("") || "<div class=\"empty\">No allocation history yet.</div>");
+  panels.activity.appendChild(activityCard);
   const resourceCard=r=>`<div class="resource-card"><b>${escapeHtml(r.resource_name)}</b><div class="meta"><span class="pill">${escapeHtml(r.resource_type||"Person")}</span>${r.skill_label?` · ${escapeHtml(r.skill_label)}`:''}</div><div class="meta">${money(r.cost)}${r.start_at?` · ${r.start_at.replace('T',' ')}`:''}${r.end_at?` → ${r.end_at.replace('T',' ')}`:''}</div><div class="row-actions"><button type="button" class="icon-btn edit" data-edit-event-resource="${r.id}">✎ Edit</button><button type="button" class="icon-btn del" data-del-event-resource="${r.id}">✕ Remove</button></div></div>`;
   document.getElementById('eventResourcesProduction').innerHTML=er.filter(r=>r.phase==='Production').map(resourceCard).join('')||'<div class="empty">No Production resources allocated.</div>';
   document.getElementById('eventResourcesPostProduction').innerHTML=er.filter(r=>r.phase==='Post-Production').map(resourceCard).join('')||'<div class="empty">No Post-Production resources allocated.</div>';
