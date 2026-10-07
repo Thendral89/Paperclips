@@ -674,7 +674,6 @@ export async function reviseEventQuote(request, env, eventId, staff) {
   const event=await env.DB.prepare("SELECT id,quote_id FROM events WHERE id=?").bind(eventId).first();
   if(!event) return notFound("event not found");
   if(!event.quote_id) return badRequest("This event is not linked to a quote");
-  const {reviseQuote}=await import("./adminRoutes.js");
   const result=await reviseQuote(request,env,event.quote_id,staff);
   const payload=await result.json().catch(()=>({}));
   if(!result.ok) return result;
