@@ -120,5 +120,8 @@ SET start_source=CASE WHEN start_at IS NOT NULL THEN 'manual' ELSE start_source 
     updated_at=COALESCE(updated_at,created_at,datetime('now'))
 WHERE generated_from_skill=0;
 
+-- Existing template-backed checklist rows from earlier migrations are derived data and can be safely regenerated.
+UPDATE event_checklist SET generated_source='legacy-template' WHERE template_id IS NOT NULL AND generated_source IS NULL;
+
 -- 11) Existing allocation costs remain authoritative historical values.
 -- New allocations will use Resource Skill Cost -> Skill Default Cost -> 0.
