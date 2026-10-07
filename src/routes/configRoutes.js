@@ -325,6 +325,9 @@ export async function saveEventResource(request, env, eventId) {
   const manualDue=body.end_at!==undefined && body.end_at!==null && body.end_at!=="";
   const startDate=manualStart ? String(body.start_at).slice(0,10) : (existing?.start_at?.slice(0,10)||generatedStart||event.start_date||event.event_date||null);
   const dueDate=manualDue ? String(body.end_at).slice(0,10) : (existing?.end_at?.slice(0,10)||generatedDue||startDate);
+  const startSource=manualStart ? 'manual' : (existing?.start_source || (skill?'skill-rule':'manual'));
+  const dueSource=manualDue ? 'manual' : (existing?.due_source || (skill?'skill-rule':'manual'));
+  const generatedFromSkill=existing ? Number(existing.generated_from_skill||0)===1 || !!skill : !!skill;
   const startTime=manualStart ? String(body.start_at).slice(11,16) : (existing?.start_at?.slice(11,16)||event.start_time||"09:00");
   const dueTime=manualDue ? String(body.end_at).slice(11,16) : (existing?.end_at?.slice(11,16)||event.end_time||"18:00");
   const startAt=startDate ? startDate+"T"+startTime : null;
@@ -369,7 +372,7 @@ export async function saveEventResource(request, env, eventId) {
       WHERE id=? AND event_id=?
     `).bind(resource.id,body.phase,null,skillId,resolvedCost,body.status||existing.status||"Planned",notes,
       startDate,startTime,dueTime,startAt,endAt,original,revised,actual,body.payment_date||existing.payment_date||null,body.cost_notes||existing.cost_notes||null,
-      manualStart?'manual':(skill?'skill-rule':'manual'),manualDue?'manual':(skill?'skill-rule':'manual'),skill?1:0,existingId,eventId).run();
+      startSource,dueSource,generatedFromSkill?1:0,existingId,eventId).run();
 
     const changes=[
       ['resource_id',existing.resource_id,resource.id,null],
@@ -398,7 +401,7 @@ export async function saveEventResource(request, env, eventId) {
       ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,datetime('now'))
     `).bind(eventId,resource.id,body.phase,null,skillId,resolvedCost,body.status||"Planned",notes,
       startDate,startTime,dueTime,startAt,endAt,resolvedCost,revised,actual,body.payment_date||null,body.cost_notes||null,
-      manualStart?'manual':(skill?'skill-rule':'manual'),manualDue?'manual':(skill?'skill-rule':'manual'),skill?1:0).run();
+      startSource,dueSource,generatedFromSkill?1:0).run();
     const allocationId=result.meta.last_row_id;
     await env.DB.prepare(`
       INSERT INTO event_resource_allocation_history(allocation_id,event_id,action,field_name,new_value,reason,note,changed_by)
