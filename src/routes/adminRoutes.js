@@ -1518,7 +1518,7 @@ export async function listChecklistTemplates(request, env) {
   return json(results);
 }
 
-const CHECKLIST_PHASES = ["Pre-wedding", "Wedding day", "Post-wedding"];
+const CHECKLIST_PHASES = ["Pre-Production", "Production", "Post-Production"];
 
 export async function addChecklistTemplateItem(request, env) {
   const body = await request.json().catch(() => null);
@@ -1528,6 +1528,18 @@ export async function addChecklistTemplateItem(request, env) {
   await env.DB.prepare(`INSERT INTO checklist_templates (item, sort_order, phase) VALUES (?, ?, ?)`)
     .bind(body.item, (results[0]?.m || 0) + 1, phase).run();
   return json({ ok: true }, { status: 201 });
+}
+
+export async function updateChecklistTemplateItem(request, env, itemId) {
+  const body = await request.json().catch(() => null);
+  const item = await env.DB.prepare(`SELECT * FROM checklist_templates WHERE id=?`).bind(itemId).first();
+  if(!item) return notFound("checklist template item not found");
+  const phase = CHECKLIST_PHASES.includes(body?.phase) ? body.phase : item.phase;
+  const sortOrder = body?.sort_order !== undefined ? Number(body.sort_order) : Number(item.sort_order||0);
+  if(!Number.isFinite(sortOrder)) return badRequest("sort_order must be numeric");
+  await env.DB.prepare(`UPDATE checklist_templates SET item=?,phase=?,sort_order=?,active=? WHERE id=?`)
+    .bind(String(body?.item||item.item).trim(),phase,sortOrder,body?.active===false?0:1,itemId).run();
+  return json({ok:true});
 }
 
 export async function removeChecklistTemplateItem(request, env, itemId) {
