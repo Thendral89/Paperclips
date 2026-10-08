@@ -1,5 +1,5 @@
 import { json, badRequest, notFound } from "../lib/util.js";
-import { rebuildEventOperations, initializeEventWork } from "./adminRoutes.js";
+import { rebuildEventOperations, initializeEventWork, ensureClientContacts } from "./adminRoutes.js";
 
 function parseQty(label) {
   const s=String(label||"");
@@ -106,6 +106,12 @@ export async function convertAcceptedQuote(request, env, quoteId) {
     ).bind(q.lead_id,q.lead_name,q.phone||null,q.email||null,"Created from accepted quote").run();
     accountId=ar.meta.last_row_id;
   }
+  await ensureClientContacts(env, accountId, {
+    id:q.lead_id,
+    name:q.lead_name,
+    phone:q.phone||null,
+    email:q.email||null
+  });
 
   const selected=await env.DB.prepare(
     "SELECT * FROM quote_package_options WHERE quote_id=? AND selected=1 ORDER BY id LIMIT 1"

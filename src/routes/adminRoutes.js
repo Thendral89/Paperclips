@@ -399,6 +399,29 @@ export async function deleteLead(request, env, id) {
 // creates nothing. Lets staff review/correct before the account is made,
 // catching the case where this lead is actually a repeat/referral for a
 // customer who already has an account.
+export async function ensureClientContacts(env, accountId, lead) {
+  const leadContacts=(await env.DB.prepare(`SELECT name,role,phone,email,is_primary FROM lead_contacts WHERE lead_id=? ORDER BY is_primary DESC,id`).bind(lead.id).all()).results||[];
+  const source=[
+    {name:lead.name,role:"Primary",phone:lead.phone||null,email:lead.email||null,is_primary:1},
+    ...leadContacts.map(c=>({name:c.name,role:c.role||"Secondary",phone:c.phone||null,email:c.email||null,is_primary:Number(c.is_primary)===1?1:0}))
+  ];
+  const existing=(await env.DB.prepare(`SELECT id,name,phone,email,is_primary FROM contacts WHERE account_id=? ORDER BY is_primary DESC,id`).bind(accountId).all()).results||[];
+  for(const contact of source){
+    const duplicate=existing.find(x=>
+      (contact.phone&&x.phone&&String(contact.phone).trim()===String(x.phone).trim()) ||
+      (contact.email&&x.email&&String(contact.email).trim().toLowerCase()===String(x.email).trim().toLowerCase()) ||
+      (!contact.phone&&!contact.email&&String(contact.name).trim().toLowerCase()===String(x.name).trim().toLowerCase())
+    );
+    if(duplicate) continue;
+    await env.DB.prepare(`INSERT INTO contacts(account_id,name,phone,email,role,is_primary) VALUES(?,?,?,?,?,?)`)
+      .bind(accountId,contact.name,contact.phone,contact.email,contact.role,contact.is_primary?1:0).run();
+    existing.push(contact);
+  }
+  const primary=await env.DB.prepare(`SELECT id FROM contacts WHERE account_id=? ORDER BY is_primary DESC,id LIMIT 1`).bind(accountId).first();
+  if(primary) await env.DB.prepare(`UPDATE contacts SET is_primary=CASE WHEN id=? THEN 1 ELSE 0 END WHERE account_id=?`).bind(primary.id,accountId).run();
+  return (await env.DB.prepare(`SELECT * FROM contacts WHERE account_id=? ORDER BY is_primary DESC,id`).bind(accountId).all()).results||[];
+}
+
 export async function getLeadConvertPreview(request, env, id) {
   const lead = await env.DB.prepare(`SELECT * FROM leads WHERE id = ?`).bind(id).first();
   if (!lead) return notFound("lead not found");
@@ -437,17 +460,7 @@ export async function convertLead(request, env, id) {
       .bind(name,phone,email,address,notes,accountId).run();
   }
 
-  const leadContacts = (await env.DB.prepare(`SELECT * FROM lead_contacts WHERE lead_id=? ORDER BY is_primary DESC,id`).bind(id).all()).results;
-  const existingAccountContacts = (await env.DB.prepare(`SELECT * FROM contacts WHERE account_id=?`).bind(accountId).all()).results;
-  if (!existingAccountContacts.length) {
-    const sourceContacts = leadContacts.length
-      ? leadContacts
-      : [{name,phone,email,role:null,is_primary:1}];
-    for (const contact of sourceContacts) {
-      await env.DB.prepare(`INSERT INTO contacts(account_id,name,phone,email,role,is_primary) VALUES(?,?,?,?,?,?)`)
-        .bind(accountId,contact.name,contact.phone||null,contact.email||null,contact.role||null,contact.is_primary?1:0).run();
-    }
-  }
+  await ensureClientContacts(env, accountId, { ...lead, name, phone, email });
 
   await env.DB.prepare(`UPDATE leads SET stage='Won',updated_at=datetime('now') WHERE id=?`).bind(id).run();
 
@@ -1338,11 +1351,13 @@ export async function rebuildEventOperations(env,eventId) {
       .bind(eventId,item,completed.has(key)?1:0,phase,templateId||null,source).run();
   };
 
+  const eventTypeNorm=String(event.type||"").trim().toLowerCase().replace(/\\s+/g,"-");
   const globalTemplates=(await env.DB.prepare(`
     SELECT id,item,phase FROM checklist_templates
     WHERE active=1 AND service_id IS NULL AND skill_id IS NULL
+      AND (event_type_key IS NULL OR lower(replace(event_type_key,' ','-'))=?)
     ORDER BY phase,sort_order,id
-  `).all()).results;
+  `).bind(eventTypeNorm).all()).results;
   for(const t of globalTemplates) await insertChecklist(t.item,t.phase,t.id,"template");
 
   const serviceIds=[...new Set(required.map(x=>Number(x.service_id)).filter(Number.isInteger))];
@@ -1351,8 +1366,9 @@ export async function rebuildEventOperations(env,eventId) {
     const serviceTemplates=(await env.DB.prepare(`
       SELECT id,item,phase,service_id FROM checklist_templates
       WHERE active=1 AND service_id IN (${placeholders})
+        AND (event_type_key IS NULL OR lower(replace(event_type_key,' ','-'))=?)
       ORDER BY phase,sort_order,id
-    `).bind(...serviceIds).all()).results;
+    `).bind(...serviceIds,eventTypeNorm).all()).results;
     for(const t of serviceTemplates) await insertChecklist(t.item,t.phase,t.id,"service-template");
   }
 
@@ -1362,8 +1378,9 @@ export async function rebuildEventOperations(env,eventId) {
     const skillTemplates=(await env.DB.prepare(`
       SELECT id,item,phase,skill_id FROM checklist_templates
       WHERE active=1 AND skill_id IN (${placeholders})
+        AND (event_type_key IS NULL OR lower(replace(event_type_key,' ','-'))=?)
       ORDER BY phase,sort_order,id
-    `).bind(...skillIds).all()).results;
+    `).bind(...skillIds,eventTypeNorm).all()).results;
     for(const t of skillTemplates) await insertChecklist(t.item,t.phase,t.id,"skill-template");
   }
 
@@ -1906,8 +1923,9 @@ export async function addChecklistTemplateItem(request, env) {
   const skillId=body.skill_id?Number(body.skill_id):null;
   if(serviceId){const row=await env.DB.prepare("SELECT id FROM services WHERE id=? AND active=1").bind(serviceId).first();if(!row)return badRequest("invalid service");}
   if(skillId){const row=await env.DB.prepare("SELECT id FROM skills WHERE id=? AND active=1").bind(skillId).first();if(!row)return badRequest("invalid skill");}
-  await env.DB.prepare(`INSERT INTO checklist_templates (item, sort_order, phase, service_id, skill_id, active) VALUES (?, ?, ?, ?, ?, 1)`)
-    .bind(body.item, (results[0]?.m || 0) + 1, phase, serviceId, skillId).run();
+  const eventTypeKey=body.event_type_key ? String(body.event_type_key).trim() : null;
+  await env.DB.prepare(`INSERT INTO checklist_templates (item, sort_order, phase, service_id, skill_id, event_type_key, active) VALUES (?, ?, ?, ?, ?, ?, 1)`)
+    .bind(body.item, (results[0]?.m || 0) + 1, phase, serviceId, skillId, eventTypeKey).run();
   return json({ ok: true }, { status: 201 });
 }
 
