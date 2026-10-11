@@ -462,10 +462,8 @@ export async function convertLead(request, env, id) {
 
   await ensureClientContacts(env, accountId, { ...lead, name, phone, email });
 
-  await env.DB.prepare(`UPDATE leads SET stage='Won',updated_at=datetime('now') WHERE id=?`).bind(id).run();
-
-  // Closed Won is the point where the commercial commitment becomes operational:
-  // finalize/accept the latest quote, create the Booking, then create its Event.
+  // Do not mark the Lead Won until quote conversion and Event work creation
+  // have succeeded. A failed conversion must remain retryable from the Lead.
   const quote = await env.DB.prepare(
     `SELECT id,status FROM lead_quotes WHERE lead_id=? AND status IN ('Finalized','Accepted','Won') ORDER BY version DESC,id DESC LIMIT 1`
   ).bind(id).first();
@@ -481,6 +479,7 @@ export async function convertLead(request, env, id) {
     return json({...payload,account_id:accountId});
   }
 
+  await env.DB.prepare(`UPDATE leads SET stage='Won',updated_at=datetime('now') WHERE id=?`).bind(id).run();
   return json({ok:true,account_id:accountId,booking_id:null,event_id:null},{status:201});
 }
 
@@ -2340,15 +2339,25 @@ export async function updateFeedback(request, env, feedbackId) {
 export async function initializeEventWork(env,eventId){
   const event=await env.DB.prepare("SELECT id,type,start_date,end_date,event_date FROM events WHERE id=?").bind(eventId).first();
   if(!event) return {created:0};
+  // Build work from the Event's committed service/package rows, not only
+  // quote_items. A selected package stores one package row in event_services;
+  // its package_items must expand into the services that actually need work.
   const items=(await env.DB.prepare(`
-    SELECT qi.service_id,COALESCE(s.name,qi.label) AS service_name
-    FROM quote_items qi
-    JOIN lead_quotes q ON q.id=qi.quote_id
-    JOIN events e ON e.quote_id=q.id
-    LEFT JOIN services s ON s.id=qi.service_id
-    WHERE e.id=? AND qi.selected=1 AND qi.service_id IS NOT NULL
-    ORDER BY qi.id
-  `).bind(eventId).all()).results;
+    SELECT DISTINCT service_id,service_name
+    FROM (
+      SELECT es.service_id AS service_id,COALESCE(s.name,'Service') AS service_name
+      FROM event_services es
+      LEFT JOIN services s ON s.id=es.service_id
+      WHERE es.event_id=? AND es.service_id IS NOT NULL
+      UNION
+      SELECT pi.service_id AS service_id,s.name AS service_name
+      FROM event_services es
+      JOIN package_items pi ON pi.package_id=es.package_id
+      JOIN services s ON s.id=pi.service_id
+      WHERE es.event_id=? AND es.package_id IS NOT NULL
+    )
+    ORDER BY service_id
+  `).bind(eventId,eventId).all()).results;
   if(!items.length) return {created:0};
 
   const ids=[...new Set(items.map(x=>Number(x.service_id)).filter(Number.isInteger))];
