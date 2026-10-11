@@ -462,10 +462,8 @@ export async function convertLead(request, env, id) {
 
   await ensureClientContacts(env, accountId, { ...lead, name, phone, email });
 
-  await env.DB.prepare(`UPDATE leads SET stage='Won',updated_at=datetime('now') WHERE id=?`).bind(id).run();
-
-  // Closed Won is the point where the commercial commitment becomes operational:
-  // finalize/accept the latest quote, create the Booking, then create its Event.
+  // Do not mark the Lead Won until quote conversion and Event work creation
+  // have succeeded. A failed conversion must remain retryable from the Lead.
   const quote = await env.DB.prepare(
     `SELECT id,status FROM lead_quotes WHERE lead_id=? AND status IN ('Finalized','Accepted','Won') ORDER BY version DESC,id DESC LIMIT 1`
   ).bind(id).first();
@@ -481,6 +479,7 @@ export async function convertLead(request, env, id) {
     return json({...payload,account_id:accountId});
   }
 
+  await env.DB.prepare(`UPDATE leads SET stage='Won',updated_at=datetime('now') WHERE id=?`).bind(id).run();
   return json({ok:true,account_id:accountId,booking_id:null,event_id:null},{status:201});
 }
 
