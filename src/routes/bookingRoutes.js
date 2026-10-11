@@ -177,9 +177,16 @@ export async function convertAcceptedQuote(request, env, quoteId) {
       env.DB.prepare("DELETE FROM event_services WHERE event_id=?").bind(existing.id)
     ]);
 
-    const serviceRows=items
-      .filter(x=>x.service_id)
-      .map(x=>[existing.id,x.service_id||null,x.package_id||null,Number(x.price||0),x.is_addon?1:0]);
+    // event_services enforces exactly one of service_id/package_id. Package
+    // options and package add-ons must be stored as package rows; customized
+    // services and service add-ons are stored as service rows.
+    const serviceRows=items.flatMap(x=>{
+      const price=Number(x.price||0);
+      const crosssell=x.is_addon?1:0;
+      if(x.package_id) return [[existing.id,null,x.package_id,price,crosssell]];
+      if(x.service_id) return [[existing.id,x.service_id,null,price,crosssell]];
+      return [];
+    });
     if(serviceRows.length){
       const chunk=18;
       for(let i=0;i<serviceRows.length;i+=chunk){
@@ -216,9 +223,15 @@ export async function convertAcceptedQuote(request, env, quoteId) {
   ).run();
   const eventId=er.meta.last_row_id;
 
-  const serviceRows=items
-    .filter(x=>x.service_id)
-    .map(x=>[eventId,x.service_id||null,x.package_id||null,Number(x.price||0),x.is_addon?1:0]);
+  // event_services enforces exactly one of service_id/package_id. Preserve
+  // selected packages as package rows so their services can generate work.
+  const serviceRows=items.flatMap(x=>{
+    const price=Number(x.price||0);
+    const crosssell=x.is_addon?1:0;
+    if(x.package_id) return [[eventId,null,x.package_id,price,crosssell]];
+    if(x.service_id) return [[eventId,x.service_id,null,price,crosssell]];
+    return [];
+  });
   if(serviceRows.length){
     const chunk=18;
     for(let i=0;i<serviceRows.length;i+=chunk){
