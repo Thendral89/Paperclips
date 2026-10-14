@@ -128,7 +128,7 @@
         ${options.map(o=>{const d=o.details||{};return `<div class="customer-package ${o.selected?"selected":""}" data-package-option="${o.id}">
           <div class="customer-package-head"><div><div class="customer-package-name">${escapeHtml(o.label)} ${o.selected?`<span class="selected-badge">Selected</span>`:""}</div><div class="meta">${escapeHtml(d.sessions_text||"2 sessions")}</div></div><div class="customer-package-price">${money(o.price)}</div></div>
           <div class="customer-package-actions"><button type="button" class="detail-btn" data-option-expand="${o.id}">View details</button>${o.selected?`<span class="selected-copy">✓ Your current selection</span>`:`<button type="button" class="select-package" data-option-select="${o.id}">Select this package</button>`}</div>
-          <div class="tier-detail" data-option-detail="${o.id}"><h3>Crew</h3>${detailList(d.crew)}<h3>Deliverables</h3>${detailList(d.deliverables)}${(d.complimentary||[]).length?`<h3>Complimentary</h3>${detailList(d.complimentary)}`:""}${o.package_services?.length?`<h3>Included services</h3>${detailList(o.package_services.map(x=>`${x.name}${x.quantity>1?` ×${x.quantity}`:""}`))}`:""}</div>
+          <div class="tier-detail" data-option-detail="${o.id}"><h3>Crew</h3>${detailList(d.crew)}<h3>Deliverables</h3>${detailList(d.deliverables)}${(d.complimentary||[]).length?`<h3>Complimentary</h3>${detailList(d.complimentary)}`:""}${o.package_services?.length?`<h3>Included services</h3>${detailList(o.package_services.map(x=>`${x.name}${x.quantity>1?` ×${x.quantity}`:""}`))}`:""}${d.shared_content_url?`<p><button type="button" class="detail-btn" data-shared-content="${o.id}" data-content-url="${escapeHtml(d.shared_content_url)}">Read more on shared content</button></p>`:""}</div>
         </div>`}).join("")}
       </div>` : ""}
 
@@ -155,6 +155,12 @@
 
     document.querySelectorAll("[data-option-expand]").forEach(btn=>btn.addEventListener("click",async e=>{
       e.stopPropagation(); const id=Number(btn.dataset.optionExpand); const detail=document.querySelector(`[data-option-detail="${id}"]`); const open=detail?.classList.toggle("open"); btn.textContent=open?"Hide details":"View details"; if(open) await engagement("package_expanded",null,id);
+    }));
+    document.querySelectorAll("[data-shared-content]").forEach(btn=>btn.addEventListener("click",async e=>{
+      e.stopPropagation(); const url=btn.dataset.contentUrl; if(!/^https?:\/\//i.test(url||"")) return;
+      const tab=window.open("about:blank","_blank");
+      if(tab){tab.opener=null;tab.location.href=url;}
+      await engagement("package_content_opened",null,Number(btn.dataset.sharedContent));
     }));
     document.querySelectorAll("[data-option-select]").forEach(btn=>btn.addEventListener("click",async e=>{
       e.stopPropagation(); btn.disabled=true;

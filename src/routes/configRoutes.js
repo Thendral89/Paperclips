@@ -74,6 +74,7 @@ export async function updateLabel(request, env, staff) {
   if (!body?.label_key) return badRequest("label_key is required");
   const value = String(body.label_value ?? "").trim();
   if (!value) return badRequest("label_value is required");
+  const before=await env.DB.prepare("SELECT label_key,label_value,updated_at,updated_by FROM app_labels WHERE label_key=?").bind(body.label_key).first();
   await env.DB.prepare(`
     INSERT INTO app_labels(label_key,label_value,updated_at,updated_by)
     VALUES(?,?,datetime('now'),?)
@@ -82,6 +83,10 @@ export async function updateLabel(request, env, staff) {
       updated_at=datetime('now'),
       updated_by=excluded.updated_by
   `).bind(body.label_key, value, staff?.email || null).run();
+  const after=await env.DB.prepare("SELECT label_key,label_value,updated_at,updated_by FROM app_labels WHERE label_key=?").bind(body.label_key).first();
+  await env.DB.prepare(`INSERT INTO crm_audit_log(actor_type,actor_id,actor_email,action,object_key,record_id,before_json,after_json,source)
+    VALUES('user',?,?, 'update','label',NULL,?,?, 'web')`)
+    .bind(staff?.id||null,staff?.email||null,before?JSON.stringify(before):null,JSON.stringify(after)).run();
   return json({ ok: true });
 }
 

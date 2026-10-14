@@ -575,11 +575,12 @@ export async function getQuote(request, env, quoteId) {
     env.DB.prepare(`SELECT package_id,
       SUM(CASE WHEN event_type='package_viewed' THEN 1 ELSE 0 END) AS views,
       SUM(CASE WHEN event_type='package_expanded' THEN 1 ELSE 0 END) AS expansions,
+      SUM(CASE WHEN event_type='package_content_opened' THEN 1 ELSE 0 END) AS content_opens,
       SUM(CASE WHEN event_type='package_selected' THEN 1 ELSE 0 END) AS selections
       FROM quote_engagement_events WHERE quote_id=? AND package_id IS NOT NULL GROUP BY package_id`).bind(quoteId).all()
   ]);
-  const engagementByPackage=Object.fromEntries(packageEngagement.results.map(x=>[x.package_id,{views:Number(x.views||0),expansions:Number(x.expansions||0),selections:Number(x.selections||0)}]));
-  const optionRows=options.map(o=>({...o,details:(()=>{try{return JSON.parse(o.details_json||"{}")}catch{return {}}})(),engagement:engagementByPackage[o.package_id]||{views:0,expansions:0,selections:0}}));
+  const engagementByPackage=Object.fromEntries(packageEngagement.results.map(x=>[x.package_id,{views:Number(x.views||0),expansions:Number(x.expansions||0),content_opens:Number(x.content_opens||0),selections:Number(x.selections||0)}]));
+  const optionRows=options.map(o=>({...o,details:(()=>{try{return JSON.parse(o.details_json||"{}")}catch{return {}}})(),engagement:engagementByPackage[o.package_id]||{views:0,expansions:0,content_opens:0,selections:0}}));
   const comments=commentsResult.results;
   const url = new URL(request.url);
   return json({
@@ -1106,6 +1107,7 @@ export async function createEvent(request, env, ctx) {
   }
 
   await rebuildEventOperations(env,eventId);
+  await initializeEventWork(env,eventId);
   return json({ ok: true, id: eventId }, { status: 201 });
 }
 
@@ -1140,6 +1142,7 @@ export async function updateEvent(request, env, id, ctx) {
     await env.DB.prepare("UPDATE invoices SET locked_at=COALESCE(locked_at,datetime('now')),updated_at=datetime('now') WHERE event_id=?").bind(id).run();
   }
   await rebuildEventOperations(env,id);
+  await initializeEventWork(env,id);
 
   // Calendar sync is deliberately non-critical to the CRM save.
   const account = await env.DB.prepare(`SELECT name FROM accounts WHERE id = ?`).bind(event.account_id).first();
@@ -1417,6 +1420,7 @@ export async function refreshEventOperations(request, env, eventId) {
   const event=await env.DB.prepare("SELECT id FROM events WHERE id=?").bind(eventId).first();
   if(!event) return notFound("event not found");
   await rebuildEventOperations(env,eventId);
+  await initializeEventWork(env,eventId);
   return json({ok:true});
 }
 
@@ -1582,12 +1586,13 @@ function parseJsonArray(value) {
   }
 }
 function packageDetailsFromRow(row) {
-  if(!row) return {sessions_text:null,crew:[],deliverables:[],complimentary:[]};
+  if(!row) return {sessions_text:null,crew:[],deliverables:[],complimentary:[],shared_content_url:null};
   return {
     sessions_text: row.sessions_text || null,
     crew: parseJsonArray(row.crew_json),
     deliverables: parseJsonArray(row.deliverables_json),
-    complimentary: parseJsonArray(row.complimentary_json)
+    complimentary: parseJsonArray(row.complimentary_json),
+    shared_content_url: row.shared_content_url || null
   };
 }
 async function upsertPackageDetails(env, packageId, details) {
@@ -1597,17 +1602,20 @@ async function upsertPackageDetails(env, packageId, details) {
     sessions_text: details.sessions_text ?? details.sessions ?? existing?.sessions_text ?? null,
     crew: parseJsonArray(details.crew ?? existing?.crew_json),
     deliverables: parseJsonArray(details.deliverables ?? existing?.deliverables_json),
-    complimentary: parseJsonArray(details.complimentary ?? existing?.complimentary_json)
+    complimentary: parseJsonArray(details.complimentary ?? existing?.complimentary_json),
+    shared_content_url: details.shared_content_url !== undefined ? String(details.shared_content_url||"").trim() || null : existing?.shared_content_url || null
   };
-  await env.DB.prepare(`INSERT INTO package_details(package_id,sessions_text,crew_json,deliverables_json,complimentary_json,updated_at)
-    VALUES(?,?,?,?,?,datetime('now'))
+  if(d.shared_content_url && !/^https?:\/\//i.test(d.shared_content_url)) throw new Error("Shared content URL must start with http:// or https://");
+  await env.DB.prepare(`INSERT INTO package_details(package_id,sessions_text,crew_json,deliverables_json,complimentary_json,shared_content_url,updated_at)
+    VALUES(?,?,?,?,?,?,datetime('now'))
     ON CONFLICT(package_id) DO UPDATE SET
       sessions_text=excluded.sessions_text,
       crew_json=excluded.crew_json,
       deliverables_json=excluded.deliverables_json,
       complimentary_json=excluded.complimentary_json,
+      shared_content_url=excluded.shared_content_url,
       updated_at=datetime('now')`)
-    .bind(packageId,d.sessions_text,JSON.stringify(d.crew),JSON.stringify(d.deliverables),JSON.stringify(d.complimentary)).run();
+    .bind(packageId,d.sessions_text,JSON.stringify(d.crew),JSON.stringify(d.deliverables),JSON.stringify(d.complimentary),d.shared_content_url).run();
 }
 async function snapshotPackageDetails(env, packageId) {
   const [pkg,details,items]=await Promise.all([
@@ -2367,14 +2375,14 @@ export async function initializeEventWork(env,eventId){
   // quote_items. A selected package stores one package row in event_services;
   // its package_items must expand into the services that actually need work.
   const items=(await env.DB.prepare(`
-    SELECT DISTINCT service_id,service_name
+      SELECT DISTINCT service_id,service_name,service_category
     FROM (
-      SELECT es.service_id AS service_id,COALESCE(s.name,'Service') AS service_name
+      SELECT es.service_id AS service_id,COALESCE(s.name,'Service') AS service_name,COALESCE(s.category,'') AS service_category
       FROM event_services es
       LEFT JOIN services s ON s.id=es.service_id
       WHERE es.event_id=? AND es.service_id IS NOT NULL
       UNION
-      SELECT pi.service_id AS service_id,s.name AS service_name
+      SELECT pi.service_id AS service_id,s.name AS service_name,COALESCE(s.category,'') AS service_category
       FROM event_services es
       JOIN package_items pi ON pi.package_id=es.package_id
       JOIN services s ON s.id=pi.service_id
@@ -2382,7 +2390,23 @@ export async function initializeEventWork(env,eventId){
     )
     ORDER BY service_id
   `).bind(eventId,eventId).all()).results;
-  if(!items.length) return {created:0};
+  const rule=await env.DB.prepare("SELECT value_json,active FROM crm_business_rules WHERE rule_key='event.create.default_tasks'").first();
+  let ruleEnabled=true;
+  try { if(rule) ruleEnabled=Number(rule.active)!==0 && JSON.parse(rule.value_json||"{}").enabled!==false; } catch {}
+  let taskCount=0;
+  if(ruleEnabled){
+    const eventType=String(event.type||"").trim().toLowerCase().replace(/\s+/g,"-");
+    const templates=(await env.DB.prepare(`SELECT * FROM crm_task_templates WHERE active=1 AND auto_create=1 AND (event_type_key IS NULL OR lower(replace(event_type_key,' ','-'))=?) ORDER BY sort_order,id`).bind(eventType).all()).results;
+    for(const t of templates){
+      const existing=await env.DB.prepare("SELECT id FROM event_tasks WHERE event_id=? AND template_id=?").bind(eventId,t.id).first();
+      if(!existing){
+        await env.DB.prepare(`INSERT INTO event_tasks(event_id,task,status,phase,required,template_id) VALUES(?,?,'Pending',?,?,?)`)
+          .bind(eventId,t.default_title,t.phase,t.required?1:0,t.id).run();
+        taskCount++;
+      }
+    }
+  }
+  if(!items.length) return {created:0,tasks_created:taskCount};
 
   const ids=[...new Set(items.map(x=>Number(x.service_id)).filter(Number.isInteger))];
   const marks=ids.map(()=>"?").join(",");
@@ -2423,7 +2447,7 @@ export async function initializeEventWork(env,eventId){
   let created=0;
   for(const item of items){
     const maps=mappingsByService.get(Number(item.service_id))||[
-      {service_id:item.service_id,work_group:"Wedding",phase:"Production",sort_order:50,service_name:item.service_name}
+      {service_id:item.service_id,work_group:/post\s*-?production/i.test(item.service_category||"")?"Post-Production":/pre\s*-?production/i.test(item.service_category||"")?"Pre-Production":"Wedding",phase:/post\s*-?production/i.test(item.service_category||"")?"Post-Production":/pre\s*-?production/i.test(item.service_category||"")?"Pre-Production":"Production",sort_order:50,service_name:item.service_name}
     ];
     const skills=skillsByService.get(Number(item.service_id))||[];
     const minStart=skills.length?Math.min(...skills.map(x=>Number(x.start_offset_days||0))):0;
@@ -2457,7 +2481,7 @@ export async function initializeEventWork(env,eventId){
       }
     }
   }
-  return {created};
+  return {created,tasks_created:taskCount};
 }
 
 export async function getEventOperations(request,env,id){
