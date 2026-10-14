@@ -469,13 +469,26 @@ export async function convertLead(request, env, id) {
   ).bind(id).first();
 
   if (quote) {
-    if (quote.status === "Finalized") {
+    const wasFinalized = quote.status === "Finalized";
+    if (wasFinalized) {
       await env.DB.prepare(`UPDATE lead_quotes SET status='Accepted',updated_at=datetime('now') WHERE id=?`).bind(quote.id).run();
     }
+    const restoreQuote = () => wasFinalized
+      ? env.DB.prepare(`UPDATE lead_quotes SET status='Finalized',updated_at=datetime('now') WHERE id=?`).bind(quote.id).run()
+      : null;
     const { convertAcceptedQuote } = await import("./bookingRoutes.js");
-    const conversion = await convertAcceptedQuote(request, env, quote.id);
+    let conversion;
+    try {
+      conversion = await convertAcceptedQuote(request, env, quote.id);
+    } catch (error) {
+      await restoreQuote();
+      throw error;
+    }
+    if (!conversion.ok) {
+      await restoreQuote();
+      return conversion;
+    }
     const payload = await conversion.json().catch(() => ({}));
-    if (!conversion.ok) return conversion;
     return json({...payload,account_id:accountId});
   }
 
