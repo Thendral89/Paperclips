@@ -1982,8 +1982,14 @@ export async function updateEventTask(request, env, taskId) {
   if (!t) return notFound("task not found");
   const task = body.task ?? t.task;
   const link_id = body.link_id !== undefined ? body.link_id || null : t.link_id;
-  await env.DB.prepare(`UPDATE event_tasks SET task = ?, link_id = ?, updated_at = datetime('now') WHERE id = ?`)
-    .bind(task, link_id, taskId).run();
+  if(link_id){
+    const link=await env.DB.prepare("SELECT id,scope FROM event_staff_links WHERE id=? AND event_id=? AND (expires_at IS NULL OR expires_at>datetime('now'))").bind(Number(link_id),t.event_id).first();
+    if(!link||!String(link.scope||"").includes("tasks")) return badRequest("select a task-enabled staff link for this Event");
+  }
+  const status=body.status!==undefined?String(body.status):t.status;
+  if(!["Pending","In Progress","Done"].includes(status)) return badRequest("invalid task status");
+  await env.DB.prepare(`UPDATE event_tasks SET task = ?, link_id = ?, status = ?, updated_at = datetime('now') WHERE id = ?`)
+    .bind(task, link_id, status, taskId).run();
   return json({ ok: true });
 }
 
@@ -2487,7 +2493,7 @@ export async function initializeEventWork(env,eventId){
 export async function getEventOperations(request,env,id){
   const event=await env.DB.prepare("SELECT e.*,a.name AS account_name FROM events e JOIN accounts a ON a.id=e.account_id WHERE e.id=?").bind(id).first();
   if(!event) return notFound("event not found");
-  const [checklist,services,work,resources,equipment,payments,schedule,expenses,history,quotes]=await Promise.all([
+  const [checklist,services,work,resources,equipment,payments,schedule,expenses,history,quotes,tasks,staffLinks]=await Promise.all([
     env.DB.prepare("SELECT * FROM event_checklist WHERE event_id=? ORDER BY phase,id").bind(id).all(),
     env.DB.prepare("SELECT es.*,COALESCE(s.name,p.name) AS name FROM event_services es LEFT JOIN services s ON s.id=es.service_id LEFT JOIN packages p ON p.id=es.package_id WHERE es.event_id=? ORDER BY es.id").bind(id).all(),
     env.DB.prepare("SELECT w.*,s.name AS service_name,COALESCE((SELECT GROUP_CONCAT(sk.label, ', ') FROM event_work_item_skills wis JOIN skills sk ON sk.id=wis.skill_id WHERE wis.work_item_id=w.id),'') AS skill_labels,COALESCE((SELECT GROUP_CONCAT(wis.skill_id, ',') FROM event_work_item_skills wis WHERE wis.work_item_id=w.id),'') AS skill_ids,(SELECT COUNT(*) FROM event_resource_allocations wr WHERE wr.work_item_id=w.id AND wr.status<>'Cancelled') AS resource_count,(SELECT COUNT(*) FROM event_equipment ee WHERE ee.work_item_id=w.id AND ee.allocation_status NOT IN ('Cancelled')) AS equipment_count,COALESCE((SELECT GROUP_CONCAT(r.name||CASE WHEN sk.label IS NOT NULL THEN ' · '||sk.label ELSE '' END, ', ') FROM event_resource_allocations wr JOIN resources r ON r.id=wr.resource_id LEFT JOIN skills sk ON sk.id=wr.skill_id WHERE wr.work_item_id=w.id AND wr.status<>'Cancelled'),'') AS assigned_resources,COALESCE((SELECT GROUP_CONCAT(COALESCE(eq.name,ee.custom_label)||' · '||COALESCE(ee.allocation_type,'Equipment'), ', ') FROM event_equipment ee LEFT JOIN equipment eq ON eq.id=ee.equipment_id WHERE ee.work_item_id=w.id AND ee.allocation_status NOT IN ('Cancelled')),'') AS assigned_equipment FROM event_work_items w LEFT JOIN services s ON s.id=w.service_id WHERE w.event_id=? ORDER BY CASE w.work_group WHEN 'Pre-Wedding' THEN 1 WHEN 'Wedding' THEN 2 WHEN 'Reception' THEN 3 WHEN 'Post-Wedding' THEN 4 ELSE 5 END,w.phase,w.start_date,w.id").bind(id).all(),
@@ -2497,7 +2503,9 @@ export async function getEventOperations(request,env,id){
     env.DB.prepare("SELECT * FROM payment_schedule WHERE event_id=? ORDER BY due_date,id").bind(id).all(),
     env.DB.prepare("SELECT * FROM expenses WHERE event_id=? ORDER BY submitted_at DESC,id DESC").bind(id).all(),
     env.DB.prepare("SELECT h.*,r.name AS resource_name,s.label AS skill_label FROM event_resource_allocation_history h LEFT JOIN event_resource_allocations wr ON wr.id=h.allocation_id LEFT JOIN resources r ON r.id=wr.resource_id LEFT JOIN skills s ON s.id=wr.skill_id WHERE h.event_id=? ORDER BY h.changed_at DESC,h.id DESC LIMIT 100").bind(id).all(),
-    env.DB.prepare("SELECT id,version,status,finalized_at,created_at,concession_amount FROM lead_quotes WHERE lead_id=(SELECT lead_id FROM events e JOIN lead_quotes q ON q.id=e.quote_id WHERE e.id=?) ORDER BY version DESC,id DESC").bind(id).all()
+    env.DB.prepare("SELECT id,version,status,finalized_at,created_at,concession_amount FROM lead_quotes WHERE lead_id=(SELECT lead_id FROM events e JOIN lead_quotes q ON q.id=e.quote_id WHERE e.id=?) ORDER BY version DESC,id DESC").bind(id).all(),
+    env.DB.prepare(`SELECT et.*,esl.staff_name,ct.name AS template_name FROM event_tasks et LEFT JOIN event_staff_links esl ON esl.id=et.link_id LEFT JOIN crm_task_templates ct ON ct.id=et.template_id WHERE et.event_id=? ORDER BY CASE et.phase WHEN 'Pre-Production' THEN 1 WHEN 'Production' THEN 2 WHEN 'Post-Production' THEN 3 ELSE 4 END,et.id`).bind(id).all(),
+    env.DB.prepare("SELECT id,staff_name,role,scope FROM event_staff_links WHERE event_id=? AND (expires_at IS NULL OR expires_at>datetime('now')) ORDER BY staff_name,id").bind(id).all()
   ]);
   const resourceCost=resources.results.reduce((n,r)=>n+Number(r.actual_paid||r.revised_estimate||r.original_estimate||r.cost||0),0);
   const rentalCost=equipment.results.reduce((n,e)=>n+Number(e.rental_cost||0),0);
@@ -2510,7 +2518,7 @@ export async function getEventOperations(request,env,id){
   const resourceExceptions=resources.results.filter(x=>x.override_reason).map(x=>({type:"resource",reason:x.override_reason,note:x.override_note}));
   const equipmentExceptions=equipment.results.filter(x=>x.override_reason).map(x=>({type:"equipment",reason:x.override_reason,note:x.override_note}));
   const rentalExceptions=equipment.results.filter(x=>x.allocation_type==="Rented" && x.allocation_status==="Return Due").map(x=>({type:"rental-return",reason:"Rental return due",note:x.rental_return_due}));
-  return json({...event,checklist:checklist.results,services:services.results,work:work.results,resources:resources.results,equipment:equipment.results,payments:payments.results,payment_schedule:schedule.results,expenses:expenses.results,activity:history.results,quote_history:quotes.results,
+  return json({...event,checklist:checklist.results,services:services.results,work:work.results,tasks:tasks.results,staff_links:staffLinks.results,resources:resources.results,equipment:equipment.results,payments:payments.results,payment_schedule:schedule.results,expenses:expenses.results,activity:history.results,quote_history:quotes.results,
     preparation:{
       checklist_done:done,checklist_total:checklist.results.length,
       work_completed:workCompleted,work_total:work.results.length,work_overdue:workOverdue,

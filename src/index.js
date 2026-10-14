@@ -37,6 +37,7 @@ const ADMIN_ROUTES = [
   ["GET", /^\/api\/admin\/labels$/, (req, env) => config.listLabels(req, env)],
   ["POST", /^\/api\/admin\/labels$/, (req, env, staff) => config.updateLabel(req, env, staff)],
   ["GET", /^\/api\/admin\/picklists$/, (req, env) => config.listPicklists(req, env)],
+  ["POST", /^\/api\/admin\/picklist-groups$/, (req, env) => config.upsertPicklistGroup(req, env)],
   ["POST", /^\/api\/admin\/picklists$/, (req, env) => config.upsertPicklistValue(req, env)],
   ["POST", /^\/api\/admin\/picklists\/(\d+)\/delete$/, (req, env, staff, [id]) => config.deletePicklistValue(req, env, id)],
   ["GET", /^\/api\/admin\/skills$/, (req, env) => config.listSkills(req, env)],
