@@ -42,3 +42,5 @@ jobs:
           PY
       - name: Validate D1 migrations locally
         run: npx wrangler d1 migrations apply paperclip-crm --local
+      - name: Test Lead to Quote to Client to Event conversion
+        run: npm test
