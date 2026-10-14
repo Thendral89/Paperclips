@@ -92,7 +92,7 @@ export async function updateLabel(request, env, staff) {
 
 export async function listPicklists(request, env) {
   const { results } = await env.DB.prepare(`
-    SELECT g.group_key,g.label AS group_label,g.description,g.sort_order AS group_sort,
+    SELECT g.id,g.group_key,g.object_key,g.label AS group_label,g.description,g.sort_order AS group_sort,
            v.id,v.value_key,v.value_label,v.sort_order,v.active
     FROM picklist_groups g
     LEFT JOIN picklist_values v ON v.group_id=g.id AND v.active=1
@@ -102,12 +102,32 @@ export async function listPicklists(request, env) {
   const groups = {};
   for (const row of results) {
     const g = groups[row.group_key] ||= {
-      group_key: row.group_key, object_key: picklistObject(row.group_key),
+      id: row.id, group_key: row.group_key, object_key: row.object_key || picklistObject(row.group_key),
       label: row.group_label, description: row.description, values: []
     };
     if (row.id) g.values.push(row);
   }
   return json(Object.values(groups));
+}
+
+const PICKLIST_OBJECTS = new Set(["leads","quotes","clients","accounts","events","resources","inventory","equipment","expenses","financials","payments","invoice","packages","general"]);
+export async function upsertPicklistGroup(request, env) {
+  const body=await request.json().catch(()=>null);
+  const label=String(body?.label||"").trim();
+  const objectKey=String(body?.object_key||"").trim().toLowerCase();
+  if(!label||!PICKLIST_OBJECTS.has(objectKey)) return badRequest("label and a valid object are required");
+  const groupKey=String(body.group_key||`${objectKey}_${label}`).trim().toLowerCase().replace(/[^a-z0-9]+/g,"_").replace(/^_|_$/g,"");
+  if(!groupKey) return badRequest("a valid picklist name is required");
+  if(body.id){
+    const existing=await env.DB.prepare("SELECT id FROM picklist_groups WHERE id=? AND active=1").bind(Number(body.id)).first();
+    if(!existing) return notFound("picklist group not found");
+    await env.DB.prepare("UPDATE picklist_groups SET object_key=?,label=?,description=?,sort_order=? WHERE id=?")
+      .bind(objectKey,label,String(body.description||"").trim()||null,Number(body.sort_order||0),Number(body.id)).run();
+  } else {
+    await env.DB.prepare("INSERT INTO picklist_groups(group_key,object_key,label,description,sort_order,active) VALUES(?,?,?,?,?,1)")
+      .bind(groupKey,objectKey,label,String(body.description||"").trim()||null,Number(body.sort_order||0)).run();
+  }
+  return json({ok:true,group_key:groupKey});
 }
 
 export async function upsertPicklistValue(request, env) {
