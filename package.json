@@ -7,6 +7,7 @@
     "dev": "npx wrangler dev",
     "deploy": "npx wrangler deploy",
     "migrate:local": "npx wrangler d1 migrations apply paperclip-crm --local",
-    "migrate:remote": "npx wrangler d1 migrations apply paperclip-crm --remote"
+    "migrate:remote": "npx wrangler d1 migrations apply paperclip-crm --remote",
+    "test": "node --no-warnings test/conversion.test.mjs"
   }
 }
