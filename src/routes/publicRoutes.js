@@ -183,7 +183,7 @@ export async function selectQuotePackage(request, env, token) {
 // Meaningful quote engagement only. No scroll, mouse or keystroke telemetry.
 export async function logQuoteEngagement(request, env, token) {
   const body = await request.json().catch(() => null);
-  const allowed = new Set(["package_viewed","package_expanded","service_viewed","addon_viewed","package_selected","service_selected","addon_selected"]);
+  const allowed = new Set(["package_viewed","package_expanded","package_content_opened","service_viewed","addon_viewed","package_selected","service_selected","addon_selected"]);
   const eventType = String(body?.event_type || "");
   if (!allowed.has(eventType)) return badRequest("unsupported engagement event");
   const quote = await env.DB.prepare("SELECT id FROM lead_quotes WHERE token=?").bind(token).first();
@@ -196,7 +196,7 @@ export async function logQuoteEngagement(request, env, token) {
   if (optionId && !option) return notFound("package option not found");
   const sessionKey = String(body?.session_key || "").slice(0,120) || null;
   await env.DB.prepare(`INSERT INTO quote_engagement_events(quote_id,event_type,quote_item_id,package_id,service_id,session_key) VALUES(?,?,?,?,?,?)`)
-    .bind(quote.id,item?.id||null,option?.package_id||item?.package_id||null,item?.service_id||null,sessionKey).run();
+    .bind(quote.id,eventType,item?.id||null,option?.package_id||item?.package_id||null,item?.service_id||null,sessionKey).run();
   return json({ok:true});
 }
 

@@ -8,7 +8,7 @@ function parseJson(value, fallback) {
 
 async function audit(env, staff, action, objectKey, recordId, before, after, source="web") {
   await env.DB.prepare(`INSERT INTO crm_audit_log(actor_type,actor_id,actor_email,action,object_key,record_id,before_json,after_json,source)
-    VALUES('user',?,?,?,?,?,?,?)`)
+    VALUES('user',?,?,?,?,?,?,?,?)`)
     .bind(staff?.id || null, staff?.email || null, action, objectKey || null, recordId || null,
       before == null ? null : JSON.stringify(before), after == null ? null : JSON.stringify(after), source).run();
 }
@@ -133,10 +133,11 @@ export async function upsertDocumentTemplate(request, env, staff) {
 
 export async function updateAiPermissions(request, env, staff) {
   const body=await request.json().catch(()=>null);
+  const before=await env.DB.prepare("SELECT * FROM crm_ai_permissions WHERE id=1").first();
   await env.DB.prepare("UPDATE crm_ai_permissions SET enabled=?,mcp_enabled=?,allowed_read_json=?,allowed_write_json=?,confirmation_required_json=?,updated_at=datetime('now') WHERE id=1")
     .bind(body?.enabled?1:0,body?.mcp_enabled?1:0,JSON.stringify(body?.allowed_read||[]),JSON.stringify(body?.allowed_write||[]),JSON.stringify(body?.confirmation_required||[])).run();
   const after=await env.DB.prepare("SELECT * FROM crm_ai_permissions WHERE id=1").first();
-  await audit(env,staff,"update","ai_permissions",1,null,after,"web");
+  await audit(env,staff,"update","ai_permissions",1,before,after,"web");
   return json({...after,allowed_read:parseJson(after.allowed_read_json,[]),allowed_write:parseJson(after.allowed_write_json,[]),confirmation_required:parseJson(after.confirmation_required_json,[])});
 }
 
