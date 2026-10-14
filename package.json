@@ -8,6 +8,6 @@
     "deploy": "npx wrangler deploy",
     "migrate:local": "npx wrangler d1 migrations apply paperclip-crm --local",
     "migrate:remote": "npx wrangler d1 migrations apply paperclip-crm --remote",
-    "test": "node --no-warnings test/conversion.test.mjs"
+    "test": "node --no-warnings test/conversion.test.mjs && node tests/settings-context.test.js && node tests/skill-config.test.js"
   }
 }
