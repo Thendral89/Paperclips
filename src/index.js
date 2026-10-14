@@ -309,6 +309,11 @@ export default {
     // 5. Admin app shell — same reasoning for any /admin/... deep link, but
     //    also bounce straight to Google sign-in if there's no valid session
     //    yet, rather than showing a blank/broken app.
+    // Admin static files must bypass the SPA shell; otherwise JavaScript URLs receive HTML.
+    if (pathname.startsWith("/admin/") && pathname !== "/admin/index.html" && /\.[a-z0-9]+$/i.test(pathname)) {
+      return env.ASSETS.fetch(request);
+    }
+
     if (pathname.startsWith("/admin")) {
       const staff = await requireStaff(request, env);
       if (!staff) return Response.redirect(`${url.origin}/auth/login`, 302);
