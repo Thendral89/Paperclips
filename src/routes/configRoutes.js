@@ -141,7 +141,7 @@ export async function deletePicklistValue(request, env, id) {
 
 export async function listSkills(request, env) {
   const { results } = await env.DB.prepare(
-    `SELECT id,skill_key,label,active,created_at,updated_at FROM skills WHERE active=1 ORDER BY label`
+    `SELECT id,skill_key,label,active,workflow_phase,start_offset_days,due_offset_days,default_cost,created_at,updated_at FROM skills WHERE active=1 ORDER BY workflow_phase,label`
   ).all();
   return json(results);
 }
@@ -153,17 +153,25 @@ export async function upsertSkill(request, env) {
   const key = String(body?.skill_key || label)
     .trim().toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'');
   if (!key) return badRequest('invalid skill key');
+  const current = body.id ? await env.DB.prepare("SELECT workflow_phase,start_offset_days,due_offset_days,default_cost FROM skills WHERE id=?").bind(body.id).first() : null;
+  if (body.id && !current) return notFound('skill not found');
+  const phase = body.workflow_phase || current?.workflow_phase || 'Post-Production';
+  const startOffset = Number(body.start_offset_days ?? current?.start_offset_days ?? 0);
+  const dueOffset = Number(body.due_offset_days ?? current?.due_offset_days ?? 0);
+  const defaultCost = Number(body.default_cost ?? current?.default_cost ?? 0);
+  if (!['Production','Post-Production'].includes(phase)) return badRequest('invalid workflow phase');
+  if (![startOffset,dueOffset,defaultCost].every(Number.isFinite) || startOffset < 0 || dueOffset < 0 || defaultCost < 0) return badRequest('skill timelines and cost must be non-negative numbers');
 
   if (body.id) {
     await env.DB.prepare(`
-      UPDATE skills SET skill_key=?,label=?,active=1,updated_at=datetime('now') WHERE id=?
-    `).bind(key,label,body.id).run();
+      UPDATE skills SET skill_key=?,label=?,workflow_phase=?,start_offset_days=?,due_offset_days=?,default_cost=?,active=1,updated_at=datetime('now') WHERE id=?
+    `).bind(key,label,phase,startOffset,dueOffset,defaultCost,body.id).run();
   } else {
     await env.DB.prepare(`
-      INSERT INTO skills(skill_key,label,active,created_at,updated_at)
-      VALUES(?,?,1,datetime('now'),datetime('now'))
-      ON CONFLICT(skill_key) DO UPDATE SET label=excluded.label,active=1,updated_at=datetime('now')
-    `).bind(key,label).run();
+      INSERT INTO skills(skill_key,label,workflow_phase,start_offset_days,due_offset_days,default_cost,active,created_at,updated_at)
+      VALUES(?,?,?,?,?,?,1,datetime('now'),datetime('now'))
+      ON CONFLICT(skill_key) DO UPDATE SET label=excluded.label,workflow_phase=excluded.workflow_phase,start_offset_days=excluded.start_offset_days,due_offset_days=excluded.due_offset_days,default_cost=excluded.default_cost,active=1,updated_at=datetime('now')
+    `).bind(key,label,phase,startOffset,dueOffset,defaultCost).run();
   }
   return json({ ok:true });
 }
