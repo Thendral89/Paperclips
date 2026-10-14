@@ -90,6 +90,18 @@ export async function addBookingPayment(request, env, bookingId, staff) {
   return json({ok:true,id:result.meta.last_row_id,booking_id:bookingId});
 }
 
+async function markQuoteConversionWon(env, leadId, quoteId) {
+  await env.DB.batch([
+    env.DB.prepare("UPDATE lead_quotes SET status='Accepted',updated_at=datetime('now') WHERE id=?").bind(quoteId),
+    env.DB.prepare("UPDATE leads SET stage='Won',updated_at=datetime('now') WHERE id=?").bind(leadId),
+    env.DB.prepare(`INSERT INTO lead_status_history(lead_id,to_stage,changed_by)
+      SELECT ?, 'Won', 'quote-conversion'
+      WHERE NOT EXISTS (
+        SELECT 1 FROM lead_status_history WHERE lead_id=? AND to_stage='Won'
+      )`).bind(leadId,leadId)
+  ]);
+}
+
 export async function convertAcceptedQuote(request, env, quoteId) {
   const q=await env.DB.prepare(`SELECT q.*,l.name AS lead_name,l.phone,l.email,l.event_type,l.event_date,l.venue,l.source,l.id AS lead_id,a.id AS existing_account_id
     FROM lead_quotes q
@@ -171,15 +183,22 @@ export async function convertAcceptedQuote(request, env, quoteId) {
       env.DB.prepare(`
         UPDATE events
         SET quote_id=?,quote_total=?,finalized_quote_total=?,quote_snapshot_json=?,
-            commercial_finalized_at=datetime('now'),updated_at=datetime('now')
+            commercial_finalized_at=datetime('now')
         WHERE id=?
       `).bind(quoteId,total,total,JSON.stringify(quoteSnapshot),existing.id),
       env.DB.prepare("DELETE FROM event_services WHERE event_id=?").bind(existing.id)
     ]);
 
-    const serviceRows=items
-      .filter(x=>x.service_id)
-      .map(x=>[existing.id,x.service_id||null,x.package_id||null,Number(x.price||0),x.is_addon?1:0]);
+    // event_services enforces exactly one of service_id/package_id. Package
+    // options and package add-ons must be stored as package rows; customized
+    // services and service add-ons are stored as service rows.
+    const serviceRows=items.flatMap(x=>{
+      const price=Number(x.price||0);
+      const crosssell=x.is_addon?1:0;
+      if(x.package_id) return [[existing.id,null,x.package_id,price,crosssell]];
+      if(x.service_id) return [[existing.id,x.service_id,null,price,crosssell]];
+      return [];
+    });
     if(serviceRows.length){
       const chunk=18;
       for(let i=0;i<serviceRows.length;i+=chunk){
@@ -191,10 +210,12 @@ export async function convertAcceptedQuote(request, env, quoteId) {
       }
     }
 
-    await env.DB.prepare("UPDATE lead_quotes SET status='Accepted',updated_at=datetime('now') WHERE id=?").bind(quoteId).run();
-    await env.DB.prepare("UPDATE leads SET stage='Won',updated_at=datetime('now') WHERE id=?").bind(q.lead_id).run();
+    // Only mark the commercial conversion complete after operational rows
+    // have been rebuilt. If work generation fails, retrying can safely repair
+    // the same Event without treating a partial conversion as complete.
     await rebuildEventOperations(env,existing.id);
     await initializeEventWork(env,existing.id);
+    await markQuoteConversionWon(env,q.lead_id,quoteId);
 
     return json({
       ok:true,event_id:existing.id,event_number:existing.event_number,
@@ -216,9 +237,15 @@ export async function convertAcceptedQuote(request, env, quoteId) {
   ).run();
   const eventId=er.meta.last_row_id;
 
-  const serviceRows=items
-    .filter(x=>x.service_id)
-    .map(x=>[eventId,x.service_id||null,x.package_id||null,Number(x.price||0),x.is_addon?1:0]);
+  // event_services enforces exactly one of service_id/package_id. Preserve
+  // selected packages as package rows so their services can generate work.
+  const serviceRows=items.flatMap(x=>{
+    const price=Number(x.price||0);
+    const crosssell=x.is_addon?1:0;
+    if(x.package_id) return [[eventId,null,x.package_id,price,crosssell]];
+    if(x.service_id) return [[eventId,x.service_id,null,price,crosssell]];
+    return [];
+  });
   if(serviceRows.length){
     const chunk=18;
     for(let i=0;i<serviceRows.length;i+=chunk){
@@ -230,12 +257,10 @@ export async function convertAcceptedQuote(request, env, quoteId) {
     }
   }
 
-  await env.DB.prepare("UPDATE lead_quotes SET status='Accepted',updated_at=datetime('now') WHERE id=?").bind(quoteId).run();
-  await env.DB.prepare("UPDATE leads SET stage='Won',updated_at=datetime('now') WHERE id=?").bind(q.lead_id).run();
-  await env.DB.prepare("INSERT INTO lead_status_history(lead_id,to_stage,changed_by) VALUES(?,?,?)").bind(q.lead_id,"Won","quote-conversion").run();
-
+  // Keep quote/lead state retryable until Event work has been initialized.
   await rebuildEventOperations(env,eventId);
   await initializeEventWork(env,eventId);
+  await markQuoteConversionWon(env,q.lead_id,quoteId);
 
   return json({
     ok:true,event_id:eventId,event_number:eventNumber,account_id:accountId,
